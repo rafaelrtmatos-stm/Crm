@@ -9,7 +9,9 @@ import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { formatPhoneBR, formatCpfCnpj } from '../lib/validators';
 import { searchAddressByCep } from '../lib/cepUtils';
-import { Badge, Button, GlassCard, Modal, PhoneInputBR, CpfCnpjInput, RgInput } from './SharedUI';
+import { Badge, Button, GlassCard, Modal, PhoneInputBR, CpfCnpjInput, RgInput, GoogleLogo, cn } from './SharedUI';
+import { GoogleContactsSyncModal } from './GoogleContactsSyncModal';
+import { getSavedGoogleAccount, GoogleConnectedAccount } from '../lib/googleContacts';
 import * as XLSX from 'xlsx';
 
 interface ContactsModuleProps {
@@ -32,9 +34,15 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
+  const [googleAccount, setGoogleAccount] = useState<GoogleConnectedAccount | null>(() => getSavedGoogleAccount());
   const [editingClient, setEditingClient] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
   const [isSearchingCep, setIsSearchingCep] = useState(false);
+
+  useEffect(() => {
+    setGoogleAccount(getSavedGoogleAccount());
+  }, [isGoogleSyncModalOpen]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -290,6 +298,21 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="secondary"
+            onClick={() => setIsGoogleSyncModalOpen(true)}
+            className="text-[10px] py-2 px-3 sm:px-4 bg-white/10 hover:bg-white/15 text-white border-white/15 flex items-center gap-1.5 transition-all shadow-sm"
+            title="Importar e sincronizar contatos com o Google Contatos"
+          >
+            <div className="relative flex items-center">
+              <GoogleLogo className="w-3.5 h-3.5 shrink-0" />
+              {googleAccount && (
+                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-slate-900" />
+              )}
+            </div>
+            <span>{googleAccount ? 'Sincronizar Google' : 'Conectar Google'}</span>
+          </Button>
+
+          <Button
+            variant="secondary"
             onClick={handleExportExcel}
             className="text-[10px] py-2 px-3 sm:px-4"
           >
@@ -303,6 +326,56 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
           >
             <Plus size={16} />
             <span>Novo Cliente</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Google Contacts Integration Bar inside Clientes */}
+      <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+            <GoogleLogo className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-white">Google Contatos</span>
+              {googleAccount ? (
+                <Badge variant="success" className="text-[8px] uppercase font-black py-0 px-1.5">
+                  Conectado
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-[8px] uppercase font-black py-0 px-1.5 text-white/50 border-white/20">
+                  Desconectado
+                </Badge>
+              )}
+            </div>
+            <p className="text-[11px] text-white/50 truncate">
+              {googleAccount ? (
+                <>
+                  <span className="text-white/80 font-mono">{googleAccount.email}</span>
+                  {googleAccount.lastSyncAt && (
+                    <span className="hidden sm:inline"> • Sincronizado em {new Date(googleAccount.lastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  )}
+                </>
+              ) : (
+                'Importe e atualize automaticamente telefones e nomes de clientes sem duplicados.'
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            onClick={() => setIsGoogleSyncModalOpen(true)}
+            className={cn(
+              "text-[10px] py-1.5 px-3 font-bold rounded-xl flex items-center gap-1.5 transition-all",
+              googleAccount
+                ? "bg-primary-500 hover:bg-primary-400 text-slate-900 font-black shadow-md shadow-primary-500/20"
+                : "bg-white hover:bg-slate-100 text-slate-900 font-black shadow-md"
+            )}
+          >
+            <GoogleLogo className="w-3.5 h-3.5" />
+            <span>{googleAccount ? 'Sincronizar Agora' : 'Conectar Google Contatos'}</span>
           </Button>
         </div>
       </div>
@@ -632,6 +705,14 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
           </div>
         </form>
       </Modal>
+
+      {/* Google Contacts Sync Modal */}
+      <GoogleContactsSyncModal
+        isOpen={isGoogleSyncModalOpen}
+        onClose={() => setIsGoogleSyncModalOpen(false)}
+        onSyncComplete={() => fetchClients()}
+        companyId={currentCompany?.id}
+      />
     </div>
   );
 };

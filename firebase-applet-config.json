@@ -1,10 +1,11 @@
 {
-  "projectId": "ninth-bonito-418201",
-  "appId": "1:190157130297:web:678139614276f58efe1be8",
-  "apiKey": "AIzaSyAB3UqIc4Gnum0VCv_JZX6h2dSljnb6GB0",
-  "authDomain": "ninth-bonito-418201.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-258d78d0-0cd3-485a-9eb7-e812fb6f0f2d",
-  "storageBucket": "ninth-bonito-418201.firebasestorage.app",
-  "messagingSenderId": "190157130297",
-  "measurementId": ""
+  "projectId": "gen-lang-client-0815588704",
+  "appId": "1:1067054204965:web:08687f6cb4007c10b157cc",
+  "apiKey": "AIzaSyA_sqxKy3v1G0NaBVS5sHTmJyAsCIXMQ9I",
+  "authDomain": "gen-lang-client-0815588704.firebaseapp.com",
+  "storageBucket": "gen-lang-client-0815588704.firebasestorage.app",
+  "messagingSenderId": "1067054204965",
+  "measurementId": "",
+  "oAuthClientId": "1067054204965-08998g3raei3cf6cov1th692i86b8c81.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

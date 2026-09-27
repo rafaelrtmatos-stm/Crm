@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Smile } from 'lucide-react';
-import { GlassCard, Badge, Modal, cn } from './SharedUI';
+import { GlassCard, Badge, Modal, GoogleLogo, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
 import { FigurinhasManager } from './FigurinhasManager';
+import { GoogleContactsSyncModal } from './GoogleContactsSyncModal';
+import { getSavedGoogleAccount } from '../lib/googleContacts';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showConfirm, showAlert } from '../lib/notify';
 
 // Página "Integrações" — reúne num só lugar as conexões com canais externos
-// (WhatsApp já conectado de verdade via Evolution API — Facebook/Instagram ainda não,
-// ver card "Em breve" abaixo), o Robozinho Rafa e a gestão de Figurinhas do WhatsApp.
+// (WhatsApp conectado via Evolution API, Google Contatos via Google People API,
+// Facebook/Instagram em breve), o Robozinho Rafa e a gestão de Figurinhas do WhatsApp.
 
 type IntegracoesTab = 'conexoes' | 'robozinho_rafa' | 'figurinhas';
 
@@ -24,6 +26,7 @@ interface CanalConexao {
 
 const CANAIS: CanalConexao[] = [
   { id: 'whatsapp', nome: 'WhatsApp', icon: MessageCircle, cor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', descricao: 'Receba e envie mensagens do WhatsApp direto no Funil de Atendimento.', implementado: true },
+  { id: 'google_contacts', nome: 'Google Contatos', icon: GoogleLogo, cor: 'bg-white/10 border-white/20 text-white', descricao: 'Sincronize clientes e telefones automaticamente com a sua conta Google.', implementado: true },
   { id: 'facebook', nome: 'Facebook', icon: Facebook, cor: 'text-blue-400 bg-blue-500/10 border-blue-500/20', descricao: 'Conecte a página do Facebook para responder mensagens por aqui.', implementado: false },
   { id: 'instagram', nome: 'Instagram', icon: Instagram, cor: 'text-pink-400 bg-pink-500/10 border-pink-500/20', descricao: 'Conecte o Instagram Direct para centralizar o atendimento.', implementado: false },
 ];
@@ -57,6 +60,13 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
   const [canalSelecionado, setCanalSelecionado] = useState<CanalConexao | null>(null);
+  const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
+  const [googleAccount, setGoogleAccount] = useState(() => getSavedGoogleAccount());
+
+  // Atualiza dados da conta Google ao reabrir/focar
+  useEffect(() => {
+    setGoogleAccount(getSavedGoogleAccount());
+  }, [isGoogleSyncModalOpen]);
 
   // --- Status da conexao do WhatsApp (lido do Supabase, atualizado pelo webhook) ---
   const [whatsappStatus, setWhatsappStatus] = useState<string>('close');
@@ -233,26 +243,50 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       {tab === 'conexoes' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {CANAIS.map(canal => {
-            const conectado = canal.id === 'whatsapp' && whatsappConectado;
+            const isGoogle = canal.id === 'google_contacts';
+            const conectado = isGoogle ? !!googleAccount : (canal.id === 'whatsapp' && whatsappConectado);
+            const badgeText = conectado ? 'Conectado' : 'Não conectado';
+            const buttonText = isGoogle
+              ? (googleAccount ? 'Sincronizar / Gerenciar' : 'Conectar')
+              : (conectado ? 'Ver Conexão' : 'Conectar');
+
             return (
-            <GlassCard key={canal.id} className="p-5 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className={cn("w-11 h-11 rounded-2xl flex items-center justify-center border shrink-0", canal.cor)}>
-                  <canal.icon size={20} />
+              <GlassCard key={canal.id} className="p-5 space-y-4 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className={cn("w-11 h-11 rounded-2xl flex items-center justify-center border shrink-0", canal.cor)}>
+                      <canal.icon className="w-5 h-5 shrink-0" size={20} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-white truncate">{canal.nome}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <Badge variant="outline" className={conectado ? "border-emerald-500/30 text-emerald-400" : ""}>
+                          {badgeText}
+                        </Badge>
+                        {isGoogle && googleAccount && (
+                          <span className="text-[10px] text-white/40 truncate max-w-[120px]" title={googleAccount.email}>
+                            {googleAccount.email}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-white/40 leading-relaxed">{canal.descricao}</p>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-white truncate">{canal.nome}</p>
-                  <Badge variant="outline" className={conectado ? "border-emerald-500/30 text-emerald-400" : ""}>{conectado ? 'Conectado' : 'Não conectado'}</Badge>
-                </div>
-              </div>
-              <p className="text-[11px] text-white/40 leading-relaxed">{canal.descricao}</p>
-              <button
-                onClick={() => setCanalSelecionado(canal)}
-                className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[11px] font-black uppercase tracking-widest transition-all"
-              >
-                {conectado ? 'Ver Conexão' : 'Conectar'}
-              </button>
-            </GlassCard>
+
+                <button
+                  onClick={() => {
+                    if (isGoogle) {
+                      setIsGoogleSyncModalOpen(true);
+                    } else {
+                      setCanalSelecionado(canal);
+                    }
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                >
+                  {buttonText}
+                </button>
+              </GlassCard>
             );
           })}
         </div>
@@ -368,6 +402,16 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
           </div>
         )}
       </Modal>
+
+      {/* Modal de Sincronização e Conexão com Google Contatos */}
+      <GoogleContactsSyncModal
+        isOpen={isGoogleSyncModalOpen}
+        onClose={() => {
+          setIsGoogleSyncModalOpen(false);
+          setGoogleAccount(getSavedGoogleAccount());
+        }}
+        companyId={currentCompany?.id}
+      />
     </div>
   );
 };

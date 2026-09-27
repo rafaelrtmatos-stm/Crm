@@ -2233,12 +2233,20 @@ export default function App() {
       // 1. Fetch Companies
       const companiesQuery = query(collection(db, 'companies'), where('isActive', '==', true));
       companiesUnsub = onSnapshot(companiesQuery, (snapshot) => {
-        const comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
+        let comps = snapshot.docs.map(d => ({ id: d.id, ...d.data() }) as Company);
+        // Garante que a empresa padrão 'rafa-arts' nunca seja perdida se o snapshot do Firestore retornar vazio
+        if (comps.length === 0) {
+          const defaultCompany: Company = {
+            id: 'rafa-arts',
+            name: 'Rafa Arts Graphics',
+            cnpj: '28.884.125/0001-40',
+            isActive: true,
+          } as Company;
+          comps = [defaultCompany];
+        }
         setCompanies(comps);
         try { localStorage.setItem('rpro_cached_companies', JSON.stringify(comps)); } catch (e) { /* ignora */ }
-        if (comps.length > 0) {
-          setCurrentCompany(prev => prev || comps[0]);
-        }
+        setCurrentCompany(prev => prev || comps[0]);
       }, (err) => {
         console.warn('Aviso Firestore companies (offline/conexão):', err?.message || err);
       });
