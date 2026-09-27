@@ -5586,43 +5586,6 @@ export const ChatPanel = ({
                     </div>
                   )}
                 </div>
-
-                {/* Linha 2: WhatsApp · Online · telefone */}
-                <div className="flex items-center gap-1.5 mt-0.5 min-w-0 text-[10px] sm:text-[11px] leading-tight text-white/60">
-                  <span className="text-emerald-400 font-semibold shrink-0">
-                    {conversation.channel || 'WhatsApp'}
-                  </span>
-                  <span className="text-white/30 shrink-0">·</span>
-                  {presenceLabel ? (
-                    <span className={cn(
-                      "font-semibold uppercase tracking-wider shrink-0",
-                      (presence?.status === 'composing' || presence?.status === 'recording') ? "text-primary-400 animate-pulse"
-                        : presence?.status === 'available' ? "text-emerald-400"
-                        : "text-white/40"
-                    )}>
-                      {presence?.status === 'available' ? 'Online' : presenceLabel}
-                    </span>
-                  ) : (
-                    <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
-                  )}
-
-                  {/* Telefone: sempre visível (mobile e desktop), truncado para não sobrepor o layout */}
-                  {conversation.phone && (
-                    <>
-                      <span className="text-white/30 shrink-0">·</span>
-                      <button
-                        type="button"
-                        onClick={handleCopyPhone}
-                        disabled={!conversation.phone}
-                        title="Copiar telefone"
-                        className="inline-flex items-center gap-1 text-white/50 font-medium hover:text-primary-300 transition-colors disabled:opacity-40 truncate min-w-0"
-                      >
-                        <span className={cn("truncate", showDesktopSidebar ? "max-w-[75px] sm:max-w-[95px] xl:max-w-[140px]" : "max-w-[80px] sm:max-w-[120px] md:max-w-none")}>{conversation.phone}</span>
-                        <Copy size={9} className="shrink-0 opacity-70" />
-                      </button>
-                    </>
-                  )}
-                </div>
               </div>
             );
           })()}
@@ -5659,7 +5622,6 @@ export const ChatPanel = ({
             title="Perfil do Contato: Dados, Notas, Tarefas e Vendas (Alt + D)"
           >
             <User size={13} />
-            <span>Perfil</span>
           </button>
 
           {/* Botão Resolvido (Alerta de Vácuo) */}
@@ -5685,7 +5647,6 @@ export const ChatPanel = ({
               title="Iniciar venda deste lead no PDV (Alt + V)"
             >
               {isStartingSale ? <Loader2 size={11} className="animate-spin" /> : <ShoppingBag size={11} strokeWidth={2.5} />}
-              <span className={cn("hidden", showDesktopSidebar ? "xl:inline" : "inline")}>Venda</span>
             </button>
           )}
 
