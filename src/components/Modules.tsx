@@ -668,49 +668,50 @@ const MessageStatusTicks = ({
 
   return (
     <div className="relative inline-flex items-center shrink-0">
+      {/* Botão "Ver histórico" da mensagem: alvo de toque maior (padding próprio) em vez do
+          ícone de 13px sozinho, que era pequeno demais pra tocar com precisão no mobile. */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onToggle?.();
         }}
-        title={`${label}${activeTime ? ` às ${activeTime}` : ''} — toque para ver o status`}
-        aria-label={label}
+        title={`${label}${activeTime ? ` às ${activeTime}` : ''} — toque para ver o histórico completo`}
+        aria-label={`Ver histórico da mensagem: ${label}`}
         className={cn(
-          "inline-flex items-center cursor-pointer transition-transform active:scale-90 shrink-0",
+          "inline-flex items-center justify-center -m-1 p-1 rounded-md cursor-pointer transition-transform active:scale-90 shrink-0",
           isRead ? "text-sky-400" : "text-white/50",
-          isOpen && "ring-1 ring-white/30 rounded"
+          isOpen && "ring-1 ring-white/30 bg-white/5"
         )}
       >
-        {status === 'sent' ? <Check size={13} strokeWidth={2.5} /> : <CheckCheck size={13} strokeWidth={2.5} />}
+        {status === 'sent' ? <Check size={14} strokeWidth={2.5} /> : <CheckCheck size={14} strokeWidth={2.5} />}
       </button>
 
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
+          {/* Painel compacto com o histórico completo (Enviada/Recebida/Lida), cada etapa com
+              ícone, texto legível e horário quando disponível -- não só o status atual. */}
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-full mb-1.5 right-0 z-50 whitespace-nowrap bg-slate-900/95 border border-white/20 text-white rounded-lg px-2.5 py-1 shadow-xl backdrop-blur-md text-[10px] font-medium flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-150 select-none max-w-[calc(100vw-32px)]"
+            className="absolute bottom-full mb-1.5 right-0 z-50 w-56 max-w-[calc(100vw-32px)] bg-slate-900/95 border border-white/20 text-white rounded-xl px-3 py-2.5 shadow-xl backdrop-blur-md text-[11px] animate-in fade-in zoom-in-95 duration-150 select-none space-y-1.5"
           >
-            {isRead ? (
-              <>
-                <CheckCheck size={12} strokeWidth={2.5} className="text-sky-400 shrink-0" />
-                <span className="font-bold text-sky-300">Lida</span>
-                {readTime ? <span className="text-white/60 font-normal">às {readTime}</span> : null}
-              </>
-            ) : isDelivered ? (
-              <>
-                <CheckCheck size={12} strokeWidth={2.5} className="text-emerald-400 shrink-0" />
-                <span className="font-bold text-emerald-300">Recebida</span>
-                {deliveredTime ? <span className="text-white/60 font-normal">às {deliveredTime}</span> : null}
-              </>
-            ) : (
-              <>
-                <Check size={12} strokeWidth={2.5} className="text-slate-300 shrink-0" />
-                <span className="font-bold text-slate-200">Enviada</span>
-                {sentTime ? <span className="text-white/60 font-normal">às {sentTime}</span> : null}
-              </>
-            )}
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Histórico da Mensagem</p>
+            <div className="flex items-center gap-2">
+              <Check size={13} strokeWidth={2.5} className="text-slate-300 shrink-0" />
+              <span className="font-bold text-slate-200 flex-1">Enviada</span>
+              <span className="text-white/50 font-medium">{sentTime || '—'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isDelivered || isRead ? "text-emerald-400" : "text-white/20")} />
+              <span className={cn("font-bold flex-1", isDelivered || isRead ? "text-emerald-300" : "text-white/30")}>Recebida</span>
+              <span className={cn("font-medium", isDelivered || isRead ? "text-white/50" : "text-white/20")}>{deliveredTime || '—'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-sky-400" : "text-white/20")} />
+              <span className={cn("font-bold flex-1", isRead ? "text-sky-300" : "text-white/30")}>Lida</span>
+              <span className={cn("font-medium", isRead ? "text-white/50" : "text-white/20")}>{readTime || '—'}</span>
+            </div>
             <div className="absolute top-full right-1.5 -mt-px border-solid border-t-slate-900/95 border-t-[4px] border-x-transparent border-x-[4px] border-b-0" />
           </div>
         </>
@@ -13909,10 +13910,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
-  const handleShareReceiptWhatsApp = async (sale: SaleOrder) => {
-    await handleSendReceiptWithImageAndCaption(sale);
-  };
-
   const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
     await handleSendReceiptWithImageAndCaption(sale);
   };
@@ -19905,7 +19902,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden gap-1.5 sm:gap-2.5">
            {/* Top Info Bar: Customer & Summary combined */}
            <div className="space-y-1.5 shrink-0">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
+              {/* grid-cols-3 no desktop quando tem o card de Lucro Previsto (admin), senão os 2 primeiros
+                  cards ficam em uma linha e o terceiro sozinho na linha de baixo, deixando um espaço vazio
+                  do lado dele. Sem alterar nenhuma regra financeira, só o layout. */}
+              <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2", user?.isAdmin && "xl:grid-cols-3")}>
                  <div className="p-2 sm:p-2.5 bg-white/5 rounded-xl border border-white/5 flex gap-2 items-center min-w-0">
                     <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary-500/20 text-primary-300 flex items-center justify-center border border-primary-500/30 shrink-0">
                        <UserCheck size={16} />
@@ -19935,7 +19935,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <p className="text-[7px] sm:text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-0.5">
                           Total a Pagar{saleDiscountValue > 0 ? ` (com desconto de R$ ${saleDiscountValue.toFixed(2).replace('.', ',')})` : ''}{saleCreditApplied > 0 ? ` (crédito de R$ ${saleCreditApplied.toFixed(2).replace('.', ',')} aplicado)` : ''}
                        </p>
-                       <p className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tighter italic leading-none">
+                       <p className="text-base sm:text-xl md:text-2xl font-black text-white tracking-tighter italic leading-none">
                           R$ {paymentModalTotal.toFixed(2).replace('.', ',')}
                        </p>
                     </div>
@@ -20079,16 +20079,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div className="grid grid-cols-2 gap-2 text-left">
                        <div>
                           <p className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">{settlingOrder ? 'Já Pago Anteriormente' : 'Pago / Entrada'}</p>
-                          <p className="text-xs sm:text-sm font-black text-emerald-400 mt-0.5">R$ {(settlingOrder ? alreadyPaidForSettle : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment))).toFixed(2).replace('.', ',')}</p>
+                          <p className="text-sm sm:text-base font-black text-emerald-400 mt-0.5">R$ {(settlingOrder ? alreadyPaidForSettle : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment))).toFixed(2).replace('.', ',')}</p>
                        </div>
                        <div>
                           <p className="text-[7.5px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest leading-none">Novas Entradas ({paymentEntries.length})</p>
-                          <p className="text-xs sm:text-sm font-black text-primary-300 mt-0.5">R$ {paymentEntriesTotal.toFixed(2).replace('.', ',')}</p>
+                          <p className="text-sm sm:text-base font-black text-primary-300 mt-0.5">R$ {paymentEntriesTotal.toFixed(2).replace('.', ',')}</p>
                        </div>
                     </div>
                     <div className="flex items-center justify-between pt-1.5 border-t border-white/5">
                        <span className="text-[8px] sm:text-[8.5px] font-black uppercase text-white/50 tracking-wider">Saldo Restante a Quitar:</span>
-                       <span className={cn("text-xs sm:text-sm font-black", paymentModalRemaining > 0 ? "text-rose-400" : "text-emerald-400")}>
+                       <span className={cn("text-sm sm:text-lg font-black", paymentModalRemaining > 0 ? "text-rose-400" : "text-emerald-400")}>
                           {paymentModalRemaining > 0 ? `R$ ${paymentModalRemaining.toFixed(2).replace('.', ',')}` : 'R$ 0,00 (Quitado ✓)'}
                        </span>
                     </div>
@@ -23033,7 +23033,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            isOpen={isPixQrModalOpen}
            onClose={() => setIsPixQrModalOpen(false)}
            title="Pagamento via PIX"
-           className="w-full max-w-[340px] sm:max-w-[370px] mx-auto p-3.5 sm:p-4"
+           size="sm"
+           className="mx-auto p-3.5 sm:p-4"
          >
            <div className="flex flex-col items-center gap-2.5 p-1">
              <div className="w-[240px] h-[240px] sm:w-[260px] sm:h-[260px] max-w-full bg-white rounded-2xl p-2 shadow-lg flex items-center justify-center shrink-0">
@@ -23204,7 +23205,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            isOpen={!!viewingReceiptSale}
            onClose={handleCloseReceiptViewer}
            title="Visualizar Recibo"
-           size="lg"
+           size="md"
          >
            <div className="space-y-3 p-2">
              <div className="flex items-center justify-between border-b border-white/5 pb-3">
@@ -23428,9 +23429,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <Button variant="secondary" size="sm" icon={FileText} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
                  Baixar PDF
                </Button>
-               <Button variant="secondary" size="sm" icon={enviandoReciboWhatsApp ? Loader2 : Share2} disabled={enviandoReciboWhatsApp} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50" onClick={() => handleShareReceiptWhatsApp(sale)}>
-                 {enviandoReciboWhatsApp ? 'Enviando...' : 'WhatsApp'}
-               </Button>
+               {/* Botão de WhatsApp removido daqui: já existe o botão grande "Enviar Imagem do Recibo com Legenda (WhatsApp)"
+                   acima (handleOpenChatFromReceipt), que chama exatamente a mesma função (handleSendReceiptWithImageAndCaption).
+                   Tê-lo duplicado nas duas ações confundia — mantido só o principal. */}
                <Button variant="ghost" size="sm" className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
                  Fechar
                </Button>

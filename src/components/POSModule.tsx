@@ -2186,7 +2186,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       </Modal>
 
       {/* Settle Debt Modal */}
-      <Modal isOpen={isSettleModalOpen} onClose={() => setIsSettleModalOpen(false)} title="Quitar Débito da Venda">
+      <Modal isOpen={isSettleModalOpen} onClose={() => setIsSettleModalOpen(false)} title="Quitar Débito da Venda" size="sm">
         <div className="space-y-4">
           <div className="p-3 bg-white/5 rounded-xl text-xs space-y-1">
             <p className="text-white/60">Cliente: <strong className="text-white">{settlingOrder?.customerName}</strong></p>
