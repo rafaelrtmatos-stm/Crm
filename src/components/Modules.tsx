@@ -5307,8 +5307,11 @@ export const ChatPanel = ({
 
   const chatContent = (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
-      {/* Header - FIXO */}
-      <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[52px] w-full overflow-hidden">
+      {/* Header - FIXO. overflow-visible (não hidden!) de propósito: o menu de
+          "Mais opções" (⋮) abre como dropdown absoluto dentro deste header e
+          precisa poder extravasar pra baixo, sobre a conversa — com overflow-hidden
+          aqui ele ficava cortado/escondido atrás das mensagens. */}
+      <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[52px] w-full overflow-visible">
         {/* ESQUERDA: Botão voltar (mobile) / recolher coluna (desktop) */}
         <div className="flex items-center shrink-0">
           {onClose && (
@@ -5706,8 +5709,8 @@ export const ChatPanel = ({
             </button>
             {showQuickActions && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowQuickActions(false)} />
-                <div className="absolute top-full mt-1.5 right-0 bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 min-w-[210px] space-y-0.5">
+                <div className="fixed inset-0 z-[99]" onClick={() => setShowQuickActions(false)} />
+                <div className="absolute top-full mt-1.5 right-0 bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[100] p-1.5 min-w-[210px] space-y-0.5 max-h-[75vh] overflow-y-auto custom-scrollbar">
                   <div className="px-3 py-1.5 border-b border-white/10 mb-1 flex items-center justify-between">
                     <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Opções do Contato</p>
                     {activeTab !== 'chat' && (
@@ -7915,8 +7918,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
                   {isFilterDropdownOpen && (
                     <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsFilterDropdownOpen(false)} />
-                      <div className="absolute top-full mt-2 right-0 md:left-auto w-72 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-4 space-y-4">
+                      <div className="fixed inset-0 z-[99]" onClick={() => setIsFilterDropdownOpen(false)} />
+                      <div className="absolute top-full mt-2 right-0 md:left-auto w-72 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
                         <div className="flex items-center justify-between pb-2 border-b border-white/10">
                           <span className="text-xs font-black uppercase tracking-wider text-white">Filtros do Funil</span>
                           {activeFiltersCount > 0 && (
@@ -8044,8 +8047,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
                   {sortMenuOpen && (
                     <>
-                      <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
-                      <div className="absolute top-full mt-2 right-0 w-60 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 p-2 space-y-1">
+                      <div className="fixed inset-0 z-[99]" onClick={() => setSortMenuOpen(false)} />
+                      <div className="absolute top-full mt-2 right-0 w-60 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-[100] p-2 space-y-1">
                         <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-3 py-1">Critério de Ordem</p>
                         {LEAD_SORT_OPTIONS.map(o => {
                           const ativo = leadSort.key === o.key;
@@ -8312,8 +8315,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
             {isFilterDropdownOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsFilterDropdownOpen(false)} />
-                <div className="absolute top-full right-0 mt-2 z-50 w-72 sm:w-80 max-w-[calc(100vw-24px)] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-[99]" onClick={() => setIsFilterDropdownOpen(false)} />
+                <div className="absolute top-full right-0 mt-2 z-[100] w-72 sm:w-80 max-w-[calc(100vw-24px)] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-4 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
                   <div className="flex items-center justify-between pb-2 border-b border-white/10">
                     <span className="text-xs font-black uppercase tracking-wider text-white">Filtros do Funil</span>
                     {activeFiltersCount > 0 && (
@@ -8500,8 +8503,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
             {sortMenuOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
-                <div className="absolute top-full right-0 mt-2 z-50 w-64 max-w-[calc(100vw-24px)] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-3 space-y-1.5 animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-[99]" onClick={() => setSortMenuOpen(false)} />
+                <div className="absolute top-full right-0 mt-2 z-[100] w-64 max-w-[calc(100vw-24px)] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-3 space-y-1.5 animate-in fade-in zoom-in-95 duration-150">
                   <div className="flex items-center justify-between pb-1 border-b border-white/10">
                     <span className="text-[10px] font-black uppercase text-white/50 tracking-wider">Critério de Ordem</span>
                     <button type="button" onClick={() => setSortMenuOpen(false)} className="text-white/40 hover:text-white p-0.5">
