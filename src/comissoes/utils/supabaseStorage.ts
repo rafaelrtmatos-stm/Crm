@@ -89,6 +89,28 @@ const mapServiceRow = (row: any): ServiceItem => ({
 
 // --- LOGIN ---
 export async function loginColaborador(nome: string, senha: string): Promise<Colaborador | null> {
+  const trimmed = nome.trim().toLowerCase();
+  const trimmedSenha = senha.trim();
+
+  // Permite que o administrador geral também acesse a visualização pelo login de colaboradores
+  if ((trimmed === 'rafaelrtmatos@gmail.com' || trimmed === 'rafael' || trimmed === 'rafael matos' || trimmed === 'admin') && trimmedSenha === 'Geper3tp@') {
+    return {
+      id: 'admin-rafael',
+      nome: 'Rafael Matos (ADM)',
+      cargo: 'Administrador Geral',
+      salarioBase: 0,
+      comissaoPadraoPercentual: 10,
+      metaSemanal: 0,
+      tema: 'dark',
+      ativo: true,
+      modoLancamentoComissao: 'livre',
+      modalidadeRemuneracao: 'fixo_comissao',
+      metaPercentual: 0,
+      metaValorMinimo: 0,
+      metaValorMaximo: 0,
+    };
+  }
+
   const { data, error } = await supabase
     .from('colaboradores')
     .select('*')
@@ -626,21 +648,57 @@ export function colaboradorToUserSettings(c: Colaborador): UserSettings {
     defaultCommissionRate: c.comissaoPadraoPercentual,
     weeklyGoal: c.metaSemanal,
     themePreference: c.tema,
+    modalidadeRemuneracao: c.modalidadeRemuneracao,
+    metaPercentual: c.metaPercentual,
   };
 }
 
-export const calculateSummaryStats = (services: ServiceItem[], baseSalary: number): SummaryStats => {
+export const calculateSummaryStats = (
+  services: ServiceItem[],
+  baseSalary: number,
+  settings?: { modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta'; metaPercentual?: number; defaultCommissionRate?: number }
+): SummaryStats => {
   const validServices = services.filter((s) => s.status !== 'CANCELADO');
   const totalProduction = validServices.reduce((acc, s) => acc + (s.productionValue || 0), 0);
-  const totalCommission = validServices.reduce((acc, s) => acc + (s.commissionValue || 0), 0);
-  const forecastTotal = baseSalary + totalCommission;
+  const totalCommissionRaw = validServices.reduce((acc, s) => acc + (s.commissionValue || 0), 0);
+
+  const modalidade = settings?.modalidadeRemuneracao || 'fixo_comissao';
+  const metaPerc = Number(settings?.metaPercentual) || 0;
+
+  let totalCommission = totalCommissionRaw;
+  let totalBaseSalary = baseSalary;
+  let forecastTotal = baseSalary + totalCommission;
+
+  if (modalidade === 'fixo') {
+    totalCommission = 0;
+    totalBaseSalary = baseSalary;
+    forecastTotal = baseSalary;
+  } else if (modalidade === 'meta') {
+    totalCommission = (totalProduction * metaPerc) / 100;
+    totalBaseSalary = 0;
+    forecastTotal = totalCommission;
+  } else {
+    // fixo_comissao
+    totalCommission = totalCommissionRaw;
+    totalBaseSalary = baseSalary;
+    forecastTotal = baseSalary + totalCommission;
+  }
+
   const completedCount = services.filter((s) => s.status === 'CONCLUÍDO').length;
   const inProductionCount = services.filter((s) => s.status === 'EM PRODUÇÃO').length;
   const pendingCount = services.filter((s) => s.status === 'PENDENTE').length;
   const canceledCount = services.filter((s) => s.status === 'CANCELADO').length;
-  const averageCommissionRate = totalProduction > 0 ? (totalCommission / totalProduction) * 100 : 0;
+  const averageCommissionRate =
+    modalidade === 'meta'
+      ? metaPerc
+      : modalidade === 'fixo'
+        ? 0
+        : totalProduction > 0
+          ? (totalCommission / totalProduction) * 100
+          : 0;
+
   return {
-    totalProduction, totalCommission, totalBaseSalary: baseSalary, forecastTotal,
+    totalProduction, totalCommission, totalBaseSalary, forecastTotal,
     completedCount, inProductionCount, pendingCount, canceledCount,
     totalCount: services.length, averageCommissionRate,
   };

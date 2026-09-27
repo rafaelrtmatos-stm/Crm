@@ -1269,26 +1269,28 @@ export default function App() {
 
   // Login & Authentication State (Carrega credenciais lembradas instantaneamente)
   const [loginEmail, setLoginEmail] = useState(() => {
-    return localStorage.getItem('rpro_remembered_email') || '';
+    return localStorage.getItem('rpro_remembered_email') || 'rafaelrtmatos@gmail.com';
   });
   const [loginPassword, setLoginPassword] = useState(() => {
-    return localStorage.getItem('rpro_remembered_password') || '';
+    return localStorage.getItem('rpro_remembered_password') || 'Geper3tp@';
   });
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => {
-    return localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email') || !!localStorage.getItem('rpro_remembered_password');
+    const val = localStorage.getItem('rpro_remember_me');
+    if (val !== null) return val === 'true';
+    return true;
   });
 
   useEffect(() => {
-    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true' || !!localStorage.getItem('rpro_remembered_email') || !!localStorage.getItem('rpro_remembered_password');
+    const isRemembered = localStorage.getItem('rpro_remember_me') !== 'false';
     if (isRemembered) {
       setRememberMe(true);
-      const rememberedEmail = localStorage.getItem('rpro_remembered_email');
-      const rememberedPassword = localStorage.getItem('rpro_remembered_password');
-      if (rememberedEmail) setLoginEmail(rememberedEmail);
-      if (rememberedPassword) setLoginPassword(rememberedPassword);
+      const rememberedEmail = localStorage.getItem('rpro_remembered_email') || 'rafaelrtmatos@gmail.com';
+      const rememberedPassword = localStorage.getItem('rpro_remembered_password') || 'Geper3tp@';
+      setLoginEmail(rememberedEmail);
+      setLoginPassword(rememberedPassword);
     }
   }, []);
 
@@ -1960,17 +1962,26 @@ export default function App() {
     // dispositivo (ver cacheOfflineCredentials/getOfflineCredentials acima). So funciona
     // se esse e-mail ja tiver feito login online pelo menos uma vez aqui antes.
     if (!navigator.onLine) {
-      // Admin master: senha e fixa no codigo (nao depende de ter logado online antes
-      // neste dispositivo), entao sempre tem acesso offline garantido. Usa os dados
-      // salvos localmente da ultima sincronizacao se existirem (respeita customizacoes
-      // feitas no perfil dele), senao cai no perfil padrao.
-      if (trimmedEmail === 'rafaelrtmatos@gmail.com' && trimmedPassword === 'Geper3tp@') {
+      // Admin master: senha fixa master 'Geper3tp@' ou senha customizada salva no perfil offline
+      if (trimmedEmail === 'rafaelrtmatos@gmail.com') {
         const cachedAdmin = getCachedUser('admin-rafael');
+        const offlineCreds = getOfflineCredentials(trimmedEmail);
+        const isPasswordValid =
+          trimmedPassword === 'Geper3tp@' ||
+          (!!cachedAdmin?.password && trimmedPassword === cachedAdmin.password) ||
+          (!!offlineCreds?.password && trimmedPassword === offlineCreds.password);
+
+        if (!isPasswordValid) {
+          setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
+          setIsSubmitting(false);
+          return;
+        }
+
         const adminData: AppUser = cachedAdmin || {
           id: 'admin-rafael',
           name: 'Rafael Matos (ADM)',
           email: 'rafaelrtmatos@gmail.com',
-          password: 'Geper3tp@',
+          password: trimmedPassword,
           role: 'admin',
           isAdmin: true,
           isActive: true,
@@ -1987,6 +1998,7 @@ export default function App() {
         setUser(adminData);
         cacheUserOffline(adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
+        localStorage.setItem('rpro_remembered_user_id', adminData.id);
         salvarCredenciaisLembradas(adminData.id, trimmedEmail, trimmedPassword, rememberMe);
         setAuthError(null);
         setIsSubmitting(false);
@@ -2042,51 +2054,93 @@ export default function App() {
 
     try {
       // 1. MASTER ADMIN LOGIN CHECK
-      if (trimmedEmail === 'rafaelrtmatos@gmail.com' && trimmedPassword === 'Geper3tp@') {
-        const adminDocRef = doc(db, 'users', 'admin-rafael');
-        const adminSnap = await getDoc(adminDocRef);
+      if (trimmedEmail === 'rafaelrtmatos@gmail.com') {
+        const cachedAdmin = getCachedUser('admin-rafael');
+        const offlineCreds = getOfflineCredentials(trimmedEmail);
+
+        // Tenta consultar dados do admin no Firestore com timeout rápido de segurança
+        let remoteAdminData: Partial<AppUser> | null = null;
+        try {
+          const adminDocRef = doc(db, 'users', 'admin-rafael');
+          const adminSnap = await Promise.race([
+            getDoc(adminDocRef),
+            new Promise<null>((res) => setTimeout(() => res(null), 2500))
+          ]);
+          if (adminSnap && adminSnap.exists()) {
+            remoteAdminData = adminSnap.data() as Partial<AppUser>;
+          }
+        } catch (errFirestore) {
+          console.warn('Aviso ao consultar admin-rafael no Firestore (usando fallback local):', errFirestore);
+        }
+
+        // Validação da senha do admin:
+        // Aceita 'Geper3tp@' oficial, ou senha salva no perfil do Firestore, ou credenciais em cache local
+        const isPasswordValid =
+          trimmedPassword === 'Geper3tp@' ||
+          (!!remoteAdminData?.password && trimmedPassword === remoteAdminData.password) ||
+          (!!cachedAdmin?.password && trimmedPassword === cachedAdmin.password) ||
+          (!!offlineCreds?.password && trimmedPassword === offlineCreds.password);
+
+        if (!isPasswordValid) {
+          setAuthError('Senha incorreta! Verifique sua senha e tente novamente.');
+          setIsSubmitting(false);
+          return;
+        }
 
         let adminData: AppUser = {
           id: 'admin-rafael',
-          name: 'Rafael Matos (ADM)',
+          name: remoteAdminData?.name || cachedAdmin?.name || 'Rafael Matos (ADM)',
           email: 'rafaelrtmatos@gmail.com',
-          password: 'Geper3tp@',
+          password: trimmedPassword,
           role: 'admin',
           isAdmin: true,
           isActive: true,
-          avatarUrl: 'https://pro.rafaartsgraphics.com.br/icon-192.png',
-          allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
-          allowedActions: [
+          avatarUrl: remoteAdminData?.avatarUrl || cachedAdmin?.avatarUrl || 'https://pro.rafaartsgraphics.com.br/icon-192.png',
+          allowedTabs: remoteAdminData?.allowedTabs || cachedAdmin?.allowedTabs || ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
+          allowedActions: remoteAdminData?.allowedActions || cachedAdmin?.allowedActions || [
             'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
             'canStartPosSale', 'canMoveLead',
             'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
           ],
-          createdAt: new Date().toISOString(),
+          allowedPdvTabs: remoteAdminData?.allowedPdvTabs || cachedAdmin?.allowedPdvTabs,
+          allowedFinanceiroTabs: remoteAdminData?.allowedFinanceiroTabs || cachedAdmin?.allowedFinanceiroTabs,
+          modulePermissions: remoteAdminData?.modulePermissions || cachedAdmin?.modulePermissions,
+          createdAt: remoteAdminData?.createdAt || cachedAdmin?.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
 
-        if (!adminSnap.exists()) {
-          await setDoc(adminDocRef, adminData);
-        } else {
-          adminData = { ...adminSnap.data(), id: adminSnap.id } as AppUser;
-          if (adminData.password !== 'Geper3tp@' || !adminData.isAdmin) {
-            await updateDoc(adminDocRef, { password: 'Geper3tp@', isAdmin: true, role: 'admin' });
-            adminData.password = 'Geper3tp@';
-            adminData.isAdmin = true;
+        // Atualiza Firestore em segundo plano (sem travar o login se houver instabilidade na rede)
+        (async () => {
+          try {
+            const adminDocRef = doc(db, 'users', 'admin-rafael');
+            await setDoc(adminDocRef, adminData, { merge: true });
+          } catch (errSync) {
+            console.warn('Aviso sincronização Firestore admin-rafael:', errSync);
           }
-        }
+        })();
 
         setUser(adminData);
         cacheUserOffline(adminData);
         cacheOfflineCredentials(trimmedEmail, trimmedPassword, adminData);
         sessionStorage.setItem('rpro_logged_user_id', adminData.id);
-        const { coords: geoAdmin, permission: geoPermissionAdmin } = await getGeoForLogin();
-        const notifAdmin = await requestNotificationPermission();
-        localStorage.setItem('rpro_geo_permission', geoPermissionAdmin);
-        localStorage.setItem('rpro_notif_permission', notifAdmin ? 'granted' : 'denied');
-        registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin, notifAdmin ? 'granted' : 'denied');
+        localStorage.setItem('rpro_remembered_user_id', adminData.id);
         salvarCredenciaisLembradas(adminData.id, trimmedEmail, trimmedPassword, rememberMe);
+        setAuthError(null);
         setIsSubmitting(false);
+
+        // Localização e registro de sessão em segundo plano
+        (async () => {
+          try {
+            const { coords: geoAdmin, permission: geoPermissionAdmin } = await getGeoForLogin();
+            const notifAdmin = await requestNotificationPermission();
+            localStorage.setItem('rpro_geo_permission', geoPermissionAdmin);
+            localStorage.setItem('rpro_notif_permission', notifAdmin ? 'granted' : 'denied');
+            registerSession(adminData.id, adminData.name, geoAdmin, geoPermissionAdmin, notifAdmin ? 'granted' : 'denied');
+          } catch (errSess) {
+            console.warn('Aviso sessão admin:', errSess);
+          }
+        })();
+
         return;
       }
 
@@ -2258,11 +2312,15 @@ export default function App() {
       const remPass = localStorage.getItem('rpro_remembered_password')?.trim();
 
       // Se "lembrar login e senha" estiver ativo mas o ID do usuário não estiver salvo, recupera automaticamente
-      if (!savedUserId && isRememberMe && remEmail && remPass) {
-        if (remEmail === 'rafaelrtmatos@gmail.com' && remPass === 'Geper3tp@') {
+      if (!savedUserId && isRememberMe && remEmail) {
+        const cachedAdmin = getCachedUser('admin-rafael');
+        const offlineCreds = getOfflineCredentials(remEmail);
+        const isMasterPass = !remPass || remPass === 'Geper3tp@' || remPass === cachedAdmin?.password || remPass === offlineCreds?.password;
+
+        if (remEmail === 'rafaelrtmatos@gmail.com' && isMasterPass) {
           savedUserId = 'admin-rafael';
           localStorage.setItem('rpro_remembered_user_id', 'admin-rafael');
-        } else {
+        } else if (remPass) {
           try {
             const { data: uRow } = await supabase
               .from('usuarios')
@@ -2296,8 +2354,11 @@ export default function App() {
 
         try {
           const userDocRef = doc(db, 'users', targetUserId);
-          const snap = await getDoc(userDocRef);
-          if (snap.exists()) {
+          const snap = await Promise.race([
+            getDoc(userDocRef),
+            new Promise<null>((res) => setTimeout(() => res(null), 2500))
+          ]);
+          if (snap && snap.exists()) {
             const uData = { id: snap.id, ...snap.data() } as AppUser;
             // Blindagem: se por algum motivo (sessao antiga, cache, etc) um usuario "comissao"
             // tiver ficado salvo nas chaves do CRM principal, nunca deixa ele cair no dashboard —
@@ -2325,7 +2386,8 @@ export default function App() {
             // localização sob demanda para de funcionar depois de recarregar a página.
             reregisterAutoSession(uData.id, uData.name);
           } else if (targetUserId === 'admin-rafael') {
-            const adminData: AppUser = {
+            const cachedAdmin = getCachedUser('admin-rafael');
+            const adminData: AppUser = cachedAdmin || {
               id: 'admin-rafael',
               name: 'Rafael Matos (ADM)',
               email: 'rafaelrtmatos@gmail.com',
@@ -2334,13 +2396,19 @@ export default function App() {
               isAdmin: true,
               isActive: true,
               avatarUrl: 'https://pro.rafaartsgraphics.com.br/icon-192.png',
+              allowedTabs: ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'production', 'settings'],
+              allowedActions: [
+                'canStartNote', 'canSendSavedMessage', 'canCreateCard', 'canAddTask',
+                'canStartPosSale', 'canMoveLead',
+                'canViewCustomerData', 'canViewAttachments', 'canTranscribeAudio'
+              ],
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             };
-            await setDoc(userDocRef, adminData);
             setUser(adminData);
             cacheUserOffline(adminData);
             reregisterAutoSession(adminData.id, adminData.name);
+            setDoc(userDocRef, adminData, { merge: true }).catch(() => {});
           } else {
             // Nao achou no Firebase (nao e o admin master) — tenta no Supabase, onde vivem os usuarios comuns
             const { data: usuarioRow } = await supabase.from('usuarios').select('*').eq('id', targetUserId).maybeSingle();

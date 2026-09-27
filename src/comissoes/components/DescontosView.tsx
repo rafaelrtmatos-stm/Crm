@@ -16,6 +16,7 @@ import {
   calculateDescontosNoPeriodo,
   contarOcorrenciasNoPeriodo,
   formatCurrency,
+  ModalidadeRemuneracao,
 } from '../utils/supabaseStorage';
 import {
   WeeklyCaixa,
@@ -58,6 +59,8 @@ interface DescontosViewProps {
   baseSalary?: number;
   // Serviços do colaborador -- usado só pra somar a comissão da semana do caixa aberto.
   services?: ServiceItem[];
+  modalidadeRemuneracao?: ModalidadeRemuneracao;
+  metaPercentual?: number;
 }
 
 const DIAS_UTEIS_SEMANA = 6; // dias úteis da semana
@@ -148,7 +151,16 @@ const emptyPagamentoForm: PagamentoFormInput = {
   formaPagamento: 'pix',
 };
 
-export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, descontos, isAdmin, onChange, baseSalary = 0, services = [] }) => {
+export const DescontosView: React.FC<DescontosViewProps> = ({
+  colaboradorId,
+  descontos,
+  isAdmin,
+  onChange,
+  baseSalary = 0,
+  services = [],
+  modalidadeRemuneracao = 'fixo_comissao' as ModalidadeRemuneracao,
+  metaPercentual = 0,
+}) => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<DescontoFormInput>({ ...emptyForm });
@@ -221,7 +233,10 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
       // ✅ Fecha automaticamente qualquer semana já vencida (o caixa fecha todo sábado) antes
       // de exibir qualquer coisa -- carrega só a sobra/dívida da semana anterior pra próxima,
       // em vez de acumular o histórico inteiro do colaborador.
-      const atualizado = await avancarCaixaSeNecessario(c, baseSalary, services, descontos);
+      const atualizado = await avancarCaixaSeNecessario(c, baseSalary, services, descontos, {
+        modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao',
+        metaPercentual,
+      });
       if (cancelled) return;
       setCaixa(atualizado);
       setLoadingCaixa(false);
@@ -230,7 +245,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colaboradorId, reloadToken]);
+  }, [colaboradorId, reloadToken, modalidadeRemuneracao, metaPercentual]);
 
   // ✅ Atualização em tempo real dos pagamentos e vales na aba de descontos
   useEffect(() => {
@@ -259,8 +274,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
   // ✅ Resumo da semana atual (a do caixa aberto) -- alimenta o saldo acumulado
   // (dívida/crédito), que continua aparecendo sempre, independente do período visualizado.
   const resumoCaixa = useMemo(
-    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto) : null),
-    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto]
+    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto, { modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao', metaPercentual }) : null),
+    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto, modalidadeRemuneracao, metaPercentual]
   );
 
   // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano): semana atual calcula
@@ -547,11 +562,17 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               </span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              <span className="text-[var(--text-muted)] block mb-1">Salário Base</span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.salarioBase)}</span>
+              <span className="text-[var(--text-muted)] block mb-1">
+                {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : modalidadeRemuneracao === 'meta' ? 'Fixo' : 'Salário Base'}
+              </span>
+              <span className="font-bold font-mono text-[var(--text-main)]">
+                {modalidadeRemuneracao === 'meta' ? 'R$ 0,00' : formatCurrency(resumoPorPeriodo.salarioBase)}
+              </span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              <span className="text-[var(--text-muted)] block mb-1">Comissão</span>
+              <span className="text-[var(--text-muted)] block mb-1">
+                {modalidadeRemuneracao === 'meta' ? `Meta (${metaPercentual || 0}%)` : 'Comissão'}
+              </span>
               <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.totalComissao)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
@@ -559,7 +580,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({ colaboradorId, des
               <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoPorPeriodo.totalDescontos)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              <span className="text-[var(--text-muted)] block mb-1">Salário + Comissão</span>
+              <span className="text-[var(--text-muted)] block mb-1">
+                {modalidadeRemuneracao === 'fixo' ? 'Remuneração Fixa' : modalidadeRemuneracao === 'meta' ? 'Remuneração (Meta)' : 'Salário + Comissão'}
+              </span>
               <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.salarioBase + resumoPorPeriodo.totalComissao)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">

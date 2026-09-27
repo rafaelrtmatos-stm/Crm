@@ -13,6 +13,8 @@ interface ReceiptForecastCardProps {
   // Saldo do caixa acumulado fora do período (dívida ou crédito).
   previousBalance?: number;
   cycleDates?: string;
+  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta';
+  metaPercentual?: number;
   onOpenAddModal?: () => void;
   onOpenDescontos?: () => void;
 }
@@ -20,10 +22,13 @@ interface ReceiptForecastCardProps {
 export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   baseSalary,
   totalCommission,
+  totalProduction = 0,
   totalDiscounts = 0,
   totalPaid = 0,
   previousBalance = 0,
   cycleDates,
+  modalidadeRemuneracao = 'fixo_comissao',
+  metaPercentual,
   onOpenDescontos,
 }) => {
   const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid + previousBalance;
@@ -86,17 +91,27 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           </div>
 
           <div className="space-y-2 text-xs">
-            {/* 1. Salário Base */}
-            <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
-              <span className="text-white/85 font-semibold text-xs whitespace-nowrap">Salário Base</span>
-              <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
-            </div>
+            {/* 1. Salário Base (quando modalidade não é 'meta') */}
+            {modalidadeRemuneracao !== 'meta' && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
+                <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
+                  {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : 'Salário Base'}
+                </span>
+                <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
+              </div>
+            )}
 
-            {/* 2. Comissões Acumuladas */}
-            <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
-              <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">+ Comissões da Semana</span>
-              <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
-            </div>
+            {/* 2. Comissões ou Meta sobre a Produção */}
+            {modalidadeRemuneracao !== 'fixo' && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
+                <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
+                  {modalidadeRemuneracao === 'meta'
+                    ? `+ Meta (${metaPercentual || 0}% de ${formatCurrency(totalProduction || 0)})`
+                    : '+ Comissões da Semana'}
+                </span>
+                <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
+              </div>
+            )}
 
             {/* 3. Descontos (faltas, atrasos, etc.) */}
             {totalDiscounts > 0 && (

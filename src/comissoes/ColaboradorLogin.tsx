@@ -49,7 +49,7 @@ export const ColaboradorLogin = ({ onLoginSuccess, embedded }: { onLoginSuccess:
               autoFocus
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              placeholder="Seu nome"
+              placeholder="Seu nome ou e-mail"
               className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl pl-10 pr-3.5 text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-red)]"
             />
           </div>

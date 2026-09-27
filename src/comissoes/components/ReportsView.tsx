@@ -53,8 +53,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ services, userSettings
   }, [services, periodFilter, weekBounds]);
 
   const currentStats = useMemo(() => {
-    return calculateSummaryStats(filteredServices, userSettings.baseSalary);
-  }, [filteredServices, userSettings.baseSalary]);
+    return calculateSummaryStats(filteredServices, userSettings.baseSalary, userSettings);
+  }, [filteredServices, userSettings]);
 
   const simulatedCommission = (simulatedProduction * userSettings.defaultCommissionRate) / 100;
   const simulatedTotalPayout = userSettings.baseSalary + simulatedCommission;

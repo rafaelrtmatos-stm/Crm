@@ -182,7 +182,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   descontos = [],
   colaboradorId,
 }) => {
-  const [period, setPeriod] = useState<PeriodFilter>('hoje');
+  const [period, setPeriod] = useState<PeriodFilter>('semana');
   const [weekOffset, setWeekOffset] = useState<number>(0);
   const [customStartDate, setCustomStartDate] = useState(getTodayISO());
   const [customEndDate, setCustomEndDate] = useState(getTodayISO());
@@ -208,7 +208,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       // ✅ Fecha automaticamente qualquer semana que já tenha virado (o caixa fecha todo
       // sábado) antes de calcular qualquer coisa -- sem isso o saldo ficava acumulando o
       // histórico inteiro do colaborador em vez de só a sobra/dívida da semana anterior.
-      const atualizado = await avancarCaixaSeNecessario(c, userSettings.baseSalary, recentServices, descontos);
+      const atualizado = await avancarCaixaSeNecessario(c, userSettings.baseSalary, recentServices, descontos, {
+        modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
+        metaPercentual: userSettings.metaPercentual,
+        comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+      });
       if (cancelled) return;
       setCaixa(atualizado);
       getPagamentosDoColaborador(colaboradorId).then((list) => { if (!cancelled) setPagamentos(list); });
@@ -297,8 +301,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Calculate statistics for filtered services
   const displayStats = useMemo(() => {
-    return calculateSummaryStats(filteredServices, userSettings.baseSalary);
-  }, [filteredServices, userSettings.baseSalary]);
+    return calculateSummaryStats(filteredServices, userSettings.baseSalary, userSettings);
+  }, [filteredServices, userSettings]);
 
   // ✅ Resumo real do período selecionado (Salário + Comissão - Descontos - Já Pago),
   // usando exatamente a mesma função já corrigida na aba Descontos. Isso é o que garante
@@ -308,9 +312,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!caixa) return null;
     return calcularResumoNoIntervalo(
       dataInicioColaborador || caixa.semanaInicio,
-      userSettings.baseSalary, recentServices, descontos, pagamentos, start, end
+      userSettings.baseSalary, recentServices, descontos, pagamentos, start, end,
+      {
+        modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
+        metaPercentual: userSettings.metaPercentual,
+        comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+      }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
@@ -340,13 +349,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!caixa) return null;
     return calcularResumoNoIntervalo(
       dataInicioColaborador || caixa.semanaInicio,
-      userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds.start, weeklyBounds.end
+      userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds.start, weeklyBounds.end,
+      {
+        modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
+        metaPercentual: userSettings.metaPercentual,
+        comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+      }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate]);
 
   const weeklyStats = useMemo(() => {
     const prod = weeklyServices.reduce((acc, s) => acc + s.productionValue, 0);
-    const comm = weeklyServices.reduce((acc, s) => acc + s.commissionValue, 0);
+    const normalComm = weeklyServices.reduce((acc, s) => acc + s.commissionValue, 0);
+    let comm = normalComm;
+    if (userSettings.modalidadeRemuneracao === 'fixo') {
+      comm = 0;
+    } else if (userSettings.modalidadeRemuneracao === 'meta') {
+      comm = (prod * (Number(userSettings.metaPercentual) || 0)) / 100;
+    }
     const count = weeklyServices.length;
 
     // Active days count
@@ -377,7 +397,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       peakDayName = name.charAt(0).toUpperCase() + name.slice(1);
     }
 
-    const commissionRate = prod > 0 ? (comm / prod) * 100 : userSettings.defaultCommissionRate;
+    const commissionRate =
+      userSettings.modalidadeRemuneracao === 'meta'
+        ? (Number(userSettings.metaPercentual) || 0)
+        : userSettings.modalidadeRemuneracao === 'fixo'
+        ? 0
+        : (prod > 0 ? (comm / prod) * 100 : userSettings.defaultCommissionRate);
 
     return {
       weeklyProduction: prod,
@@ -435,19 +460,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-          <button
-            type="button"
-            onClick={() => setPeriod('mes')}
-            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold uppercase transition-all cursor-pointer ${
-              period === 'mes'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-white border border-[var(--border-color)]'
-            }`}
-          >
-            Mês Atual
-          </button>
-
-          {/* Botão de Semana com controles de retroagir (< / >) */}
+          {/* Botão de Semana Oficial (Sábado a Sexta) com controles de retroagir (< / >) */}
           <div className="flex items-center gap-0.5 bg-[var(--bg-card-sec)] rounded-xl border border-[var(--border-color)] p-0.5">
             <button
               type="button"
@@ -464,7 +477,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <button
               type="button"
               onClick={() => setPeriod('semana')}
-              className={`px-2 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold uppercase transition-all cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold uppercase transition-all cursor-pointer ${
                 period === 'semana'
                   ? 'bg-gradient-red text-white shadow-red-glow'
                   : 'text-[var(--text-muted)] hover:text-white'
@@ -520,6 +533,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
             }`}
           >
             Ontem
+          </button>
+          <button
+            type="button"
+            onClick={() => setPeriod('mes')}
+            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold uppercase transition-all cursor-pointer ${
+              period === 'mes'
+                ? 'bg-gradient-red text-white shadow-red-glow'
+                : 'bg-[var(--bg-card-sec)] text-[var(--text-muted)] hover:text-white border border-[var(--border-color)]'
+            }`}
+          >
+            Mês Atual
           </button>
           <button
             type="button"
@@ -591,7 +615,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Featured Card de Previsão de Recebimento */}
         <div className="lg:col-span-1">
           <ReceiptForecastCard
-            baseSalary={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.salarioBase : userSettings.baseSalary}
+            baseSalary={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.salarioBase : (userSettings.modalidadeRemuneracao === 'meta' ? 0 : userSettings.baseSalary)}
             totalCommission={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalComissao : weeklyStats.weeklyCommission}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction}
@@ -599,6 +623,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             totalPaid={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalPago : (resumoSemanaAtual?.totalPago ?? 0)}
             previousBalance={saldoAnteriorAoPeriodo}
             cycleDates={`${formatDateBR(weeklyBounds.start)} a ${formatDateBR(weeklyBounds.end)}`}
+            modalidadeRemuneracao={userSettings.modalidadeRemuneracao}
+            metaPercentual={userSettings.metaPercentual}
             onOpenDescontos={onGoToDescontos}
           />
         </div>
@@ -634,7 +660,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex justify-between items-start mb-4">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  COMISSÃO ({period.toUpperCase()})
+                  {userSettings.modalidadeRemuneracao === 'meta'
+                    ? `META ${userSettings.metaPercentual || 0}% (${period.toUpperCase()})`
+                    : `COMISSÃO (${period.toUpperCase()})`}
                 </span>
                 <div className="text-3xl sm:text-4xl font-black text-[var(--accent-red)] font-mono mt-1">
                   {formatCurrency(displayStats.totalCommission)}
@@ -645,9 +673,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
-              <span>Acumulado Semana: <strong className="text-emerald-400 font-bold">{formatCurrency(weeklyStats.weeklyCommission)}</strong></span>
+              <span>
+                {userSettings.modalidadeRemuneracao === 'meta' ? 'Meta Semana: ' : 'Acumulado Semana: '}
+                <strong className="text-emerald-400 font-bold">{formatCurrency(weeklyStats.weeklyCommission)}</strong>
+              </span>
               <span className="text-[var(--text-muted)]">
-                Taxa: <strong className="text-[var(--text-main)]">{displayStats.averageCommissionRate.toFixed(1)}%</strong>
+                Taxa: <strong className="text-[var(--text-main)]">
+                  {userSettings.modalidadeRemuneracao === 'meta'
+                    ? `${userSettings.metaPercentual || 0}%`
+                    : `${displayStats.averageCommissionRate.toFixed(1)}%`}
+                </strong>
               </span>
             </div>
           </div>

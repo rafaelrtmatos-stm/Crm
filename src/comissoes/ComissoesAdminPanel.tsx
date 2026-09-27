@@ -38,15 +38,28 @@ import {
   Calendar,
   Layers,
   Award,
-  ArrowUpRight
+  ArrowUpRight,
+  Link2,
+  UserCheck,
+  UserX,
+  ShieldCheck
 } from 'lucide-react';
-import { Colaborador, ModoLancamentoComissao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow } from './utils/supabaseStorage';
+import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow } from './utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
+import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
 import ComissoesEmbedded from './ComissoesEmbedded';
 import './comissoes-theme.css';
+
+export interface UsuarioConta {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  colaborador_id?: string | null;
+}
 
 interface ColaboradorRow {
   id: string;
@@ -59,6 +72,10 @@ interface ColaboradorRow {
   tema: string;
   ativo: boolean;
   modo_lancamento_comissao: string | null;
+  modalidade_remuneracao?: ModalidadeRemuneracao;
+  meta_percentual?: number;
+  meta_valor_minimo?: number;
+  meta_valor_maximo?: number;
   created_at: string;
   updated_at: string;
 }
@@ -69,10 +86,14 @@ interface ColaboradorWeeklyStats {
   totalProducao: number;
   totalDescontos: number;
   totalPago: number;
+  saldoAnterior: number;
+  dividaAnterior: number;
   totalEstimado: number;
   qtdServicos: number;
   metaSemanal: number;
   percentualMeta: number;
+  modalidade: ModalidadeRemuneracao;
+  metaPercentual: number;
 }
 
 interface FormState {
@@ -83,7 +104,12 @@ interface FormState {
   comissaoPadraoPercentual: number;
   metaSemanal: number;
   modoLancamento: ModoLancamentoComissao;
+  modalidadeRemuneracao: ModalidadeRemuneracao;
+  metaPercentual: number;
   ativo: boolean;
+  usuarioId: string;
+  criarNovaConta: boolean;
+  novoEmailConta: string;
 }
 
 const emptyForm: FormState = {
@@ -94,7 +120,12 @@ const emptyForm: FormState = {
   comissaoPadraoPercentual: 10,
   metaSemanal: 0,
   modoLancamento: 'livre',
+  modalidadeRemuneracao: 'fixo_comissao',
+  metaPercentual: 0,
   ativo: true,
+  usuarioId: '',
+  criarNovaConta: false,
+  novoEmailConta: '',
 };
 
 function formatCurrencyBR(value: number): string {
@@ -176,6 +207,15 @@ export default function ComissoesAdminPanel() {
   const [showPasswordInModal, setShowPasswordInModal] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Lista de contas de usuários do sistema (CRM / login)
+  const [usuariosContas, setUsuariosContas] = useState<UsuarioConta[]>([]);
+  // Estado para o modal rápido de anexar conta a partir de "Ação"
+  const [linkingColaborador, setLinkingColaborador] = useState<ColaboradorRow | null>(null);
+  const [selectedUsuarioForLink, setSelectedUsuarioForLink] = useState<string>('');
+  const [linkCreateNew, setLinkCreateNew] = useState(false);
+  const [linkNewEmail, setLinkNewEmail] = useState('');
+  const [savingLink, setSavingLink] = useState(false);
+
   // Carrega lista de colaboradores e as estatísticas financeiras semanais de cada um
   const loadData = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -196,11 +236,11 @@ export default function ComissoesAdminPanel() {
       setColaboradores(colabs);
       setSelected((prev) => (prev ? colabs.find((c) => c.id === prev.id) ?? null : prev));
 
-      // 2. Busca dados da semana atual para cálculo do Total Estimado
+      // 2. Busca dados da semana atual para cálculo do Total Estimado e contas de usuários
       const { start, end } = weekBounds;
       const descBounds = getDescontosValesBounds(start, end);
 
-      const [servicosRes, descontosRes, pagamentosRes] = await Promise.all([
+      const [servicosRes, descontosRes, pagamentosRes, usuariosRes, caixasRes] = await Promise.all([
         supabase
           .from('comissoes_servicos')
           .select('colaborador_id, comissao_valor, valor_producao, status')
@@ -216,11 +256,30 @@ export default function ComissoesAdminPanel() {
           .select('colaborador_id, valor')
           .gte('data', descBounds.start)
           .lte('data', descBounds.end),
+        supabase
+          .from('usuarios')
+          .select('id, name, email, role, colaborador_id')
+          .order('name', { ascending: true }),
+        supabase
+          .from('comissoes_caixas_semanais')
+          .select('colaborador_id, saldo_anterior')
+          .eq('status', 'aberto'),
       ]);
+
+      if (usuariosRes.data) {
+        setUsuariosContas(usuariosRes.data as UsuarioConta[]);
+      }
 
       const servicos = servicosRes.data || [];
       const descontos = descontosRes.data || [];
       const pagamentos = pagamentosRes.data || [];
+      const caixas = caixasRes.data || [];
+
+      // Mapeia saldo anterior do caixa aberto por colaborador
+      const caixasByColab: Record<string, number> = {};
+      caixas.forEach((cx: any) => {
+        caixasByColab[cx.colaborador_id] = Number(cx.saldo_anterior) || 0;
+      });
 
       // Mapeia descontos por colaborador
       const descontosByColab: Record<string, Desconto[]> = {};
@@ -269,20 +328,49 @@ export default function ComissoesAdminPanel() {
         const totalDescontos = calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end);
         const totalPago = pagamentosByColab[c.id] || 0;
 
-        // Fórmula: Total Estimado = Salário Base + Comissão da Semana - Descontos - Pagamentos
-        const totalEstimado = Math.max(0, salarioBase + colabServicos.totalComissao - totalDescontos - totalPago);
-        const percentualMeta = metaSemanal > 0 ? (colabServicos.totalProducao / metaSemanal) * 100 : 0;
+        // Determina modalidade e parâmetros de remuneração
+        const modalidade: ModalidadeRemuneracao = c.modalidade_remuneracao || 'fixo_comissao';
+        const isFixo = modalidade === 'fixo';
+        const metaPercentual = Number(c.meta_percentual) || 0;
+        const metaSemanalEfetiva = isFixo ? 0 : metaSemanal;
+
+        // Remuneração conforme modalidade:
+        // FIXO: salario_base (produção não altera)
+        // FIXO + COMISSÃO: salario_base + comissao existente
+        // META: producao_individual * (meta_percentual / 100)
+        const remuneracao = calcularRemuneracaoSemanal(
+          {
+            modalidade,
+            salarioBase,
+            comissaoPadraoPercentual: isFixo ? 0 : (Number(c.comissao_padrao_percentual) || 0),
+            metaPercentual,
+          },
+          colabServicos.totalProducao,
+          colabServicos.totalComissao
+        );
+
+        const saldoAnterior = caixasByColab[c.id] || 0;
+        // Dívida herdada de semanas anteriores (< 0) abate da previsão da semana:
+        const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
+
+        // Fórmula: Total Estimado = Remuneração Bruta da Semana - Descontos - Pagamentos - Dívida Anterior
+        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago - dividaAnterior);
+        const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (colabServicos.totalProducao / metaSemanalEfetiva) * 100 : 0;
 
         statsMap[c.id] = {
-          salarioBase,
-          totalComissao: colabServicos.totalComissao,
+          salarioBase: remuneracao.salarioBaseEfetivo,
+          totalComissao: remuneracao.comissaoEfetiva,
           totalProducao: colabServicos.totalProducao,
           totalDescontos,
           totalPago,
+          saldoAnterior,
+          dividaAnterior,
           totalEstimado,
           qtdServicos: colabServicos.count,
-          metaSemanal,
+          metaSemanal: metaSemanalEfetiva,
           percentualMeta,
+          modalidade,
+          metaPercentual,
         };
       });
 
@@ -314,6 +402,9 @@ export default function ComissoesAdminPanel() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_pagamentos' }, () => {
         loadData({ silent: true });
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => {
+        loadData({ silent: true });
+      })
       .subscribe();
 
     return () => {
@@ -334,18 +425,25 @@ export default function ComissoesAdminPanel() {
     let totalDescontosSemana = 0;
     let totalEstimadoEquipe = 0;
     let somaTaxaComissao = 0;
+    let ativosComComissao = 0;
 
     colaboradores.forEach((c) => {
       if (c.ativo) {
         const stats = weeklyStatsMap[c.id];
+        const isFixo = stats?.modalidade === 'fixo' || c.modalidade_remuneracao === 'fixo';
         folhaBaseAtivos += Number(c.salario_base) || 0;
-        metaTotalAtivos += Number(c.meta_semanal) || 0;
-        somaTaxaComissao += Number(c.comissao_padrao_percentual) || 0;
+
+        // Funcionário fixo NÃO tem meta nem taxa de comissão
+        if (!isFixo) {
+          metaTotalAtivos += Number(c.meta_semanal) || 0;
+          somaTaxaComissao += Number(c.comissao_padrao_percentual) || 0;
+          ativosComComissao += 1;
+        }
 
         if (stats) {
           totalComissaoSemana += stats.totalComissao;
           totalProducaoSemana += stats.totalProducao;
-          totalDescontosSemana += stats.totalDescontos;
+          totalDescontosSemana += stats.totalDescontos + stats.dividaAnterior;
           totalEstimadoEquipe += stats.totalEstimado;
         } else {
           totalEstimadoEquipe += Number(c.salario_base) || 0;
@@ -353,7 +451,7 @@ export default function ComissoesAdminPanel() {
       }
     });
 
-    const mediaComissao = ativos > 0 ? somaTaxaComissao / ativos : 0;
+    const mediaComissao = ativosComComissao > 0 ? somaTaxaComissao / ativosComComissao : 0;
     const metaProgressoGeral = metaTotalAtivos > 0 ? (totalProducaoSemana / metaTotalAtivos) * 100 : 0;
 
     return {
@@ -420,25 +518,137 @@ export default function ComissoesAdminPanel() {
 
   const openNewForm = () => {
     setEditingId(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm });
     setShowPasswordInModal(false);
     setShowModal(true);
   };
 
   const openEditForm = (c: ColaboradorRow) => {
+    // Carrega eventual valor salvo localmente como fallback resiliente
+    let localExtra: any = null;
+    if (typeof window !== 'undefined' && c.id) {
+      try {
+        const raw = localStorage.getItem(`rpro_colab_remun_${c.id}`);
+        if (raw) localExtra = JSON.parse(raw);
+      } catch {
+        // ignore
+      }
+    }
+
+    const modalidade: ModalidadeRemuneracao =
+      c.modalidade_remuneracao ||
+      localExtra?.modalidade ||
+      (Number(c.meta_percentual || localExtra?.metaPercentual) > 0 ? 'meta' : 'fixo_comissao');
+
+    const metaPercentual = Number(c.meta_percentual ?? localExtra?.metaPercentual) || 0;
+    const linkedU = usuariosContas.find((u) => u.colaborador_id === c.id);
+
     setEditingId(c.id);
     setForm({
       nome: c.nome || '',
       senha: c.senha || '',
       cargo: c.cargo || '',
       salarioBase: Number(c.salario_base) || 0,
-      comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 10,
-      metaSemanal: Number(c.meta_semanal) || 0,
+      comissaoPadraoPercentual: modalidade === 'fixo' ? 0 : (Number(c.comissao_padrao_percentual) || 10),
+      metaSemanal: modalidade === 'fixo' ? 0 : (Number(c.meta_semanal) || 0),
       modoLancamento: c.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
+      modalidadeRemuneracao: modalidade,
+      metaPercentual,
       ativo: c.ativo !== false,
+      usuarioId: linkedU?.id || '',
+      criarNovaConta: false,
+      novoEmailConta: '',
     });
     setShowPasswordInModal(false);
     setShowModal(true);
+  };
+
+  const openLinkModal = (c: ColaboradorRow) => {
+    const linked = usuariosContas.find((u) => u.colaborador_id === c.id);
+    setSelectedUsuarioForLink(linked?.id || '');
+    setLinkCreateNew(false);
+    setLinkNewEmail(`${c.nome.toLowerCase().replace(/[^a-z0-9]/g, '')}@empresa.com`);
+    setLinkingColaborador(c);
+  };
+
+  const handleSaveLink = async () => {
+    if (!linkingColaborador) return;
+    setSavingLink(true);
+    try {
+      if (linkCreateNew) {
+        if (!linkNewEmail.trim()) {
+          showAlert('Informe o e-mail da nova conta.');
+          setSavingLink(false);
+          return;
+        }
+        const novoEmail = linkNewEmail.trim().toLowerCase();
+        const { data: userCreated, error: errCreate } = await supabase
+          .from('usuarios')
+          .insert({
+            name: linkingColaborador.nome.trim(),
+            email: novoEmail,
+            password: linkingColaborador.senha.trim(),
+            role: 'comissao',
+            is_admin: false,
+            is_active: true,
+            colaborador_id: linkingColaborador.id,
+            allowed_tabs: ['comissoes'],
+            allowed_actions: [],
+            updated_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (errCreate) throw errCreate;
+
+        if (userCreated) {
+          // Desvincula outros usuários deste colaborador
+          await supabase
+            .from('usuarios')
+            .update({ colaborador_id: null })
+            .eq('colaborador_id', linkingColaborador.id)
+            .neq('id', userCreated.id);
+        }
+        showAlert(`Nova conta (${novoEmail}) criada e vinculada a ${linkingColaborador.nome}!`);
+      } else if (selectedUsuarioForLink) {
+        // Desvincula outros usuários deste colaborador
+        await supabase
+          .from('usuarios')
+          .update({ colaborador_id: null })
+          .eq('colaborador_id', linkingColaborador.id)
+          .neq('id', selectedUsuarioForLink);
+
+        // Vincula o usuário selecionado
+        const { error } = await supabase
+          .from('usuarios')
+          .update({
+            colaborador_id: linkingColaborador.id,
+            role: 'comissao',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', selectedUsuarioForLink);
+
+        if (error) throw error;
+        showAlert('Vínculo de conta atualizado com sucesso!');
+      } else {
+        // Remove vínculo existente
+        const { error } = await supabase
+          .from('usuarios')
+          .update({ colaborador_id: null })
+          .eq('colaborador_id', linkingColaborador.id);
+
+        if (error) throw error;
+        showAlert('Vínculo de conta removido com sucesso!');
+      }
+
+      setLinkingColaborador(null);
+      await loadData({ silent: true });
+    } catch (err: any) {
+      console.error('Erro ao salvar vínculo de conta:', err);
+      showAlert(`Erro ao salvar vínculo: ${err?.message || 'erro desconhecido'}`);
+    } finally {
+      setSavingLink(false);
+    }
   };
 
   const closeModal = () => {
@@ -477,27 +687,132 @@ export default function ComissoesAdminPanel() {
     }
 
     setSaving(true);
+    // Funcionário fixo NÃO tem meta nem comissão!
+    const isFixo = form.modalidadeRemuneracao === 'fixo';
+    const isMeta = form.modalidadeRemuneracao === 'meta';
+
     const payload = {
       nome: form.nome.trim(),
       senha: form.senha.trim(),
       cargo: form.cargo.trim() || null,
-      salario_base: Number(form.salarioBase) || 0,
-      comissao_padrao_percentual: Number(form.comissaoPadraoPercentual) || 0,
-      meta_semanal: Number(form.metaSemanal) || 0,
+      salario_base: isMeta ? 0 : (Number(form.salarioBase) || 0),
+      comissao_padrao_percentual: (isMeta || isFixo) ? 0 : (Number(form.comissaoPadraoPercentual) || 0),
+      meta_semanal: isFixo ? 0 : (Number(form.metaSemanal) || 0),
       modo_lancamento_comissao: form.modoLancamento,
+      modalidade_remuneracao: form.modalidadeRemuneracao,
+      meta_percentual: isMeta ? (Number(form.metaPercentual) || 0) : 0,
       ativo: form.ativo,
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = editingId
-      ? await supabase.from('colaboradores').update(payload).eq('id', editingId)
-      : await supabase.from('colaboradores').insert(payload);
+    // Tenta salvar com as novas colunas
+    let { data: savedData, error } = editingId
+      ? await supabase.from('colaboradores').update(payload).eq('id', editingId).select().maybeSingle()
+      : await supabase.from('colaboradores').insert(payload).select().maybeSingle();
 
-    setSaving(false);
+    // Resiliência: se o banco ainda não tiver as colunas modalidade_remuneracao / meta_percentual
+    if (error && error.message?.includes('column')) {
+      const fallbackPayload = {
+        nome: payload.nome,
+        senha: payload.senha,
+        cargo: payload.cargo,
+        salario_base: payload.salario_base,
+        comissao_padrao_percentual: payload.comissao_padrao_percentual,
+        meta_semanal: payload.meta_semanal,
+        modo_lancamento_comissao: payload.modo_lancamento_comissao,
+        ativo: payload.ativo,
+        updated_at: payload.updated_at,
+      };
+
+      const resFallback = editingId
+        ? await supabase.from('colaboradores').update(fallbackPayload).eq('id', editingId).select().maybeSingle()
+        : await supabase.from('colaboradores').insert(fallbackPayload).select().maybeSingle();
+
+      error = resFallback.error;
+      savedData = resFallback.data;
+    }
+
     if (error) {
+      setSaving(false);
       showAlert(`Não foi possível salvar: ${error.message}`);
       return;
     }
+
+    const targetId = editingId || savedData?.id;
+
+    // Gerencia o anexo da conta de usuário escolhida ou criação de nova conta
+    if (targetId) {
+      try {
+        if (form.criarNovaConta && form.novoEmailConta.trim()) {
+          const novoEmail = form.novoEmailConta.trim().toLowerCase();
+          const { data: userCreated, error: errCreate } = await supabase
+            .from('usuarios')
+            .insert({
+              name: form.nome.trim(),
+              email: novoEmail,
+              password: form.senha.trim(),
+              role: 'comissao',
+              is_admin: false,
+              is_active: true,
+              colaborador_id: targetId,
+              allowed_tabs: ['comissoes'],
+              allowed_actions: [],
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (userCreated) {
+            await supabase
+              .from('usuarios')
+              .update({ colaborador_id: null })
+              .eq('colaborador_id', targetId)
+              .neq('id', userCreated.id);
+          } else if (errCreate) {
+            console.warn('Aviso ao criar usuário vinculado:', errCreate);
+          }
+        } else if (form.usuarioId) {
+          // Desvincula outros usuários deste colaborador
+          await supabase
+            .from('usuarios')
+            .update({ colaborador_id: null })
+            .eq('colaborador_id', targetId)
+            .neq('id', form.usuarioId);
+
+          // Vincula o usuário selecionado ao colaborador
+          await supabase
+            .from('usuarios')
+            .update({
+              colaborador_id: targetId,
+              role: 'comissao',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', form.usuarioId);
+        } else {
+          // Se selecionou nenhuma conta, desvincula qualquer conta deste colaborador
+          await supabase
+            .from('usuarios')
+            .update({ colaborador_id: null })
+            .eq('colaborador_id', targetId);
+        }
+      } catch (errSyncUser) {
+        console.warn('Aviso ao sincronizar conta de usuário do colaborador:', errSyncUser);
+      }
+    }
+
+    // Persiste também no storage local para resiliência instantânea
+    if (targetId) {
+      try {
+        localStorage.setItem(`rpro_colab_remun_${targetId}`, JSON.stringify({
+          modalidade: form.modalidadeRemuneracao,
+          metaPercentual: form.metaPercentual,
+        }));
+      } catch {
+        // ignore
+      }
+    }
+
+    setSaving(false);
     closeModal();
     await loadData();
     showAlert(editingId ? 'Colaborador atualizado com sucesso!' : 'Novo colaborador cadastrado com sucesso!');
@@ -1077,22 +1392,34 @@ export default function ComissoesAdminPanel() {
                       {/* Memória de Cálculo Resumida */}
                       <div className="pt-2 border-t border-[var(--border-color)]/60 grid grid-cols-3 gap-1 text-[10px] text-center">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] font-semibold text-[var(--text-muted)] block">Salário Base</span>
-                          <span className="font-bold text-[var(--text-main)] truncate block">{formatCurrencyBR(stats.salarioBase)}</span>
+                          <span className="text-[9px] font-semibold text-[var(--text-muted)] block">
+                            {stats.modalidade === 'fixo' ? 'Salário Fixo' : stats.modalidade === 'meta' ? 'Fixo' : 'Salário Base'}
+                          </span>
+                          <span className="font-bold text-[var(--text-main)] truncate block">
+                            {stats.modalidade === 'meta' ? 'R$ 0,00' : formatCurrencyBR(stats.salarioBase)}
+                          </span>
                         </div>
                         <div className="space-y-0.5 border-x border-[var(--border-color)]/60">
-                          <span className="text-[9px] font-semibold text-emerald-400 block">+ Comissões</span>
-                          <span className="font-bold text-emerald-400 truncate block">+{formatCurrencyBR(stats.totalComissao)}</span>
+                          <span className="text-[9px] font-semibold text-emerald-400 block">
+                            {stats.modalidade === 'meta' ? `+ Meta (${stats.metaPercentual || 0}%)` : stats.modalidade === 'fixo' ? 'Comissão' : '+ Comissões'}
+                          </span>
+                          <span className="font-bold text-emerald-400 truncate block">
+                            {stats.modalidade === 'fixo' ? 'R$ 0,00' : `+${formatCurrencyBR(stats.totalComissao)}`}
+                          </span>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="text-[9px] font-semibold text-rose-400 block">- Descontos</span>
-                          <span className="font-bold text-rose-400 truncate block">-{formatCurrencyBR(stats.totalDescontos)}</span>
+                          <span className="text-[9px] font-semibold text-rose-400 block">
+                            {stats.dividaAnterior > 0 ? '- Desc / Dívida' : '- Descontos'}
+                          </span>
+                          <span className="font-bold text-rose-400 truncate block">
+                            -{formatCurrencyBR(stats.totalDescontos + stats.dividaAnterior)}
+                          </span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Barra de Progresso da Meta Semanal */}
-                    {stats.metaSemanal > 0 && (
+                    {/* Barra de Progresso da Meta Semanal (Funcionário fixo NÃO tem meta) */}
+                    {stats.modalidade !== 'fixo' && stats.metaSemanal > 0 && (
                       <div className="space-y-1.5 bg-[var(--bg-card-sec)] p-3 rounded-2xl border border-[var(--border-color)]">
                         <div className="flex items-center justify-between text-xs gap-2">
                           <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1 shrink-0">
@@ -1115,9 +1442,70 @@ export default function ComissoesAdminPanel() {
                         </div>
                       </div>
                     )}
+                    {stats.modalidade === 'fixo' && (
+                      <div className="flex items-center justify-between text-xs bg-blue-500/5 px-3.5 py-2.5 rounded-2xl border border-blue-500/20">
+                        <span className="text-[11px] font-bold text-blue-400 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
+                          Remuneração Fixa
+                        </span>
+                        <span className="text-[10px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-300 px-2.5 py-0.5 rounded-md border border-blue-500/20">
+                          Sem Meta
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Status da Conta de Login Anexada */}
+                    {(() => {
+                      const linkedUser = usuariosContas.find((u) => u.colaborador_id === c.id);
+                      return linkedUser ? (
+                        <div className="flex items-center justify-between gap-1.5 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
+                          <span className="flex items-center gap-1.5 truncate">
+                            <UserCheck className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                            <span className="truncate">Conta: <strong>{linkedUser.name}</strong> ({linkedUser.email})</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openLinkModal(c)}
+                            className="text-[10px] text-emerald-300 hover:text-white underline cursor-pointer shrink-0 font-bold"
+                            title="Trocar conta anexada"
+                          >
+                            Trocar
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-1.5 text-[11px] text-[var(--text-muted)] bg-[var(--bg-card-sec)] border border-[var(--border-color)] px-3 py-1.5 rounded-xl">
+                          <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+                            <UserX className="w-3.5 h-3.5 shrink-0" />
+                            <span>Sem conta anexada</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openLinkModal(c)}
+                            className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer shrink-0"
+                          >
+                            Anexar conta
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {/* Tags & Modos de Lançamento */}
                     <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                      {/* Badge da Modalidade de Remuneração */}
+                      <span
+                        className={`font-black uppercase px-2.5 py-0.5 rounded-lg border ${
+                          stats.modalidade === 'fixo'
+                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                            : stats.modalidade === 'meta'
+                            ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        }`}
+                      >
+                        {stats.modalidade === 'fixo' && '🔵 Fixo'}
+                        {stats.modalidade === 'meta' && `🟣 Meta (${stats.metaPercentual || 0}%)`}
+                        {stats.modalidade === 'fixo_comissao' && '🟢 Fixo + Comis.'}
+                      </span>
+
                       <span
                         className={`font-bold uppercase px-2.5 py-0.5 rounded-lg border ${
                           isSomenteNota
@@ -1125,12 +1513,14 @@ export default function ComissoesAdminPanel() {
                             : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                         }`}
                       >
-                        {isSomenteNota ? '🟠 Somente Nota' : '🟢 Modo Livre'}
+                        {isSomenteNota ? '🟠 Somente Nota' : 'Modo Livre'}
                       </span>
 
-                      <span className="font-semibold text-[var(--text-muted)] bg-[var(--bg-card-sec)] px-2 py-0.5 rounded-md border border-[var(--border-color)]">
-                        Taxa: {c.comissao_padrao_percentual || 0}%
-                      </span>
+                      {stats.modalidade !== 'fixo' && stats.modalidade !== 'meta' && (
+                        <span className="font-semibold text-[var(--text-muted)] bg-[var(--bg-card-sec)] px-2 py-0.5 rounded-md border border-[var(--border-color)]">
+                          Taxa: {c.comissao_padrao_percentual || 0}%
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -1144,6 +1534,15 @@ export default function ComissoesAdminPanel() {
                       >
                         <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                         <span>Editar</span>
+                      </button>
+
+                      <button
+                        onClick={() => openLinkModal(c)}
+                        className="flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                        title="Anexar / Gerenciar conta de acesso"
+                      >
+                        <Link2 className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Conta</span>
                       </button>
 
                       <button
@@ -1229,9 +1628,25 @@ export default function ComissoesAdminPanel() {
                               <span className="font-bold text-[var(--text-main)] block text-sm">
                                 {c.nome}
                               </span>
-                              <span className="text-[10px] text-[var(--text-muted)]">
-                                Taxa: {c.comissao_padrao_percentual || 0}%
-                              </span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-[var(--text-muted)]">
+                                  Taxa: {c.comissao_padrao_percentual || 0}%
+                                </span>
+                                {(() => {
+                                  const linked = usuariosContas.find((u) => u.colaborador_id === c.id);
+                                  return linked ? (
+                                    <span className="text-[10px] text-emerald-400 flex items-center gap-1 font-semibold" title={`Conta de login: ${linked.email}`}>
+                                      <UserCheck className="w-3 h-3 text-emerald-400" />
+                                      <span className="truncate max-w-[130px]">{linked.email}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-amber-400/80 flex items-center gap-1 font-medium">
+                                      <UserX className="w-3 h-3 text-amber-400" />
+                                      <span>Sem conta</span>
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -1267,30 +1682,57 @@ export default function ComissoesAdminPanel() {
 
                         {/* TOTAL ESTIMADO EM DESTAQUE */}
                         <td className="py-3.5 px-4 text-right font-black text-emerald-400 text-sm bg-emerald-500/5 whitespace-nowrap font-mono">
-                          {formatCurrencyBR(stats.totalEstimado)}
+                          <div>
+                            <span>{formatCurrencyBR(stats.totalEstimado)}</span>
+                            {stats.dividaAnterior > 0 && (
+                              <span className="text-[10px] text-rose-400 block font-normal font-sans">
+                                (Dívida: -{formatCurrencyBR(stats.dividaAnterior)})
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="py-3.5 px-4 text-right font-black text-amber-400 whitespace-nowrap">
                           <div>
                             <span className="font-mono">{formatCurrencyBR(stats.totalProducao)}</span>
-                            {stats.metaSemanal > 0 && (
+                            {stats.modalidade !== 'fixo' && stats.metaSemanal > 0 && (
                               <span className="text-[10px] text-[var(--text-muted)] block font-normal font-sans">
                                 Meta: {formatCurrencyBR(stats.metaSemanal)} ({stats.percentualMeta.toFixed(0)}%)
+                              </span>
+                            )}
+                            {stats.modalidade === 'fixo' && (
+                              <span className="text-[10px] text-blue-400/90 block font-bold font-sans">
+                                Sem meta (Fixo)
                               </span>
                             )}
                           </div>
                         </td>
 
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span
-                            className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-lg border ${
-                              isSomenteNota
-                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                            }`}
-                          >
-                            {isSomenteNota ? 'Somente Nota' : 'Livre'}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span
+                              className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                                stats.modalidade === 'fixo'
+                                  ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                  : stats.modalidade === 'meta'
+                                  ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              }`}
+                            >
+                              {stats.modalidade === 'fixo' && 'Fixo'}
+                              {stats.modalidade === 'meta' && `Meta ${stats.metaPercentual || 0}%`}
+                              {stats.modalidade === 'fixo_comissao' && 'Fixo + Com.'}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-lg border w-fit ${
+                                isSomenteNota
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                  : 'bg-white/5 text-[var(--text-muted)] border-[var(--border-color)]'
+                              }`}
+                            >
+                              {isSomenteNota ? 'Somente Nota' : 'Livre'}
+                            </span>
+                          </div>
                         </td>
 
                         <td className="py-3.5 px-5 text-right whitespace-nowrap min-w-[250px]">
@@ -1302,6 +1744,15 @@ export default function ComissoesAdminPanel() {
                             >
                               <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                               <span>Editar</span>
+                            </button>
+
+                            <button
+                              onClick={() => openLinkModal(c)}
+                              className="h-8 px-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 transition-all flex items-center gap-1.5 text-xs font-black uppercase tracking-wider shrink-0 cursor-pointer shadow-sm active:scale-95"
+                              title="Anexar ou trocar conta de login do sistema"
+                            >
+                              <Link2 className="w-3.5 h-3.5 text-purple-400" />
+                              <span>Conta</span>
                             </button>
 
                             <button
@@ -1441,54 +1892,182 @@ export default function ComissoesAdminPanel() {
                   </div>
                 </div>
 
-                {/* Seção 2: Configurações Financeiras */}
-                <div className="space-y-3 pt-3 border-t border-[var(--border-color)]">
+                {/* Seção 2: Modalidade de Remuneração e Parâmetros */}
+                <div className="space-y-4 pt-3 border-t border-[var(--border-color)]">
                   <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
-                    <DollarSign className="w-3.5 h-3.5" /> 2. Parâmetros Salariais & Metas
+                    <DollarSign className="w-3.5 h-3.5" /> 2. Modalidade de Remuneração
                   </h4>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                        Salário Base (R$)
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={form.salarioBase || ''}
-                        onChange={(e) => setForm({ ...form, salarioBase: Number(e.target.value) || 0 })}
-                        placeholder="0.00"
-                        className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
-                      />
-                    </label>
+                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / META */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'fixo', metaSemanal: 0, comissaoPadraoPercentual: 0 })}
+                      className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                        form.modalidadeRemuneracao === 'fixo'
+                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
+                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
+                          <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'fixo' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
+                          Fixo (Sem Meta)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[var(--text-muted)] leading-tight">
+                        Recebe valor semanal fixo. Não possui meta de produção.
+                      </p>
+                    </button>
 
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                        Comissão Padrão (%)
-                      </span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={form.comissaoPadraoPercentual || ''}
-                        onChange={(e) => setForm({ ...form, comissaoPadraoPercentual: Number(e.target.value) || 0 })}
-                        placeholder="10"
-                        className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-emerald-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
-                      />
-                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'fixo_comissao' })}
+                      className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                        form.modalidadeRemuneracao === 'fixo_comissao'
+                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
+                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
+                          <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'fixo_comissao' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
+                          Fixo + Comissão
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[var(--text-muted)] leading-tight">
+                        Valor fixo semanal + % de comissão sobre a produção própria.
+                      </p>
+                    </button>
 
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                        Meta Semanal (R$)
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={form.metaSemanal || ''}
-                        onChange={(e) => setForm({ ...form, metaSemanal: Number(e.target.value) || 0 })}
-                        placeholder="0.00"
-                        className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-amber-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
-                      />
-                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'meta' })}
+                      className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                        form.modalidadeRemuneracao === 'meta'
+                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
+                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
+                          <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'meta' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
+                          Meta
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[var(--text-muted)] leading-tight">
+                        % sobre a produção individual (sem valor mínimo/máximo obrigatório).
+                      </p>
+                    </button>
+                  </div>
+
+                  {/* Campos dinâmicos conforme modalidade selecionada */}
+                  <div className="p-4 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] space-y-3">
+                    {/* Modalidade 1: FIXO */}
+                    {form.modalidadeRemuneracao === 'fixo' && (
+                      <div className="space-y-3">
+                        <label className="space-y-1 block max-w-sm">
+                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                            Salário Fixo Semanal (R$) *
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={form.salarioBase || ''}
+                            onChange={(e) => setForm({ ...form, salarioBase: Number(e.target.value) || 0, metaSemanal: 0, comissaoPadraoPercentual: 0 })}
+                            placeholder="Ex: 350.00"
+                            className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                          />
+                        </label>
+
+                        <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                          <span>
+                            <strong>Funcionário fixo não tem meta:</strong> A remuneração é 100% semanal e não depende de meta nem de volume de produção.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Modalidade 2: FIXO + COMISSÃO */}
+                    {form.modalidadeRemuneracao === 'fixo_comissao' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                        <label className="space-y-1 block">
+                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                            Salário Fixo Semanal (R$) *
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={form.salarioBase || ''}
+                            onChange={(e) => setForm({ ...form, salarioBase: Number(e.target.value) || 0 })}
+                            placeholder="Ex: 350.00"
+                            className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                          />
+                        </label>
+
+                        <label className="space-y-1 block">
+                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                            Comissão Padrão (%) *
+                          </span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={form.comissaoPadraoPercentual || ''}
+                            onChange={(e) => setForm({ ...form, comissaoPadraoPercentual: Number(e.target.value) || 0 })}
+                            placeholder="10"
+                            className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-emerald-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                          />
+                        </label>
+
+                        <label className="space-y-1 block">
+                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                            Meta Semanal (R$) — Opcional
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={form.metaSemanal || ''}
+                            onChange={(e) => setForm({ ...form, metaSemanal: Number(e.target.value) || 0 })}
+                            placeholder="0.00"
+                            className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-amber-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {/* Modalidade 3: META */}
+                    {form.modalidadeRemuneracao === 'meta' && (
+                      <div className="space-y-3">
+                        <label className="space-y-1 block max-w-sm">
+                          <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                            Percentual sobre a Produção (%) *
+                          </span>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="100"
+                              value={form.metaPercentual || ''}
+                              onChange={(e) => setForm({ ...form, metaPercentual: Number(e.target.value) || 0 })}
+                              placeholder="Ex: 25"
+                              className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl pl-3.5 pr-8 text-sm text-emerald-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-emerald-400">
+                              %
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-[var(--text-muted)] block mt-0.5">
+                            Exemplos: 5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 50% ou qualquer outro percentual livre informado pelo administrador.
+                          </span>
+                        </label>
+
+                        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] leading-relaxed">
+                          💡 <strong>Fórmula da Modalidade Meta:</strong> Remuneração = Produção Individual × {form.metaPercentual || 0}%. O cálculo depende exclusivamente da produção individual multiplicada pelo percentual configurado (sem piso, sem teto e sem valor mínimo).
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1543,7 +2122,94 @@ export default function ComissoesAdminPanel() {
                   </div>
                 </div>
 
-                {/* Seção 4: Status Ativo / Inativo */}
+                {/* Seção 4: Conta de Usuário do Sistema (Anexar Conta) */}
+                <div className="space-y-3 pt-3 border-t border-[var(--border-color)]">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
+                      <Link2 className="w-3.5 h-3.5" /> 4. Conta de Acesso ao Sistema (Anexar Conta)
+                    </h4>
+                    <span className="text-[10px] text-[var(--text-muted)]">Opcional</span>
+                  </div>
+
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    Escolha qual conta de usuário anexar a este colaborador para permitir acesso unificado ao sistema e CRM.
+                  </p>
+
+                  <div className="p-4 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] space-y-3.5">
+                    {/* Seletor de conta existente */}
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                        Selecionar Conta de Usuário Existente
+                      </span>
+                      <select
+                        value={form.usuarioId}
+                        disabled={form.criarNovaConta}
+                        onChange={(e) => setForm({ ...form, usuarioId: e.target.value })}
+                        className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3 text-xs sm:text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-medium disabled:opacity-50"
+                      >
+                        <option value="">— Sem conta anexada (Apenas acesso com nome e senha do colaborador) —</option>
+                        {usuariosContas.map((u) => {
+                          const isCurrent = editingId && u.colaborador_id === editingId;
+                          const otherColab = u.colaborador_id && !isCurrent 
+                            ? colaboradores.find((c) => c.id === u.colaborador_id) 
+                            : null;
+                          return (
+                            <option key={u.id} value={u.id}>
+                              {u.name} ({u.email}) {isCurrent ? '— [Atualmente Vinculada]' : otherColab ? `— [Vinculada a ${otherColab.nome}]` : '— [Disponível]'}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    {/* Ou criar nova conta de login */}
+                    <div className="pt-2 border-t border-[var(--border-color)]/60 space-y-2.5">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={form.criarNovaConta}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setForm({
+                              ...form,
+                              criarNovaConta: checked,
+                              novoEmailConta: checked && !form.novoEmailConta
+                                ? `${(form.nome || 'colaborador').toLowerCase().replace(/[^a-z0-9]/g, '')}@empresa.com`
+                                : form.novoEmailConta,
+                              usuarioId: checked ? '' : form.usuarioId,
+                            });
+                          }}
+                          className="w-4 h-4 rounded text-red-600 focus:ring-red-500 bg-[var(--bg-card)] border-[var(--border-color)]"
+                        />
+                        <span className="text-xs font-bold text-[var(--text-main)]">
+                          + Criar nova conta de login no sistema para este funcionário
+                        </span>
+                      </label>
+
+                      {form.criarNovaConta && (
+                        <div className="pl-6 space-y-2 animate-in fade-in duration-200">
+                          <label className="space-y-1 block">
+                            <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                              E-mail da Nova Conta de Login *
+                            </span>
+                            <input
+                              type="email"
+                              value={form.novoEmailConta}
+                              onChange={(e) => setForm({ ...form, novoEmailConta: e.target.value })}
+                              placeholder="exemplo@empresa.com"
+                              className="w-full h-10 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-mono"
+                            />
+                          </label>
+                          <p className="text-[10px] text-[var(--text-muted)]">
+                            ℹ️ O usuário será cadastrado no sistema com o nome informado e terá como senha inicial a <strong>Senha de Acesso</strong> configurada acima.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seção 5: Status Ativo / Inativo */}
                 <div className="pt-3 border-t border-[var(--border-color)] flex items-center justify-between">
                   <div>
                     <span className="text-xs font-bold text-[var(--text-main)] block">Status da Conta</span>
@@ -1582,6 +2248,172 @@ export default function ComissoesAdminPanel() {
                   className="h-11 px-6 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-red-600/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                 >
                   {saving ? 'Salvando...' : editingId ? 'Salvar Alterações' : 'Cadastrar Funcionário'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* 6. MODAL DEDICADO PARA ANEXAR / GERENCIAR CONTA DE USUÁRIO */}
+        {/* ========================================================= */}
+        {linkingColaborador && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="px-6 py-5 border-b border-[var(--border-color)] flex items-center justify-between bg-[var(--bg-card-sec)]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0">
+                    <Link2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black uppercase tracking-tight text-[var(--text-main)]">
+                      Anexar Conta de Usuário
+                    </h3>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Colaborador: <strong className="text-[var(--text-main)]">{linkingColaborador.nome}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setLinkingColaborador(null)}
+                  className="p-2 text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-xl hover:bg-[var(--border-color)] transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Corpo */}
+              <div className="p-6 space-y-5 overflow-y-auto custom-scrollbar flex-1">
+                {/* Status atual */}
+                {(() => {
+                  const currentLinked = usuariosContas.find((u) => u.colaborador_id === linkingColaborador.id);
+                  return (
+                    <div className={`p-4 rounded-2xl border ${
+                      currentLinked
+                        ? 'bg-emerald-500/10 border-emerald-500/30'
+                        : 'bg-amber-500/10 border-amber-500/30'
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5">
+                          {currentLinked ? (
+                            <UserCheck className="w-5 h-5 text-emerald-400" />
+                          ) : (
+                            <UserX className="w-5 h-5 text-amber-400" />
+                          )}
+                        </div>
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <span className={`text-[10px] font-black uppercase tracking-wider block ${
+                            currentLinked ? 'text-emerald-400' : 'text-amber-400'
+                          }`}>
+                            {currentLinked ? 'Conta Vinculada Atualmente' : 'Nenhuma Conta Vinculada'}
+                          </span>
+                          {currentLinked ? (
+                            <div className="text-xs text-[var(--text-main)] font-medium">
+                              <strong>{currentLinked.name}</strong> ({currentLinked.email})
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[var(--text-muted)]">
+                              Este colaborador ainda não possui conta de login anexada à sua ficha.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Opção 1: Selecionar Conta Existente */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider block">
+                    Escolher Conta Existente
+                  </label>
+                  <select
+                    disabled={linkCreateNew}
+                    value={selectedUsuarioForLink}
+                    onChange={(e) => setSelectedUsuarioForLink(e.target.value)}
+                    className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3 text-xs sm:text-sm text-[var(--text-main)] focus:outline-none focus:border-purple-500 transition-all font-medium disabled:opacity-50"
+                  >
+                    <option value="">— Nenhuma conta (Desvincular colaborador) —</option>
+                    {usuariosContas.map((u) => {
+                      const isCurrent = u.colaborador_id === linkingColaborador.id;
+                      const otherColab = u.colaborador_id && !isCurrent 
+                        ? colaboradores.find((c) => c.id === u.colaborador_id) 
+                        : null;
+                      return (
+                        <option key={u.id} value={u.id}>
+                          {u.name} ({u.email}) {isCurrent ? '✓ [Vinculada a este]' : otherColab ? `⚠️ [Vinculada a ${otherColab.nome}]` : '🟢 [Disponível]'}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Opção 2: Criar Nova Conta para este Colaborador */}
+                <div className="p-4 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] space-y-3">
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={linkCreateNew}
+                      onChange={(e) => {
+                        setLinkCreateNew(e.target.checked);
+                        if (e.target.checked && !linkNewEmail) {
+                          setLinkNewEmail(`${linkingColaborador.nome.toLowerCase().replace(/[^a-z0-9]/g, '')}@empresa.com`);
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-[var(--bg-card)] border-[var(--border-color)]"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-[var(--text-main)] block">
+                        Criar uma nova conta de login para {linkingColaborador.nome}
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)] block">
+                        Cria o usuário na tabela de login e já vincula imediatamente.
+                      </span>
+                    </div>
+                  </label>
+
+                  {linkCreateNew && (
+                    <div className="pt-2 border-t border-[var(--border-color)]/60 space-y-2 animate-in fade-in duration-200">
+                      <label className="space-y-1 block">
+                        <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                          E-mail de Login do Usuário *
+                        </span>
+                        <input
+                          type="email"
+                          value={linkNewEmail}
+                          onChange={(e) => setLinkNewEmail(e.target.value)}
+                          placeholder="nome@empresa.com"
+                          className="w-full h-10 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-purple-500 transition-all font-mono"
+                        />
+                      </label>
+                      <p className="text-[10px] text-[var(--text-muted)]">
+                        🔑 A senha de login inicial será a mesma do colaborador (<strong>{linkingColaborador.senha}</strong>).
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-[var(--border-color)] bg-[var(--bg-card-sec)] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setLinkingColaborador(null)}
+                  className="h-11 px-5 rounded-xl text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--border-color)] transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  disabled={savingLink}
+                  onClick={handleSaveLink}
+                  className="h-11 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-purple-600/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {savingLink ? 'Salvando Vínculo...' : 'Salvar Vínculo'}
                 </button>
               </div>
             </div>

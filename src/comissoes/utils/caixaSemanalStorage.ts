@@ -11,7 +11,8 @@
 
 import { supabase } from '../../supabase';
 import { ServiceItem } from '../types';
-import { Desconto, calculateDescontosNoPeriodo } from './supabaseStorage';
+import { Desconto, calculateDescontosNoPeriodo, ModalidadeRemuneracao } from './supabaseStorage';
+import { calcularRemuneracaoSemanal } from './remuneracaoHelper';
 
 export type CaixaStatus = 'aberto' | 'fechado';
 export type FormaPagamento = 'pix' | 'dinheiro' | 'permuta';
@@ -86,11 +87,13 @@ export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string
   const now = new Date();
   const day = now.getDay(); // 0 = domingo ... 6 = sábado
 
-  // No sábado (6), a semana de acerto exibida no modal/dashboard é a que fechou na sexta de ontem (-7 dias).
-  // Nos demais dias (domingo=0 até sexta=5), a semana apurada é a semana corrente.
-  const isSaturday = day === 6;
-  const baseShift = isSaturday ? -7 : 0;
-  const diffToSaturday = -((day + 1) % 7) + baseShift;
+  // Ciclo oficial de produção semanal: SÁBADO até SEXTA-FEIRA.
+  // No sábado (6), (6 + 1) % 7 = 0 -> diffToSaturday = 0 (início do ciclo da semana).
+  // No domingo (0), (0 + 1) % 7 = 1 -> diffToSaturday = -1 (sábado de ontem).
+  // Na segunda (1), diffToSaturday = -2.
+  // ...
+  // Na sexta (5), diffToSaturday = -6 (sábado de 6 dias atrás).
+  const diffToSaturday = -((day + 1) % 7);
 
   const sat = new Date(now);
   sat.setDate(now.getDate() + diffToSaturday + offsetWeeks * 7);
@@ -379,17 +382,40 @@ export function calcularResumoCaixa(
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
-  pagamentos: Pagamento[]
+  pagamentos: Pagamento[],
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number }
 ): ResumoCaixa {
-  const totalComissao = services
-    .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO')
-    .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
+  const validServices = services
+    .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO');
+
+  const totalProducao = validServices.reduce((acc, s) => acc + (s.productionValue || 0), 0);
+  const totalComissaoServicos = validServices.reduce((acc, s) => acc + (s.commissionValue || 0), 0);
+
+  const remuneracao = calcularRemuneracaoSemanal(
+    {
+      modalidade: extra?.modalidadeRemuneracao || 'fixo_comissao',
+      salarioBase,
+      comissaoPadraoPercentual: Number(extra?.comissaoPadraoPercentual) || 0,
+      metaPercentual: Number(extra?.metaPercentual) || 0,
+    },
+    totalProducao,
+    totalComissaoServicos
+  );
+
   const descBounds = getDescontosValesBounds(caixa.semanaInicio, caixa.semanaFim);
   const totalDescontos = calculateDescontosNoPeriodo(descontos, descBounds.start, descBounds.end);
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-  const saldoSemana = salarioBase + totalComissao - totalDescontos - totalPago;
+  const saldoSemana = remuneracao.totalBruto - totalDescontos - totalPago;
   const saldoFinal = caixa.saldoAnterior + saldoSemana;
-  return { salarioBase, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal };
+
+  return {
+    salarioBase: remuneracao.salarioBaseEfetivo,
+    totalComissao: remuneracao.comissaoEfetiva,
+    totalDescontos,
+    totalPago,
+    saldoSemana,
+    saldoFinal,
+  };
 }
 
 /**
@@ -405,11 +431,28 @@ export function calcularResumoNoIntervalo(
   descontos: Desconto[],
   pagamentos: Pagamento[],
   inicio: string,
-  fim: string
+  fim: string,
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number }
 ): ResumoCaixa {
-  const totalComissao = services
-    .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO')
-    .reduce((acc, s) => acc + (s.commissionValue || 0), 0);
+  const validServices = services
+    .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO');
+
+  const totalProducao = validServices.reduce((acc, s) => acc + (s.productionValue || 0), 0);
+  const totalComissaoServicos = validServices.reduce((acc, s) => acc + (s.commissionValue || 0), 0);
+
+  const qtdSemanas = contarSemanasSalario(dataInicioReal, inicio, fim);
+  const salarioBaseTotal = salarioBase * qtdSemanas;
+
+  const remuneracao = calcularRemuneracaoSemanal(
+    {
+      modalidade: extra?.modalidadeRemuneracao || 'fixo_comissao',
+      salarioBase: salarioBaseTotal,
+      comissaoPadraoPercentual: Number(extra?.comissaoPadraoPercentual) || 0,
+      metaPercentual: Number(extra?.metaPercentual) || 0,
+    },
+    totalProducao,
+    totalComissaoServicos
+  );
 
   // Se o fim do período é uma Sexta-feira (semana de trabalho padrão), os descontos e vales
   // estendem até o Sábado de fechamento ("o desconto vem para o dia, agora só a comissão que é contada para o outro dia")
@@ -422,10 +465,16 @@ export function calcularResumoNoIntervalo(
   const totalPago = pagamentos
     .filter((p) => p.data >= descBounds.start && p.data <= descBounds.end)
     .reduce((acc, p) => acc + p.valor, 0);
-  const qtdSemanas = contarSemanasSalario(dataInicioReal, inicio, fim);
-  const salarioBaseNoIntervalo = salarioBase * qtdSemanas;
-  const saldoSemana = salarioBaseNoIntervalo + totalComissao - totalDescontos - totalPago;
-  return { salarioBase: salarioBaseNoIntervalo, totalComissao, totalDescontos, totalPago, saldoSemana, saldoFinal: saldoSemana };
+
+  const saldoSemana = remuneracao.totalBruto - totalDescontos - totalPago;
+  return {
+    salarioBase: remuneracao.salarioBaseEfetivo,
+    totalComissao: remuneracao.comissaoEfetiva,
+    totalDescontos,
+    totalPago,
+    saldoSemana,
+    saldoFinal: saldoSemana,
+  };
 }
 
 // --- Fechamento automático da(s) semana(s) vencida(s) ---
@@ -498,7 +547,8 @@ export async function avancarCaixaSeNecessario(
   caixaInicial: WeeklyCaixa,
   salarioBase: number,
   services: ServiceItem[],
-  descontos: Desconto[]
+  descontos: Desconto[],
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number }
 ): Promise<WeeklyCaixa> {
   let caixa = caixaInicial;
   const hoje = getTodayISO();
@@ -510,7 +560,7 @@ export async function avancarCaixaSeNecessario(
   while (caixa.status === 'aberto' && addDaysISO(caixa.semanaFim, 1) < hoje && guard < 260) {
     guard++;
     const pagamentosDaSemana = await getPagamentosDoCaixa(caixa.id);
-    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana);
+    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, extra);
     const proximo = await fecharCaixa(caixa, resumo);
     if (!proximo) break; // não trava a tela numa semana antiga se o fechamento falhar
     caixa = proximo;

@@ -27,16 +27,52 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // 1. Tratamento automático de erro de carregamento de módulos (Vite chunk mismatch ou reinicialização do dev server)
+      window.addEventListener('vite:preloadError', function(event) {
+        event.preventDefault();
+        window.location.reload();
+      });
+      window.addEventListener('error', function(e) {
+        var msg = (e && (e.message || (e.error && e.error.message))) || '';
+        if (
+          msg.includes('Importing a module script failed') ||
+          msg.includes('Failed to fetch dynamically imported module') ||
+          msg.includes('error loading dynamically imported module')
+        ) {
+          var key = 'module_err_reload';
+          var hasReloaded = sessionStorage.getItem(key);
+          if (!hasReloaded) {
+            sessionStorage.setItem(key, '1');
+            window.location.reload();
+          }
+        }
+      });
+      window.addEventListener('load', function() {
+        sessionStorage.removeItem('module_err_reload');
+      });
+
+      // 2. Service Worker: apenas em produção real com domínio próprio (nunca em ambientes dev/preview de cloud)
       if ('serviceWorker' in navigator) {
-        var isDev = window.location.hostname.includes('ais-dev-') ||
-                    window.location.hostname === 'localhost' ||
-                    window.location.port === '3000';
-        if (isDev) {
+        var host = window.location.hostname;
+        var isDevOrCloudRun = host.includes('ais-dev-') ||
+                              host.includes('ais-pre-') ||
+                              host.includes('.run.app') ||
+                              host.includes('localhost') ||
+                              host.includes('127.0.0.1') ||
+                              window.location.port === '3000';
+        if (isDevOrCloudRun) {
           navigator.serviceWorker.getRegistrations().then(function(regs) {
             for (var i = 0; i < regs.length; i++) {
               regs[i].unregister();
             }
           });
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              for (var i = 0; i < names.length; i++) {
+                caches.delete(names[i]);
+              }
+            });
+          }
         } else {
           window.addEventListener('load', function() {
             navigator.serviceWorker.register('/sw.js').catch(function(err) {

@@ -366,7 +366,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     return true;
   };
 
-  const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
+  const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary, userSettings), [services, userSettings]);
 
   const todayStats = useMemo(() => {
     const todayStr = getTodayISO();
@@ -458,7 +458,16 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
             {activeTab === 'descontos' && (
-              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={isAdmin} onChange={setDescontos} baseSalary={userSettings.baseSalary} services={services} />
+              <DescontosView
+                colaboradorId={colaborador.id}
+                descontos={descontos}
+                isAdmin={isAdmin}
+                onChange={setDescontos}
+                baseSalary={userSettings.baseSalary}
+                services={services}
+                modalidadeRemuneracao={colaborador.modalidadeRemuneracao}
+                metaPercentual={colaborador.metaPercentual}
+              />
             )}
           </>
         )}

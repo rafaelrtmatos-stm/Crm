@@ -42,6 +42,8 @@ export interface UserSettings {
   defaultCommissionRate: number; // Ex: 10%
   weeklyGoal: number; // Ex: R$ 2500,00
   themePreference: ThemeMode;
+  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta';
+  metaPercentual?: number;
 }
 
 export interface FilterOptions {

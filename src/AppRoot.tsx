@@ -9,14 +9,22 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
       const component = await factory();
       sessionStorage.removeItem('chunk_retry_attempt');
       return component;
-    } catch (error: any) {
-      console.warn('Erro ao importar script de módulo dinâmico, tentando recarregar:', error);
-      const hasRetried = sessionStorage.getItem('chunk_retry_attempt');
-      if (!hasRetried && typeof window !== 'undefined') {
-        sessionStorage.setItem('chunk_retry_attempt', 'true');
-        window.location.reload();
+    } catch (firstErr) {
+      console.warn('Primeira tentativa de importar módulo falhou, tentando novamente...', firstErr);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const component = await factory();
+        sessionStorage.removeItem('chunk_retry_attempt');
+        return component;
+      } catch (error: any) {
+        console.warn('Erro ao importar script de módulo dinâmico, tentando recarregar:', error);
+        const hasRetried = sessionStorage.getItem('chunk_retry_attempt');
+        if (!hasRetried && typeof window !== 'undefined') {
+          sessionStorage.setItem('chunk_retry_attempt', 'true');
+          window.location.reload();
+        }
+        throw error;
       }
-      throw error;
     }
   });
 }

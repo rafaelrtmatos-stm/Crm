@@ -323,7 +323,7 @@ export default function ComissoesApp() {
     showToast('Selecione uma nota para adicionar os itens de serviço.');
   };
 
-  const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary), [services, userSettings.baseSalary]);
+  const summaryStats = useMemo(() => calculateSummaryStats(services, userSettings.baseSalary, userSettings), [services, userSettings]);
 
   const todayStats = useMemo(() => {
     const todayStr = getTodayISO();
@@ -414,7 +414,16 @@ export default function ComissoesApp() {
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
             {activeTab === 'descontos' && (
-              <DescontosView colaboradorId={colaborador.id} descontos={descontos} isAdmin={false} onChange={setDescontos} baseSalary={userSettings.baseSalary} services={services} />
+              <DescontosView
+                colaboradorId={colaborador.id}
+                descontos={descontos}
+                isAdmin={false}
+                onChange={setDescontos}
+                baseSalary={userSettings.baseSalary}
+                services={services}
+                modalidadeRemuneracao={colaborador.modalidadeRemuneracao}
+                metaPercentual={colaborador.metaPercentual}
+              />
             )}
           </>
         )}

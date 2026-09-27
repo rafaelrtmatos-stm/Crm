@@ -1,7 +1,7 @@
 -- Adiciona suporte a múltiplas modalidades de remuneração para funcionários/colaboradores:
 -- 1. 'fixo': valor fixo semanal (salario_base)
--- 2. 'fixo_comissao': valor fixo semanal + % de comissão sobre a produção própria
--- 3. 'meta': % sobre produção própria com valor mínimo garantido (piso) e valor máximo (teto)
+-- 2. 'fixo_comissao': valor fixo semanal + comissão sobre a produção própria
+-- 3. 'meta': percentual livre configurado sobre a produção individual (sem piso, teto ou meta em R$)
 
 ALTER TABLE colaboradores
 ADD COLUMN IF NOT EXISTS modalidade_remuneracao varchar DEFAULT 'fixo_comissao';
