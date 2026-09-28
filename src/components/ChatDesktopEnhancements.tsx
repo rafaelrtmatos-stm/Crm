@@ -1512,7 +1512,65 @@ export const CustomerContextSidebar = ({
         )}
 
         {activeTab === 'sales' && (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
+            {/* Bloco Serviço / Pedido Solicitado pelo Lead - Em cima de vendas no card */}
+            <div className="p-3 bg-amber-500/5 border border-amber-500/25 rounded-xl space-y-2 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-amber-400">
+                  <Tag size={13} className="shrink-0" />
+                  <span className="text-[9.5px] font-black uppercase tracking-wider">Serviço do Lead</span>
+                </div>
+                {onSaveOrderInfo && (
+                  <button
+                    type="button"
+                    onClick={onSaveOrderInfo}
+                    disabled={isSavingOrderInfo}
+                    className="px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer shadow-xs active:scale-95"
+                  >
+                    {isSavingOrderInfo ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />} Salvar
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <div>
+                  <label className="text-[8.5px] font-bold text-white/50 uppercase tracking-wide">Qual é o serviço / produto?</label>
+                  <input
+                    value={orderSummaryDraft || ''}
+                    onChange={(e) => setOrderSummaryDraft?.(e.target.value)}
+                    placeholder="Ex: Fachada em ACM, Banner Ilhós, Adesivo..."
+                    className="w-full bg-slate-900/90 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500/60"
+                  />
+                </div>
+                <div>
+                  <label className="text-[8.5px] font-bold text-white/50 uppercase tracking-wide">Valor Estimado (R$ opcional)</label>
+                  <input
+                    type="number"
+                    value={estimatedValueDraft || ''}
+                    onChange={(e) => setEstimatedValueDraft?.(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full bg-slate-900/90 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500/60 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Cabeçalho da Lista de Vendas com botão de Iniciar Venda */}
+            <div className="flex items-center justify-between pt-0.5">
+              <span className="text-[9.5px] font-black uppercase tracking-wider text-blue-400">
+                Histórico de Vendas ({clienteVendas.length})
+              </span>
+              {onStartSale && (
+                <button
+                  type="button"
+                  onClick={onStartSale}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] uppercase tracking-wider flex items-center gap-1 shadow-xs active:scale-95 transition-all cursor-pointer"
+                  title="Iniciar venda deste lead no PDV"
+                >
+                  <ShoppingBag size={10} strokeWidth={2.5} /> Iniciar Venda
+                </button>
+              )}
+            </div>
+
             {isGroup && onStartSale && (
               <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2 mb-2">
                 <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 block">Vendas do Grupo</span>

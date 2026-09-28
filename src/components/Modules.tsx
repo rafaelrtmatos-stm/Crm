@@ -6332,16 +6332,16 @@ export const ChatPanel = ({
             <User size={13} />
           </button>
 
-          {/* Botão Resolvido (Alerta de Vácuo) */}
-          {conversation.waitingSince && !notificacaoPendente && (
+          {/* Botão Resolvido (Alerta de Vácuo / Tempo de Espera) */}
+          {(effectiveWaitingSince || conversation.waitingSince) && !notificacaoPendente && (
             <button
               type="button"
               onClick={handleResolveWaiting}
-              title="Marcar como resolvido (tira o alerta de vácuo)"
-              className="flex items-center gap-1 px-2 h-7 sm:h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all text-[9px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer"
+              title="Resolvido (tira o alerta de espera)"
+              className="flex items-center gap-1.5 px-2.5 h-7 sm:h-8 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 active:scale-95 transition-all text-[9.5px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
             >
-              <CheckCircle2 size={11} />
-              <span className="hidden lg:inline">Resolvido</span>
+              <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />
+              <span>Resolvido</span>
             </button>
           )}
 
@@ -6428,18 +6428,6 @@ export const ChatPanel = ({
                       </div>
                     );
                   })()}
-
-                  {/* Marcar como Resolvido / Tirar Vácuo (visível se tiver mensagem aguardando) */}
-                  {(effectiveWaitingSince || conversation.waitingSince) && !notificacaoPendente && (
-                    <button
-                      type="button"
-                      onClick={() => { handleResolveWaiting(); setShowQuickActions(false); }}
-                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-amber-300 hover:bg-amber-500/15 border border-amber-500/30 flex items-center gap-2.5 transition-colors cursor-pointer mb-1"
-                    >
-                      <CheckCircle2 size={14} className="text-amber-400 shrink-0" />
-                      <span>Marcar como Resolvido (Tirar Vácuo)</span>
-                    </button>
-                  )}
 
                   {activeTab !== 'chat' && (
                     <button
@@ -7649,7 +7637,46 @@ export const ChatPanel = ({
           )}
 
           {activeTab === 'sales' && (
-            <motion.div key="sales" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 md:p-8 space-y-4 overflow-y-auto custom-scrollbar h-full">
+            <motion.div key="sales" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 md:p-8 space-y-5 overflow-y-auto custom-scrollbar h-full">
+               {/* Bloco Serviço / Pedido Solicitado pelo Lead - Em cima de Vendas */}
+               <div className="p-4 bg-amber-500/5 border border-amber-500/25 rounded-2xl space-y-3 shadow-sm">
+                 <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2 text-amber-400">
+                     <Tag size={15} className="shrink-0" />
+                     <span className="text-xs font-black uppercase tracking-wider">Serviço do Lead</span>
+                   </div>
+                   <button
+                     type="button"
+                     onClick={handleSaveOrderInfo}
+                     disabled={isSavingOrderInfo}
+                     className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-xs active:scale-95"
+                   >
+                     {isSavingOrderInfo ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Salvar
+                   </button>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                   <div>
+                     <label className="text-[10px] font-bold text-white/50 uppercase tracking-wide block mb-1">Qual é o serviço / produto?</label>
+                     <input
+                       value={orderSummaryDraft || ''}
+                       onChange={(e) => setOrderSummaryDraft(e.target.value)}
+                       placeholder="Ex: Fachada em ACM, Banner Ilhós, Adesivo..."
+                       className="w-full bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500/60"
+                     />
+                   </div>
+                   <div>
+                     <label className="text-[10px] font-bold text-white/50 uppercase tracking-wide block mb-1">Valor Estimado (R$ opcional)</label>
+                     <input
+                       type="number"
+                       value={estimatedValueDraft || ''}
+                       onChange={(e) => setEstimatedValueDraft(e.target.value)}
+                       placeholder="0,00"
+                       className="w-full bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500/60 font-mono"
+                     />
+                   </div>
+                 </div>
+               </div>
+
                <div className="flex items-center justify-between">
                  <div>
                    <h3 className="text-xl font-bold text-white italic">Histórico de Vendas</h3>
@@ -7851,6 +7878,7 @@ export const ChatPanel = ({
                 setEstimatedValueDraft={setEstimatedValueDraft}
                 onSaveOrderInfo={handleSaveOrderInfo}
                 isSavingOrderInfo={isSavingOrderInfo}
+                onStartSale={handleStartSale}
                 onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
@@ -7914,6 +7942,7 @@ export const ChatPanel = ({
                 setEstimatedValueDraft={setEstimatedValueDraft}
                 onSaveOrderInfo={handleSaveOrderInfo}
                 isSavingOrderInfo={isSavingOrderInfo}
+                onStartSale={handleStartSale}
                 onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
@@ -7970,6 +7999,7 @@ export const ChatPanel = ({
                 setEstimatedValueDraft={setEstimatedValueDraft}
                 onSaveOrderInfo={handleSaveOrderInfo}
                 isSavingOrderInfo={isSavingOrderInfo}
+                onStartSale={handleStartSale}
                 onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}

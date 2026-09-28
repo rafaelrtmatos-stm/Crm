@@ -180,7 +180,7 @@ export const NotificacaoPendenteBanner = ({
           )}
         >
           <CheckCircle2 size={11} />
-          <span>Marcar como resolvido</span>
+          <span>Resolvido</span>
         </button>
       </div>
     </div>
