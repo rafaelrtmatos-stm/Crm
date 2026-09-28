@@ -4082,7 +4082,128 @@ export const ChatPanel = ({
     }
     return true;
   });
-  const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales'>('sales');
+  const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales' | 'participants' | 'media'>('sales');
+
+  // Detecção se esta conversa aberta é um GRUPO de WhatsApp
+  const phoneDigits = (conversation?.phone || '').replace(/\D/g, '');
+  const [isGroup, setIsGroup] = useState<boolean>(() => {
+    const p = String(conversation?.phone || '');
+    if (p.includes('@g.us') || conversation?.groupJid || conversation?.isGroup) return true;
+    if (phoneDigits.length >= 16 && phoneDigits.startsWith('120363')) return true;
+    return false;
+  });
+
+  useEffect(() => {
+    const p = String(conversation?.phone || '');
+    if (p.includes('@g.us') || conversation?.groupJid || conversation?.isGroup) {
+      setIsGroup(true);
+      return;
+    }
+    const digits = p.replace(/\D/g, '');
+    if (digits.length >= 16 && digits.startsWith('120363')) {
+      setIsGroup(true);
+      return;
+    }
+    if (!digits) {
+      setIsGroup(false);
+      return;
+    }
+    supabase
+      .from('whatsapp_groups')
+      .select('id, group_jid')
+      .eq('company_id', 'rafa-arts')
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const match = data.some((g: any) => {
+            const gd = (g.group_jid || '').replace('@g.us', '').replace(/\D/g, '');
+            return gd && (gd === digits || digits.includes(gd) || gd.includes(digits));
+          });
+          if (match) setIsGroup(true);
+        }
+      });
+  }, [conversation?.phone, conversation?.id]);
+
+  useEffect(() => {
+    if (isGroup && (sidebarActiveTab === 'data' || sidebarActiveTab === 'notes' || sidebarActiveTab === 'tasks')) {
+      setSidebarActiveTab('participants');
+    }
+  }, [isGroup]);
+
+  // Mídias enviadas no grupo
+  const [groupMedia, setGroupMedia] = useState<any[]>([]);
+  useEffect(() => {
+    if (!isGroup || !conversation?.phone) return;
+    const digits = (conversation.phone || '').replace(/\D/g, '');
+    supabase
+      .from('crm_messages')
+      .select('id, text, media_url, content_type, file_name, created_at, sender_name, direction')
+      .eq('company_id', 'rafa-arts')
+      .eq('phone', digits)
+      .not('media_url', 'is', null)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (data) setGroupMedia(data);
+      });
+  }, [isGroup, conversation?.phone]);
+
+  // Participantes do grupo
+  const [groupParticipants, setGroupParticipants] = useState<any[]>([]);
+  useEffect(() => {
+    if (!isGroup || !conversation?.phone) return;
+    const digits = (conversation.phone || '').replace(/\D/g, '');
+    const groupJid = String(conversation.phone).includes('@g.us') 
+      ? conversation.phone 
+      : `${digits}@g.us`;
+
+    fetch('/api/whatsapp-group-participants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+      body: JSON.stringify({ groupJid, phone: digits }),
+    })
+      .then(r => r.json())
+      .then(res => {
+        if (res?.ok && Array.isArray(res.participants) && res.participants.length > 0) {
+          setGroupParticipants(res.participants);
+          return;
+        }
+        throw new Error('fallback');
+      })
+      .catch(() => {
+        supabase
+          .from('crm_messages')
+          .select('sender_name, direction, created_at')
+          .eq('company_id', 'rafa-arts')
+          .eq('phone', digits)
+          .order('created_at', { ascending: false })
+          .limit(300)
+          .then(({ data }) => {
+            if (data) {
+              const map = new Map<string, { name: string; count: number; lastActive: string; role: string }>();
+              data.forEach((m: any) => {
+                const name = (m.sender_name || (m.direction === 'outgoing' ? 'Atendente' : 'Participante')).trim();
+                if (!map.has(name)) {
+                  map.set(name, {
+                    name,
+                    count: 1,
+                    lastActive: m.created_at,
+                    role: m.direction === 'outgoing' ? 'Admin / Empresa' : 'Membro'
+                  });
+                } else {
+                  map.get(name)!.count++;
+                }
+              });
+              const list = Array.from(map.values()).map(p => ({
+                id: p.name,
+                name: p.name,
+                admin: p.role.includes('Admin') ? 'admin' : null,
+                messageCount: p.count,
+                lastActive: p.lastActive
+              }));
+              setGroupParticipants(list);
+            }
+          });
+      });
+  }, [isGroup, conversation?.phone]);
   const toggleDesktopSidebar = () => {
     setShowDesktopSidebar(prev => {
       const next = !prev;

@@ -26,6 +26,7 @@ function apiDevMiddleware(): Plugin {
             'transcrever-pendentes': { file: 'transcrever.js', query: { rota: 'pendentes' } },
             'whatsapp-foto-perfil': { file: 'whatsapp-contato.js', query: { rota: 'foto-perfil' } },
             'whatsapp-presence-subscribe': { file: 'whatsapp-contato.js', query: { rota: 'presence-subscribe' } },
+            'whatsapp-group-participants': { file: 'whatsapp-contato.js', query: { rota: 'group-participants' } },
             'whatsapp-edit-message': { file: 'whatsapp-message-actions.js', query: { rota: 'editar' } },
             'whatsapp-delete-message': { file: 'whatsapp-message-actions.js', query: { rota: 'apagar' } },
           };

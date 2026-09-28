@@ -34,7 +34,12 @@ import {
   PanelRightClose,
   Forward,
   ArrowLeft,
-  User
+  User,
+  Image as ImageIcon,
+  Film,
+  FileText,
+  Mic,
+  Download
 } from 'lucide-react';
 import { Badge, Button, cn, AvatarPhoto } from './SharedUI';
 import { format } from 'date-fns';
@@ -560,11 +565,17 @@ export const CustomerContextSidebar = ({
   tags = [],
   onSaveTags,
   isMobileDrawer = false,
+  isGroup = false,
+  groupParticipants = [],
+  groupMedia = [],
+  onOpenMediaViewer,
+  onStartSale,
+  onOpenChatWithPhone,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  activeTab: 'data' | 'notes' | 'tasks' | 'sales';
-  setActiveTab: (t: 'data' | 'notes' | 'tasks' | 'sales') => void;
+  activeTab: 'data' | 'notes' | 'tasks' | 'sales' | 'participants' | 'media';
+  setActiveTab: (t: 'data' | 'notes' | 'tasks' | 'sales' | 'participants' | 'media') => void;
   conversation: any;
   clienteVinculado: any;
   isLoadingCliente: boolean;
@@ -602,8 +613,16 @@ export const CustomerContextSidebar = ({
   tags?: string[];
   onSaveTags?: (tags: string[]) => void;
   isMobileDrawer?: boolean;
+  isGroup?: boolean;
+  groupParticipants?: any[];
+  groupMedia?: any[];
+  onOpenMediaViewer?: (media: any) => void;
+  onStartSale?: () => void;
+  onOpenChatWithPhone?: (phone: string) => void;
 }) => {
   const [newTagInput, setNewTagInput] = useState('');
+  const [participantSearch, setParticipantSearch] = useState('');
+  const [mediaSubFilter, setMediaSubFilter] = useState<'all' | 'images' | 'audio' | 'documents'>('all');
 
   const handleAddTag = () => {
     const val = newTagInput.trim();
@@ -629,6 +648,38 @@ export const CustomerContextSidebar = ({
 
   if (!isOpen) return null;
 
+  const isMediaImage = (m: any) => m.content_type === 'image' || m.mediaContentType === 'image' || /\.(jpe?g|png|webp|gif|bmp)($|\?)/i.test(m.media_url || m.mediaUrl || '');
+  const isMediaVideo = (m: any) => m.content_type === 'video' || m.mediaContentType === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(m.media_url || m.mediaUrl || '');
+  const isMediaAudio = (m: any) => m.content_type === 'audio' || m.mediaContentType === 'audio' || /\.(ogg|opus|mp3|wav|m4a)($|\?)/i.test(m.media_url || m.mediaUrl || '');
+  const isMediaDoc = (m: any) => !isMediaImage(m) && !isMediaVideo(m) && !isMediaAudio(m);
+
+  const imagesAndVideos = (groupMedia || []).filter(m => isMediaImage(m) || isMediaVideo(m));
+  const audios = (groupMedia || []).filter(m => isMediaAudio(m));
+  const docs = (groupMedia || []).filter(m => isMediaDoc(m));
+
+  const filteredParticipants = (groupParticipants || []).filter((p: any) => {
+    if (!participantSearch.trim()) return true;
+    const term = participantSearch.toLowerCase();
+    return (p.name || '').toLowerCase().includes(term) || (p.phoneNumber || '').includes(term);
+  });
+
+  const resolvedTab = isGroup
+    ? (activeTab === 'participants' || activeTab === 'media' || activeTab === 'sales' ? activeTab : 'participants')
+    : activeTab;
+
+  const tabsList = isGroup
+    ? [
+        { id: 'participants', label: 'PARTICIPANTES', icon: Users, count: (groupParticipants || []).length },
+        { id: 'media', label: 'MÍDIAS', icon: ImageIcon, count: (groupMedia || []).length },
+        { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
+      ]
+    : [
+        { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
+        { id: 'data', label: 'DADOS', icon: Users },
+        { id: 'notes', label: 'NOTAS', icon: StickyNote, count: notes.length },
+        { id: 'tasks', label: 'TAREFAS', icon: ListTodo, count: tasks.filter(t => !t.completedAt).length },
+      ];
+
   return (
     <aside className={cn(
       "border border-white/10 bg-slate-950/95 backdrop-blur-2xl flex flex-col h-full shrink-0 select-text overflow-hidden shadow-2xl",
@@ -647,8 +698,15 @@ export const CustomerContextSidebar = ({
               <ArrowLeft size={16} />
             </button>
           )}
-          <User size={14} className="text-red-400" />
-          <h4 className="text-[11px] font-black text-white uppercase tracking-wider">Perfil do Contato</h4>
+          {isGroup ? <Users size={14} className="text-emerald-400" /> : <User size={14} className="text-red-400" />}
+          <h4 className="text-[11px] font-black text-white uppercase tracking-wider">
+            {isGroup ? 'Perfil do Grupo' : 'Perfil do Contato'}
+          </h4>
+          {isGroup && (
+            <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
+              Grupo
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -662,26 +720,21 @@ export const CustomerContextSidebar = ({
 
       {/* Sub-abas do painel lateral */}
       <div className="flex border-b border-white/10 bg-white/[0.02] px-1 shrink-0">
-        {[
-          { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
-          { id: 'data', label: 'DADOS', icon: Users },
-          { id: 'notes', label: 'NOTAS', icon: StickyNote, count: notes.length },
-          { id: 'tasks', label: 'TAREFAS', icon: ListTodo, count: tasks.filter(t => !t.completedAt).length },
-        ].map(tab => (
+        {tabsList.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
             className={cn(
               "flex-1 py-2 text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border-b-2",
-              activeTab === tab.id 
-                ? "border-red-500 text-white bg-red-950/30" 
+              resolvedTab === tab.id 
+                ? (isGroup ? "border-emerald-500 text-white bg-emerald-950/30" : "border-red-500 text-white bg-red-950/30")
                 : "border-transparent text-white/40 hover:text-white/80"
             )}
           >
-            <tab.icon size={11} className={activeTab === tab.id ? "text-red-400" : "text-white/30"} />
+            <tab.icon size={11} className={resolvedTab === tab.id ? (isGroup ? "text-emerald-400" : "text-red-400") : "text-white/30"} />
             <span>{tab.label}</span>
             {tab.count !== undefined && tab.count > 0 && (
-              <span className={cn("ml-0.5 text-[8px] px-1 py-0.2 rounded-full font-bold", activeTab === tab.id ? "bg-red-500 text-white" : "bg-white/10 text-white/60")}>
+              <span className={cn("ml-0.5 text-[8px] px-1 py-0.2 rounded-full font-bold", resolvedTab === tab.id ? (isGroup ? "bg-emerald-500 text-slate-950" : "bg-red-500 text-white") : "bg-white/10 text-white/60")}>
                 {tab.count}
               </span>
             )}
@@ -691,7 +744,243 @@ export const CustomerContextSidebar = ({
 
       {/* Conteúdo da sub-aba */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 text-xs">
-        {activeTab === 'data' && (
+        {/* ABA EXCLUSIVA DO GRUPO: PARTICIPANTES */}
+        {isGroup && resolvedTab === 'participants' && (
+          <div className="space-y-3">
+            {/* Card Resumo do Grupo */}
+            <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-xs shrink-0">
+                  <Users size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h5 className="font-bold text-white text-xs truncate">
+                    {conversation.name || 'Grupo de WhatsApp'}
+                  </h5>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-emerald-400 font-bold">
+                      {(groupParticipants || []).length} participante{(groupParticipants || []).length === 1 ? '' : 's'}
+                    </span>
+                    <span className="text-white/30 text-[10px]">•</span>
+                    <span className="text-[9.5px] text-white/50">WhatsApp</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Ação rápida: Iniciar Venda */}
+            {onStartSale && (
+              <button
+                type="button"
+                onClick={onStartSale}
+                className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <ShoppingBag size={13} strokeWidth={2.5} />
+                <span>Iniciar Venda no PDV</span>
+              </button>
+            )}
+
+            {/* Busca de participantes */}
+            {(groupParticipants || []).length > 3 && (
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
+                <input
+                  type="text"
+                  value={participantSearch}
+                  onChange={(e) => setParticipantSearch(e.target.value)}
+                  placeholder="Buscar participante..."
+                  className="w-full bg-white/5 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-500/50"
+                />
+              </div>
+            )}
+
+            {/* Lista de participantes */}
+            <div className="space-y-1.5 max-h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
+              {filteredParticipants.length === 0 ? (
+                <p className="text-center py-6 text-white/30 text-[11px]">Nenhum participante listado ainda.</p>
+              ) : (
+                filteredParticipants.map((p: any, idx: number) => (
+                  <div
+                    key={p.id || idx}
+                    className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 transition-colors group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-white/80 font-bold text-[10px] shrink-0">
+                        {(p.name || p.phoneNumber || '?').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-white truncate max-w-[140px]">
+                            {p.name || p.phoneNumber || 'Participante'}
+                          </span>
+                          {p.admin && (
+                            <span className="text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300">
+                              Admin
+                            </span>
+                          )}
+                        </div>
+                        {p.phoneNumber && (
+                          <span className="text-[9px] text-white/40 block truncate">
+                            {p.phoneNumber}
+                          </span>
+                        )}
+                        {p.messageCount && (
+                          <span className="text-[8.5px] text-white/30 block">
+                            {p.messageCount} mensage{p.messageCount === 1 ? 'm' : 'ns'} enviada{p.messageCount === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {onStartSale && (
+                        <button
+                          type="button"
+                          onClick={onStartSale}
+                          title="Iniciar Venda PDV"
+                          className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                        >
+                          <ShoppingBag size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ABA EXCLUSIVA DO GRUPO: MÍDIAS ENVIADAS */}
+        {isGroup && resolvedTab === 'media' && (
+          <div className="space-y-3">
+            {/* Filtros de mídia */}
+            <div className="flex gap-1 p-0.5 bg-white/5 rounded-xl border border-white/5 text-[9.5px] font-bold">
+              {[
+                { id: 'all', label: 'Todas', count: (groupMedia || []).length },
+                { id: 'images', label: 'Fotos/Vídeos', count: imagesAndVideos.length },
+                { id: 'audio', label: 'Áudios', count: audios.length },
+                { id: 'documents', label: 'Docs', count: docs.length },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setMediaSubFilter(f.id as any)}
+                  className={cn(
+                    "flex-1 py-1 rounded-lg text-center transition-all",
+                    mediaSubFilter === f.id
+                      ? "bg-purple-500 text-white shadow-sm font-black"
+                      : "text-white/50 hover:text-white"
+                  )}
+                >
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+
+            {/* Conteúdo de mídias */}
+            {(groupMedia || []).length === 0 ? (
+              <div className="text-center py-10 space-y-2">
+                <ImageIcon size={24} className="mx-auto text-white/20" />
+                <p className="text-white/40 text-xs">Nenhuma mídia enviada encontrada neste grupo.</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-[calc(100vh-240px)] overflow-y-auto custom-scrollbar pr-0.5">
+                {/* Seção Imagens e Vídeos em Grid */}
+                {(mediaSubFilter === 'all' || mediaSubFilter === 'images') && imagesAndVideos.length > 0 && (
+                  <div>
+                    {mediaSubFilter === 'all' && (
+                      <span className="text-[9px] font-black uppercase tracking-wider text-white/40 block mb-1.5">
+                        Fotos e Vídeos ({imagesAndVideos.length})
+                      </span>
+                    )}
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {imagesAndVideos.map((m: any) => {
+                        const url = m.media_url || m.mediaUrl;
+                        const isVid = isMediaVideo(m);
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => onOpenMediaViewer?.({ url, caption: m.text, fileName: m.file_name || m.fileName })}
+                            className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-pointer bg-slate-900"
+                          >
+                            {isVid ? (
+                              <video src={url} className="w-full h-full object-cover" />
+                            ) : (
+                              <img src={url} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-150" loading="lazy" />
+                            )}
+                            {isVid && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                                <Film size={14} className="text-white" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <ExternalLink size={14} className="text-white" />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Seção Áudios */}
+                {(mediaSubFilter === 'all' || mediaSubFilter === 'audio') && audios.length > 0 && (
+                  <div className="space-y-1.5">
+                    {mediaSubFilter === 'all' && (
+                      <span className="text-[9px] font-black uppercase tracking-wider text-white/40 block mt-2 mb-1.5">
+                        Áudios ({audios.length})
+                      </span>
+                    )}
+                    {audios.map((m: any) => {
+                      const url = m.media_url || m.mediaUrl;
+                      return (
+                        <div key={m.id} className="p-2 bg-white/[0.03] border border-white/5 rounded-xl space-y-1">
+                          <div className="flex items-center justify-between text-[9px] text-white/40">
+                            <span className="font-bold text-white/70 truncate">{m.sender_name || 'Áudio'}</span>
+                            <span>{safeFormatDate(m.created_at || m.createdAt, 'dd/MM HH:mm')}</span>
+                          </div>
+                          <audio src={url} controls className="w-full h-7 rounded" preload="metadata" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Seção Documentos */}
+                {(mediaSubFilter === 'all' || mediaSubFilter === 'documents') && docs.length > 0 && (
+                  <div className="space-y-1.5">
+                    {mediaSubFilter === 'all' && (
+                      <span className="text-[9px] font-black uppercase tracking-wider text-white/40 block mt-2 mb-1.5">
+                        Documentos ({docs.length})
+                      </span>
+                    )}
+                    {docs.map((m: any) => {
+                      const url = m.media_url || m.mediaUrl;
+                      return (
+                        <a
+                          key={m.id}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between gap-2 p-2 bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 rounded-xl transition-colors group text-left"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText size={16} className="text-purple-400 shrink-0" />
+                            <span className="text-xs font-bold text-white truncate max-w-[180px]">
+                              {m.file_name || m.fileName || 'Documento'}
+                            </span>
+                          </div>
+                          <Download size={12} className="text-white/40 group-hover:text-white shrink-0" />
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isGroup && resolvedTab === 'data' && (
           <div className="space-y-2.5">
             {/* Bloco Resumo do Cliente: Nome, WhatsApp e Status */}
             <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-2.5">
@@ -800,7 +1089,7 @@ export const CustomerContextSidebar = ({
           </div>
         )}
 
-        {activeTab === 'notes' && (
+        {!isGroup && activeTab === 'notes' && (
           <div className="space-y-3">
             <div className="space-y-2">
               <textarea
@@ -850,7 +1139,7 @@ export const CustomerContextSidebar = ({
           </div>
         )}
 
-        {activeTab === 'tasks' && (
+        {!isGroup && activeTab === 'tasks' && (
           <div className="space-y-3">
             <div className="flex gap-1.5">
               <input
@@ -904,10 +1193,26 @@ export const CustomerContextSidebar = ({
 
         {activeTab === 'sales' && (
           <div className="space-y-2">
+            {isGroup && onStartSale && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2 mb-2">
+                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 block">Vendas do Grupo</span>
+                <p className="text-[11px] text-white/70">Inicie um pedido ou orçamento no PDV com este grupo de WhatsApp.</p>
+                <button
+                  type="button"
+                  onClick={onStartSale}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+                >
+                  <ShoppingBag size={13} strokeWidth={2.5} />
+                  <span>Iniciar Venda no PDV</span>
+                </button>
+              </div>
+            )}
             {isLoadingVendas ? (
               <div className="flex justify-center py-6"><RefreshCw size={16} className="animate-spin text-primary-500" /></div>
             ) : clienteVendas.length === 0 ? (
-              <p className="text-center py-6 text-white/30 text-[11px]">Nenhuma venda registrada para este cliente.</p>
+              <p className="text-center py-6 text-white/30 text-[11px]">
+                {isGroup ? 'Nenhuma venda registrada para este grupo.' : 'Nenhuma venda registrada para este cliente.'}
+              </p>
             ) : (
               clienteVendas.map(venda => {
                 const saldo = (venda.total || 0) - (venda.down_payment || 0);

@@ -129,6 +129,62 @@ async function handlePresenceSubscribe(req, res) {
   res.status(200).json({ ok: false });
 }
 
+// --- rota=group-participants (consulta participantes do grupo na Evolution API) ---
+async function handleGroupParticipants(req, res) {
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    res.status(200).json({ ok: false, error: 'Evolution API não configurada.' });
+    return;
+  }
+  if (!(await exigirUsuarioAutorizado(req, res))) return;
+
+  const rawJid = String(req.body?.groupJid || req.body?.phone || '').trim();
+  const jid = rawJid.endsWith('@g.us') ? rawJid : `${rawJid.replace(/\D/g, '')}@g.us`;
+  if (!jid || jid === '@g.us') {
+    res.status(400).json({ error: 'Faltou o JID do grupo.' });
+    return;
+  }
+
+  try {
+    const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
+    const r = await fetch(`${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}?groupJid=${encodeURIComponent(jid)}`, {
+      method: 'GET',
+      headers: evoHeaders,
+    });
+    if (!r.ok) {
+      res.status(200).json({ ok: false, status: r.status });
+      return;
+    }
+    const data = await r.json().catch(() => null);
+    if (!data) {
+      res.status(200).json({ ok: false });
+      return;
+    }
+
+    const participants = (data.participants || []).map((p) => {
+      const pId = typeof p === 'string' ? p : (p.id || p.jid || '');
+      const num = pId.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      return {
+        id: pId,
+        phoneNumber: num,
+        name: p.name || p.pushName || null,
+        admin: (p.admin === 'admin' || p.admin === 'superadmin' || p.isAdmin) ? 'admin' : null,
+      };
+    });
+
+    res.status(200).json({
+      ok: true,
+      subject: data.subject || data.name || null,
+      description: data.desc || data.description || null,
+      size: data.size || participants.length,
+      owner: data.owner || null,
+      participants,
+    });
+  } catch (err) {
+    console.error('Erro ao buscar participantes do grupo:', err);
+    res.status(200).json({ ok: false, error: err?.message || String(err) });
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -138,6 +194,10 @@ export default async function handler(req, res) {
   const rota = String(req.query?.rota || '');
   if (rota === 'presence-subscribe') {
     await handlePresenceSubscribe(req, res);
+    return;
+  }
+  if (rota === 'group-participants' || rota === 'group-info') {
+    await handleGroupParticipants(req, res);
     return;
   }
   // default / rota === 'foto-perfil'
