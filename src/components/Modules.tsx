@@ -287,6 +287,25 @@ import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
 // quando vendas importadas de planilha tem um createdAt malformado ou vazio.
 function safeFormat(value: any, fmt: string, fallback: string = '—'): string {
+  if (!value) return fallback;
+  if (value instanceof Date) return isNaN(value.getTime()) ? fallback : format(value, fmt);
+  if (typeof value?.toDate === 'function') {
+    const d = value.toDate();
+    return isNaN(d?.getTime?.()) ? fallback : format(d, fmt);
+  }
+  if (typeof value?.seconds === 'number') {
+    const d = new Date(value.seconds * 1000);
+    return isNaN(d.getTime()) ? fallback : format(d, fmt);
+  }
+  if (typeof value === 'number') {
+    const d = new Date(value < 1e11 ? value * 1000 : value);
+    return isNaN(d.getTime()) ? fallback : format(d, fmt);
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const num = Number(value);
+    const d = new Date(num < 1e11 ? num * 1000 : num);
+    return isNaN(d.getTime()) ? fallback : format(d, fmt);
+  }
   const d = new Date(value);
   return isNaN(d.getTime()) ? fallback : format(d, fmt);
 }
@@ -628,10 +647,22 @@ const mapLeadRow = (row: any): Lead => ({
 // Firestore (dados antigos/outras telas) OU string ISO do Supabase (crm_messages,
 // fonte atual do chat) -- o chat so tratava o caso Timestamp e ficava com o
 // horario/data em branco pra toda mensagem vinda do Supabase. Aceita os dois.
+// Data/hora de uma mensagem podem vir de duas fontes diferentes: Timestamp do
+// Firestore (dados antigos/outras telas), string ISO do Supabase (crm_messages,
+// fonte atual do chat) ou número/timestamp unix da Evolution. Aceita todos.
 const parseMsgDate = (value: any): Date | null => {
   if (!value) return null;
   if (value instanceof Timestamp) return value.toDate();
-  if (value instanceof Date) return value;
+  if (typeof value?.toDate === 'function') return value.toDate();
+  if (typeof value?.seconds === 'number') return new Date(value.seconds * 1000);
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'number') {
+    return new Date(value < 1e11 ? value * 1000 : value);
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const num = Number(value);
+    return new Date(num < 1e11 ? num * 1000 : num);
+  }
   const d = new Date(value);
   return isNaN(d.getTime()) ? null : d;
 };
@@ -696,30 +727,58 @@ const MessageStatusTicks = ({
   onToggle?: () => void;
   onClose?: () => void;
 }) => {
-  const statusResolvido = (status === 'delivered' || status === 'read') ? status : 'sent';
-  const isRead = statusResolvido === 'read';
-  const isDelivered = statusResolvido === 'delivered';
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
+
+  const rawStatus = String(status || m?.deliveryStatus || m?.delivery_status || '').toLowerCase();
+  const isRead = rawStatus === 'read' || rawStatus === 'played' || rawStatus === 'viewed' || Boolean(m?.readAt || m?.read_at);
+  const isDelivered = isRead || rawStatus === 'delivered' || rawStatus === 'delivery_ack' || rawStatus === 'received' || Boolean(m?.deliveredAt || m?.delivered_at);
+  const statusResolvido = isRead ? 'read' : isDelivered ? 'delivered' : 'sent';
   const label = isRead ? 'Vista' : isDelivered ? 'Entregue' : 'Enviada';
 
   // Horários e datas formatados exatamente como no WhatsApp ("hoje 14:34")
-  const readDateStr = m?.readAt 
-    ? formatWhatsAppStatusDate(m.readAt) 
-    : (isRead ? formatWhatsAppStatusDate(m?.deliveredAt || m?.createdAt) : '');
+  const baseCreatedDate = parseMsgDate(m?.createdAt || m?.created_at || m?.timestamp);
+  const baseDeliveredDate = parseMsgDate(m?.deliveredAt || m?.delivered_at) || baseCreatedDate;
+  const baseReadDate = parseMsgDate(m?.readAt || m?.read_at) || baseDeliveredDate;
 
-  const deliveredDateStr = m?.deliveredAt 
-    ? formatWhatsAppStatusDate(m.deliveredAt) 
-    : ((isDelivered || isRead) ? formatWhatsAppStatusDate(m?.createdAt) : '');
+  const readDateStr = isRead
+    ? (formatWhatsAppStatusDate(m?.readAt || m?.read_at) || formatWhatsAppStatusDate(baseDeliveredDate))
+    : '';
 
-  const activeTime = isRead 
-    ? (m?.readAt ? safeFormat(m.readAt, 'HH:mm') : safeFormat(m?.createdAt, 'HH:mm'))
-    : isDelivered 
-      ? (m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : safeFormat(m?.createdAt, 'HH:mm'))
-      : (m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : null);
+  const deliveredDateStr = isDelivered
+    ? (formatWhatsAppStatusDate(m?.deliveredAt || m?.delivered_at) || formatWhatsAppStatusDate(baseCreatedDate))
+    : '';
+
+  const activeDate = isRead ? baseReadDate : isDelivered ? baseDeliveredDate : baseCreatedDate;
+  const activeTime = activeDate ? safeFormat(activeDate, 'HH:mm') : null;
+
+  // Atualiza a posição calculada na tela sempre que abrir via React Portal
+  useEffect(() => {
+    if (!isOpen || !buttonRef.current) return;
+    const updatePos = () => {
+      if (!buttonRef.current) return;
+      const rect = buttonRef.current.getBoundingClientRect();
+      const cardWidth = Math.min(290, window.innerWidth - 24);
+      const cardHeight = 110;
+      const placeAbove = rect.top >= cardHeight + 12;
+      const top = placeAbove ? rect.top - cardHeight - 8 : rect.bottom + 8;
+      const left = Math.max(12, Math.min(window.innerWidth - cardWidth - 12, rect.right - cardWidth));
+      setPopoverPos({ top, left, placeAbove });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [isOpen]);
 
   return (
     <div className="relative inline-flex items-center shrink-0">
       {/* Botão de status da mensagem no rodapé do balão */}
       <button
+        ref={buttonRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
@@ -744,27 +803,37 @@ const MessageStatusTicks = ({
         )}
         <span className="leading-none">{label}</span>
         {activeTime && (
-          <span className="text-[8.5px] opacity-60 font-medium leading-none">· {activeTime}</span>
+          <span className="text-[8.5px] opacity-80 font-bold leading-none">· {activeTime}</span>
         )}
       </button>
 
-      {isOpen && (
+      {isOpen && popoverPos && typeof document !== 'undefined' && createPortal(
         <>
-          <div className="fixed inset-0 z-40 bg-black/20 sm:bg-transparent" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
-          {/* Card idêntico ao WhatsApp da imagem de referência */}
+          {/* Backdrop para fechar ao clicar fora */}
+          <div 
+            className="fixed inset-0 z-[9998] bg-black/20 backdrop-blur-[0.5px]" 
+            onClick={(e) => { e.stopPropagation(); onClose?.(); }} 
+          />
+          {/* Card idêntico ao WhatsApp renderizado no portal com z-index alto e posicionamento absoluto na viewport */}
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-full mb-2.5 right-0 z-50 w-72 sm:w-80 max-w-[calc(100vw-32px)] bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden text-sm animate-in fade-in zoom-in-95 duration-150 select-none"
+            style={{
+              position: 'fixed',
+              top: `${popoverPos.top}px`,
+              left: `${popoverPos.left}px`,
+              width: 'min(290px, calc(100vw - 24px))',
+            }}
+            className="z-[9999] bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden text-sm animate-in fade-in zoom-in-95 duration-150 select-none"
           >
             {/* Linha 1: Vista */}
-            <div className="flex items-center justify-between px-4 py-3 sm:py-3.5 hover:bg-slate-50/60 transition-colors">
+            <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/60 transition-colors">
               <div className="flex items-center gap-3 min-w-0">
-                <CheckCheck size={19} strokeWidth={2.5} className="text-[#34B7F1] shrink-0" />
-                <span className="text-[15px] sm:text-[16px] font-normal text-slate-900 tracking-tight">
+                <CheckCheck size={19} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-[#34B7F1]" : "text-slate-300")} />
+                <span className={cn("text-[15px] font-normal tracking-tight", isRead ? "text-slate-900 font-medium" : "text-slate-400")}>
                   Vista
                 </span>
               </div>
-              <span className="text-[13px] sm:text-[14px] font-normal text-[#667781] tracking-tight shrink-0 whitespace-nowrap pl-2">
+              <span className="text-[13px] font-normal text-[#667781] tracking-tight shrink-0 whitespace-nowrap pl-2">
                 {isRead ? (readDateStr || (activeTime ? `hoje ${activeTime}` : '—')) : '—'}
               </span>
             </div>
@@ -773,22 +842,20 @@ const MessageStatusTicks = ({
             <div className="h-px bg-slate-200/80 w-full" />
 
             {/* Linha 2: Entregue */}
-            <div className="flex items-center justify-between px-4 py-3 sm:py-3.5 hover:bg-slate-50/60 transition-colors">
+            <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/60 transition-colors">
               <div className="flex items-center gap-3 min-w-0">
-                <CheckCheck size={19} strokeWidth={2.5} className="text-[#8696A0] shrink-0" />
-                <span className="text-[15px] sm:text-[16px] font-normal text-slate-900 tracking-tight">
+                <CheckCheck size={19} strokeWidth={2.5} className={cn("shrink-0", isDelivered ? "text-[#8696A0]" : "text-slate-300")} />
+                <span className={cn("text-[15px] font-normal tracking-tight", isDelivered ? "text-slate-900 font-medium" : "text-slate-400")}>
                   Entregue
                 </span>
               </div>
-              <span className="text-[13px] sm:text-[14px] font-normal text-[#667781] tracking-tight shrink-0 whitespace-nowrap pl-2">
-                {(isDelivered || isRead) ? (deliveredDateStr || (activeTime ? `hoje ${activeTime}` : '—')) : '—'}
+              <span className="text-[13px] font-normal text-[#667781] tracking-tight shrink-0 whitespace-nowrap pl-2">
+                {isDelivered ? (deliveredDateStr || (activeTime ? `hoje ${activeTime}` : '—')) : '—'}
               </span>
             </div>
-
-            {/* Ponteiro sutil na parte inferior */}
-            <div className="absolute top-full right-4 -mt-px border-solid border-t-white border-t-[6px] border-x-transparent border-x-[6px] border-b-0 drop-shadow-xs" />
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );
@@ -5349,6 +5416,7 @@ export const ChatPanel = ({
     clearMessageHighlight();
     setIsAtBottom(true);
     isAtBottomRef.current = true;
+    ultimoTotalMensagensRef.current = 0;
     setNewMessagesWhileScrolled(0);
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
@@ -5422,7 +5490,23 @@ export const ChatPanel = ({
       return;
     }
 
-    virtuosoRef.current?.scrollToIndex({ index: total - 1, align: 'end', behavior: saltou ? 'auto' : 'smooth' });
+    const scrollToEnd = (b: 'auto' | 'smooth' = 'auto') => {
+      if (chatMessages.length > 0 && virtuosoRef.current) {
+        virtuosoRef.current.scrollToIndex({ index: chatMessages.length - 1, align: 'end', behavior: b });
+      }
+    };
+
+    scrollToEnd(saltou || eraZero ? 'auto' : 'smooth');
+
+    // Ao abrir a conversa ou carregar novas mensagens, garante que a rolagem fique na última mensagem
+    // mesmo após a medição de cards pesados (áudio, fotos, mídias e badges)
+    if (eraZero || saltou) {
+      const t1 = setTimeout(() => scrollToEnd('auto'), 40);
+      const t2 = setTimeout(() => scrollToEnd('auto'), 150);
+      const t3 = setTimeout(() => scrollToEnd('auto'), 350);
+      const t4 = setTimeout(() => scrollToEnd('auto'), 650);
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+    }
   }, [messages]);
 
   // --- Notificacao pendente desta conversa (regras 6 e 7) ---
@@ -6162,19 +6246,14 @@ export const ChatPanel = ({
                         className={cn(
                           "flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xs",
                           effectiveWaitingSince
-                            ? "bg-amber-500/20 border-amber-500/60 text-amber-300 ring-2 ring-amber-500/40 animate-pulse"
+                            ? "bg-amber-500/20 border-amber-500/60 text-amber-300 ring-1 ring-amber-500/40"
                             : "bg-white/10 hover:bg-white/15 border-white/15"
                         )}
                         style={{ color: effectiveWaitingSince ? undefined : stageColor }}
-                        title={effectiveWaitingSince ? `Aguardando resposta há ${liveWaitingTime}! Clique para alterar a etapa` : "Clique para alterar a etapa do atendimento"}
+                        title="Clique para alterar a etapa do atendimento"
                       >
-                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", effectiveWaitingSince ? "bg-amber-400 animate-ping" : "animate-pulse")} style={{ backgroundColor: effectiveWaitingSince ? undefined : stageColor }} />
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
                         <span className="truncate max-w-[85px] sm:max-w-[120px]">{stageName}</span>
-                        {effectiveWaitingSince && (
-                          <span className="font-mono text-[8px] px-1 py-0.2 rounded bg-amber-500/40 text-amber-100 font-bold shrink-0">
-                            ⏱️ {liveWaitingTime}
-                          </span>
-                        )}
                         <ChevronDown size={9} className={cn("shrink-0 opacity-70 transition-transform duration-200", isStageMenuOpen && "rotate-180")} />
                       </button>
 
@@ -6249,15 +6328,6 @@ export const ChatPanel = ({
                       </span>
                     ) : (
                       <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
-                    )}
-                    {effectiveWaitingSince && (
-                      <>
-                        <span className="text-white/30 shrink-0">·</span>
-                        <span className="inline-flex items-center gap-1 text-amber-300 font-bold bg-amber-500/20 border border-amber-500/35 px-1.5 py-0.5 rounded text-[9.5px] animate-pulse shrink-0" title={`Cliente aguardando resposta há ${liveWaitingTime}`}>
-                          <Clock size={10} className="text-amber-400" />
-                          <span>Espera: {liveWaitingTime}</span>
-                        </span>
-                      </>
                     )}
                   </div>
                 ) : (
@@ -6724,6 +6794,7 @@ export const ChatPanel = ({
                    data={chatMessages}
                    computeItemKey={(idx, m) => m.id || idx}
                    initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
+                   followOutput={(isAtBottom) => isAtBottom ? 'auto' : false}
                    increaseViewportBy={{ top: 600, bottom: 600 }}
                    components={{ Header: ChatListSpacer, Footer: ChatListSpacer }}
                    atBottomThreshold={60}

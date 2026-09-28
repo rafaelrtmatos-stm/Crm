@@ -1270,30 +1270,52 @@ export default function App() {
     };
   }, [currentCompany, user]);
 
-  // Login & Authentication State (Carrega credenciais lembradas instantaneamente)
+  // Sanitização de segurança: limpa qualquer credencial de admin salva pelo antigo padrão inseguro
+  try {
+    const savedEmail = localStorage.getItem('rpro_remembered_email');
+    const savedPass = localStorage.getItem('rpro_remembered_password');
+    if (savedPass === 'Geper3tp@' || savedEmail === 'rafaelrtmatos@gmail.com') {
+      const isAutoCleaned = localStorage.getItem('rpro_admin_autofill_cleaned');
+      if (!isAutoCleaned) {
+        localStorage.removeItem('rpro_remembered_password');
+        localStorage.removeItem('rpro_remembered_email');
+        localStorage.removeItem('rpro_remembered_user_id');
+        localStorage.removeItem('rpro_remember_me');
+        localStorage.setItem('rpro_admin_autofill_cleaned', 'true');
+      }
+    }
+  } catch {
+    // ignora restrições de localStorage
+  }
+
+  // Login & Authentication State (Inicia sempre limpo, sem e-mail ou senha de admin fixos)
   const [loginEmail, setLoginEmail] = useState(() => {
-    return localStorage.getItem('rpro_remembered_email') || 'rafaelrtmatos@gmail.com';
+    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true';
+    return isRemembered ? (localStorage.getItem('rpro_remembered_email') || '') : '';
   });
   const [loginPassword, setLoginPassword] = useState(() => {
-    return localStorage.getItem('rpro_remembered_password') || 'Geper3tp@';
+    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true';
+    return isRemembered ? (localStorage.getItem('rpro_remembered_password') || '') : '';
   });
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => {
-    const val = localStorage.getItem('rpro_remember_me');
-    if (val !== null) return val === 'true';
-    return true;
+    return localStorage.getItem('rpro_remember_me') === 'true';
   });
 
   useEffect(() => {
-    const isRemembered = localStorage.getItem('rpro_remember_me') !== 'false';
+    const isRemembered = localStorage.getItem('rpro_remember_me') === 'true';
     if (isRemembered) {
       setRememberMe(true);
-      const rememberedEmail = localStorage.getItem('rpro_remembered_email') || 'rafaelrtmatos@gmail.com';
-      const rememberedPassword = localStorage.getItem('rpro_remembered_password') || 'Geper3tp@';
+      const rememberedEmail = localStorage.getItem('rpro_remembered_email') || '';
+      const rememberedPassword = localStorage.getItem('rpro_remembered_password') || '';
       setLoginEmail(rememberedEmail);
       setLoginPassword(rememberedPassword);
+    } else {
+      setRememberMe(false);
+      setLoginEmail('');
+      setLoginPassword('');
     }
   }, []);
 
@@ -1952,6 +1974,12 @@ export default function App() {
     sessionStorage.removeItem('rpro_session_id');
     localStorage.removeItem('rpro_simulated_user_id');
     localStorage.removeItem('rpro_remembered_user_id');
+    localStorage.removeItem('rpro_remembered_password');
+    localStorage.removeItem('rpro_remembered_email');
+    localStorage.removeItem('rpro_remember_me');
+    setLoginEmail('');
+    setLoginPassword('');
+    setRememberMe(false);
     setSimulatedUserIdState(null);
     setUser(null);
     try {
@@ -2338,17 +2366,17 @@ export default function App() {
         console.warn('Aviso Firestore companies (offline/conexão):', err?.message || err);
       });
 
-      // 2. Check saved session user (sessionStorage sempre; localStorage se "lembrar login e senha" foi marcado)
-      let savedUserId = sessionStorage.getItem('rpro_logged_user_id') || localStorage.getItem('rpro_remembered_user_id');
+      // 2. Check saved session user (sessionStorage para a aba ativa; localStorage somente se 'lembrar login' foi expressamente marcado)
       const isRememberMe = localStorage.getItem('rpro_remember_me') === 'true';
-      const remEmail = localStorage.getItem('rpro_remembered_email')?.trim().toLowerCase();
-      const remPass = localStorage.getItem('rpro_remembered_password')?.trim();
+      let savedUserId = sessionStorage.getItem('rpro_logged_user_id') || (isRememberMe ? localStorage.getItem('rpro_remembered_user_id') : null);
+      const remEmail = isRememberMe ? localStorage.getItem('rpro_remembered_email')?.trim().toLowerCase() : null;
+      const remPass = isRememberMe ? localStorage.getItem('rpro_remembered_password')?.trim() : null;
 
-      // Se "lembrar login e senha" estiver ativo mas o ID do usuário não estiver salvo, recupera automaticamente
-      if (!savedUserId && isRememberMe && remEmail) {
+      // Se "lembrar login e senha" estiver ativo mas o ID do usuário não estiver salvo, recupera apenas se senha válida for fornecida
+      if (!savedUserId && isRememberMe && remEmail && remPass) {
         const cachedAdmin = getCachedUser('admin-rafael');
         const offlineCreds = getOfflineCredentials(remEmail);
-        const isMasterPass = !remPass || remPass === 'Geper3tp@' || remPass === cachedAdmin?.password || remPass === offlineCreds?.password;
+        const isMasterPass = remPass === 'Geper3tp@' || (cachedAdmin?.password && remPass === cachedAdmin.password) || (offlineCreds?.password && remPass === offlineCreds.password);
 
         if (remEmail === 'rafaelrtmatos@gmail.com' && isMasterPass) {
           savedUserId = 'admin-rafael';
