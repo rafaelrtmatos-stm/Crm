@@ -205,8 +205,10 @@ export interface Lead extends BaseEntity {
   lastClientMessageAt?: Timestamp | string;
   photoUrl?: string;
   estimatedValue?: number;
+  orderSummary?: string;
   tags?: string[];
   tracking?: {
+    orderSummary?: string;
     utmSource?: string;
     utmCampaign?: string;
     utmMedium?: string;

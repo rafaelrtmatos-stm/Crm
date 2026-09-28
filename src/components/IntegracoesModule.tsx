@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Smile } from 'lucide-react';
+import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Smile, Zap } from 'lucide-react';
 import { GlassCard, Badge, Modal, GoogleLogo, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
 import { FigurinhasManager } from './FigurinhasManager';
+import { QuickRepliesManager } from './QuickRepliesManager';
 import { GoogleContactsSyncModal } from './GoogleContactsSyncModal';
 import { getSavedGoogleAccount } from '../lib/googleContacts';
 import { Company, AppUser } from '../types';
@@ -13,7 +14,7 @@ import { showConfirm, showAlert } from '../lib/notify';
 // (WhatsApp conectado via Evolution API, Google Contatos via Google People API,
 // Facebook/Instagram em breve), o Robozinho Rafa e a gestão de Figurinhas do WhatsApp.
 
-type IntegracoesTab = 'conexoes' | 'robozinho_rafa' | 'figurinhas';
+type IntegracoesTab = 'conexoes' | 'robozinho_rafa' | 'figurinhas' | 'mensagens_rapidas';
 
 interface CanalConexao {
   id: string;
@@ -35,7 +36,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const [tab, setTab] = useState<IntegracoesTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('rpro_integracoes_tab');
-      if (saved && (saved === 'conexoes' || saved === 'robozinho_rafa' || saved === 'figurinhas')) {
+      if (saved && (saved === 'conexoes' || saved === 'robozinho_rafa' || saved === 'figurinhas' || saved === 'mensagens_rapidas')) {
         return saved as IntegracoesTab;
       }
     }
@@ -45,7 +46,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   useEffect(() => {
     const handleSwitch = (e: any) => {
       const target = e?.detail || localStorage.getItem('rpro_integracoes_tab');
-      if (target && (target === 'conexoes' || target === 'robozinho_rafa' || target === 'figurinhas')) {
+      if (target && (target === 'conexoes' || target === 'robozinho_rafa' || target === 'figurinhas' || target === 'mensagens_rapidas')) {
         setTab(target as IntegracoesTab);
       }
     };
@@ -210,6 +211,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
 
   const TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
     { id: 'conexoes', label: 'Conexões', icon: Plug },
+    { id: 'mensagens_rapidas', label: 'Mensagens Rápidas', icon: Zap },
     { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
     { id: 'figurinhas', label: 'Figurinhas WhatsApp', icon: Smile },
   ];
@@ -220,7 +222,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         <h1 className="text-xl md:text-2xl font-black text-white flex items-center gap-2">
           <Plug size={22} className="text-primary-500" /> Integrações
         </h1>
-        <p className="text-xs text-white/40 mt-1">Conecte canais de atendimento, configure o Robozinho Rafa e gerencie figurinhas do WhatsApp.</p>
+        <p className="text-xs text-white/40 mt-1">Conecte canais de atendimento, configure mensagens rápidas, Robozinho Rafa e figurinhas do WhatsApp.</p>
       </div>
 
       {/* Abas */}
@@ -290,6 +292,10 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
             );
           })}
         </div>
+      )}
+
+      {tab === 'mensagens_rapidas' && (
+        <QuickRepliesManager />
       )}
 
       {tab === 'robozinho_rafa' && (

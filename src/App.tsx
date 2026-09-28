@@ -960,6 +960,7 @@ export default function App() {
           estimated_value: 0,
           status: 'ENTRADA',
           waiting_since: aguardando ? quando : null,
+          unread: !!aguardando,
         };
         // INSERT simples (nao upsert): upsert com onConflict='company_id,phone' exige um indice unico TOTAL
         // nessas colunas e o Postgres recusa ("no unique or exclusion constraint matching the ON CONFLICT
@@ -1018,6 +1019,7 @@ export default function App() {
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: quando,
+          unread: true,
           ...(ehGrupo ? {} : { status: 'ENTRADA' }),
           ...(msgData.senderName && !ehGrupo ? { whatsapp_name: msgData.senderName } : {}),
           ...(stageId && !ehGrupo ? { funnel_stage_id: stageId } : {}),

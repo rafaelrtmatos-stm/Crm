@@ -88,6 +88,7 @@ const mapearLeadDaLista = (r: any): Lead => ({
   status: r.status, archived: r.archived, unread: r.unread, muted: r.muted,
   createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
   estimatedValue: r.estimated_value !== null && r.estimated_value !== undefined ? Number(r.estimated_value) : undefined,
+  orderSummary: r.order_summary || r.tracking?.orderSummary || undefined,
 } as any as Lead);
 
 // Monta a lista: mais recente primeiro (pela ultima mensagem) e UMA conversa por telefone.
@@ -193,8 +194,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const { setPendingOpenLeadId, setActiveTab } = useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
-  // Abas estilo WhatsApp iOS: Todas / Não lidas / Favoritos / Grupos
-  const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'favorite' | 'group'>('all');
+  // Abas estilo WhatsApp iOS: Todas / Não lidas / Favoritos / Grupos / Arquivadas
+  const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'favorite' | 'group' | 'archived'>('all');
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [newChatPhone, setNewChatPhone] = useState('');
   const [newChatName, setNewChatName] = useState('');
@@ -495,7 +496,12 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     return !gruposTodos.has(d) || groupPhones.has(d);
   };
 
-  const unrepliedCount = leads.filter(l => l.waitingSince && conversaPermitida(l)).length;
+  const archivedLeads = leads.filter(l => l.archived && conversaPermitida(l));
+  const activeLeads = leads.filter(l => !l.archived && conversaPermitida(l));
+  const unrepliedCount = activeLeads.filter(l => (l.waitingSince || l.unread)).length;
+  const favoriteCount = activeLeads.filter(l => l.priority === 'alta').length;
+  const groupCount = activeLeads.filter(l => groupPhones.has((l.phone || '').replace(/\D/g, ''))).length;
+  const archivedCount = archivedLeads.length;
 
   // Ordenação client-side sobre a lista já ordenada pela ÚLTIMA MENSAGEM (last_message_at desc, ver
   // prepararListaDeConversas). Padrão (última mensagem ↓, sem prioridades) não reordena nada. Prioridades
@@ -524,19 +530,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     });
   };
 
-  const favoriteCount = leads.filter(l => l.priority === 'alta' && conversaPermitida(l)).length;
-  const groupCount = leads.filter(l => groupPhones.has((l.phone || '').replace(/\D/g, '')) && conversaPermitida(l)).length;
+  const baseList = viewFilter === 'archived' ? archivedLeads : activeLeads;
 
   const filteredLeads = sortLeads(
-    leads
-      .filter(l => !l.archived)
-      .filter(conversaPermitida)
+    baseList
       .filter(l =>
         nomeDaConversa(l).toLowerCase().includes(filter.toLowerCase()) ||
         l.phone.includes(filter)
       )
       .filter(l => {
-        if (viewFilter === 'unread') return !!l.waitingSince;
+        if (viewFilter === 'unread') return !!l.waitingSince || !!l.unread;
         if (viewFilter === 'favorite') return l.priority === 'alta';
         if (viewFilter === 'group') return groupPhones.has((l.phone || '').replace(/\D/g, ''));
         return true;
@@ -605,6 +608,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       });
       return;
     }
+    // Zera o status de não lido / waiting_since imediatamente ao abrir a conversa
+    if (lead.waitingSince || lead.unread) {
+      supabase.from('leads').update({ waiting_since: null, unread: false }).eq('id', lead.id).then();
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, waitingSince: undefined, unread: false } : l));
+    }
     setPendingOpenLeadId(lead.id);
     setActiveTab('crm');
     onClose();
@@ -643,15 +651,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   const handleConfirmMute = () => applyBulkPatch({ muted: true });
 
-  // Apaga de vez as conversas selecionadas (mensagens + o próprio lead) — diferente do
-  // resto das ações em lote, que só faz um PATCH; aqui remove as linhas mesmo, então pede
-  // confirmação antes e nunca é chamado sem o usuário confirmar.
+  // Apaga as conversas da lista ativa: arquiva o lead e preserva o histórico de mensagens
+  // para que o Administrador (Adm) possa auditar e consultar o histórico de conversas apagadas.
   const handleBulkDelete = async () => {
     if (!selectedIds.size || isSavingAction) return;
     const qtd = selectedIds.size;
-    const ok = window.confirm(
-      `Apagar ${qtd} conversa${qtd === 1 ? '' : 's'} selecionada${qtd === 1 ? '' : 's'}? Isso remove o histórico de mensagens e o contato da lista. Essa ação não pode ser desfeita.`
-    );
+    const isHardDelete = viewFilter === 'archived' && user?.isAdmin;
+    const msg = isHardDelete
+      ? `Excluir permanentemente ${qtd} conversa${qtd === 1 ? '' : 's'} do banco de dados? Essa ação apagará de vez todo o histórico de mensagens.`
+      : `Apagar ${qtd} conversa${qtd === 1 ? '' : 's'} da lista? O contato sairá da lista principal e o histórico ficará salvo para consulta do Administrador.`;
+    const ok = window.confirm(msg);
     if (!ok) return;
 
     setIsSavingAction(true);
@@ -660,7 +669,6 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       const phones = leads.filter(l => ids.includes(l.id)).map(l => l.phone).filter(Boolean);
 
       if (phones.length) {
-        await supabase.from('crm_messages').delete().eq('company_id', 'rafa-arts').in('phone', phones);
         try {
           await supabase
             .from('crm_notifications')
@@ -672,8 +680,32 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           console.warn('Erro ao resolver notificações na exclusão de conversas:', e);
         }
       }
-      await supabase.from('leads').delete().in('id', ids);
 
+      if (isHardDelete) {
+        if (phones.length) {
+          await supabase.from('crm_messages').delete().eq('company_id', 'rafa-arts').in('phone', phones);
+        }
+        await supabase.from('leads').delete().in('id', ids);
+        setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+      } else {
+        // Soft delete / arquivamento: preserva mensagens para histórico do Adm
+        await supabase.from('leads').update({ archived: true, updated_at: new Date().toISOString() }).in('id', ids);
+        setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, archived: true } : l));
+      }
+
+      cancelSelection();
+    } finally {
+      setIsSavingAction(false);
+    }
+  };
+
+  const handleBulkRestore = async () => {
+    if (!selectedIds.size || isSavingAction) return;
+    setIsSavingAction(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await supabase.from('leads').update({ archived: false, updated_at: new Date().toISOString() }).in('id', ids);
+      setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, archived: false } : l));
       cancelSelection();
     } finally {
       setIsSavingAction(false);
@@ -892,7 +924,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewFilter('unread')}
+              onClick={() => setViewFilter(prev => prev === 'unread' ? 'all' : 'unread')}
               className={cn(
                 "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 flex items-center gap-1.5 whitespace-nowrap cursor-pointer",
                 viewFilter === 'unread'
@@ -900,12 +932,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   : "bg-[#1c1c1e] text-slate-300 hover:text-white"
               )}
             >
-              <span>Não lidas</span>
-              <span className="text-xs text-[#8696a0]">{unrepliedCount || 295}</span>
+              <span>Não lidas {unrepliedCount > 0 ? unrepliedCount : ''}</span>
             </button>
             <button
               type="button"
-              onClick={() => setViewFilter('favorite')}
+              onClick={() => setViewFilter(prev => prev === 'favorite' ? 'all' : 'favorite')}
               className={cn(
                 "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 whitespace-nowrap cursor-pointer",
                 viewFilter === 'favorite'
@@ -917,7 +948,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewFilter('group')}
+              onClick={() => setViewFilter(prev => prev === 'group' ? 'all' : 'group')}
               className={cn(
                 "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 flex items-center gap-1.5 whitespace-nowrap cursor-pointer",
                 viewFilter === 'group'
@@ -925,8 +956,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   : "bg-[#1c1c1e] text-slate-300 hover:text-white"
               )}
             >
-              <span>Grupos</span>
-              <span className="text-xs text-[#8696a0]">{groupCount || 6}</span>
+              <span>Grupos {groupCount || 6}</span>
             </button>
             <button
               type="button"
@@ -937,6 +967,48 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               <Plus size={14} />
             </button>
           </div>
+
+          {/* Linha Arquivadas estilo iOS WhatsApp (IMG_7566) - Histórico acessível pelo Administrador */}
+          {viewFilter === 'archived' ? (
+            <div className="px-4 py-2.5 bg-[#1c1c1e] border-y border-[#202c33]/70 flex items-center justify-between shrink-0 select-none">
+              <button
+                type="button"
+                onClick={() => setViewFilter('all')}
+                className="flex items-center gap-1.5 text-xs text-[#53bdeb] hover:underline font-bold cursor-pointer"
+              >
+                <ChevronLeft size={16} />
+                <span>Conversas ativas</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-[#8696a0] font-medium">
+                  {archivedCount} {archivedCount === 1 ? 'conversa arquivada' : 'conversas arquivadas'}
+                </span>
+                {user?.isAdmin && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-bold uppercase tracking-wider">
+                    Histórico Adm
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            (archivedCount > 0 || user?.isAdmin) && (
+              <div
+                onClick={() => setViewFilter('archived')}
+                className="flex items-center justify-between px-4 py-3 hover:bg-[#111b21] active:bg-[#182229] cursor-pointer text-[#8696a0] border-y border-[#202c33]/70 transition-colors select-none shrink-0"
+              >
+                <div className="flex items-center gap-4">
+                  <Archive size={19} className="text-[#8696a0]" />
+                  <span className="text-[15px] font-medium text-white">Arquivadas</span>
+                  {user?.isAdmin && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-bold uppercase tracking-wider">
+                      Histórico Adm
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-[#8696a0] font-semibold">{archivedCount}</span>
+              </div>
+            )
+          )}
 
           {/* Barra contextual de seleção múltipla (se ativada via menu) */}
           {selectionMode && (
@@ -996,10 +1068,18 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                   <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ muted: true })} title="Silenciar" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
                     <VolumeX size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ archived: true })} title="Arquivar" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
-                    <Archive size={14} />
-                  </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={handleBulkDelete} title="Apagar de vez" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-rose-400 transition-colors disabled:opacity-40">
+                  {viewFilter === 'archived' && (
+                    <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={handleBulkRestore} title="Desarquivar / Restaurar conversa" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40 flex items-center gap-1">
+                      <RefreshCw size={14} />
+                      <span className="text-[10px] font-bold">Restaurar</span>
+                    </button>
+                  )}
+                  {viewFilter !== 'archived' && (
+                    <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ archived: true })} title="Arquivar conversa" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
+                      <Archive size={14} />
+                    </button>
+                  )}
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={handleBulkDelete} title={viewFilter === 'archived' && user?.isAdmin ? "Excluir permanentemente" : "Apagar da lista (mantém histórico do Adm)"} className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-rose-400 transition-colors disabled:opacity-40">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -1023,12 +1103,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 const isCall = text.toLowerCase().includes('ligação') || text.toLowerCase().includes('chamada');
                 const timeStr = formatWhatsAppDate(leadLastMessageDate(l)) || formatListTime(leadLastMessageDate(l));
 
-                // Ring de status se ativo (como Daiane Aguiar no screenshot)
-                const hasStatusRing = l.priority === 'alta' || (l.waitingSince && Math.random() > 0.5);
+                const hasStatusRing = l.priority === 'alta';
                 const isPinned = l.priority === 'alta' || (l as any).pinned;
                 const isMuted = l.muted;
-                const isUnread = !!l.waitingSince || !!l.unread;
-                const unreadBadgeText = l.waitingSince ? (unrepliedCount > 100 ? String(unrepliedCount) : '1') : (l.unread ? '1' : '');
+                const isGroup = groupPhones.has((l.phone || '').replace(/\D/g, ''));
+                const isUnread = !!l.waitingSince || !!l.unread || Number((l as any).unreadCount || 0) > 0;
+                const unreadCountNumber = Number((l as any).unreadCount || 0) > 0 
+                  ? Number((l as any).unreadCount) 
+                  : (isUnread ? 1 : 0);
 
                 return (
                   <div
@@ -1112,7 +1194,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           )}
                         </div>
 
-                        {/* Ícones da direita: Mute, Pin, Contador verde */}
+                        {/* Ícones da direita: Mute, Pin, Status Arquivada e Contador apenas em Grupos */}
                         <div className="flex items-center gap-1.5 shrink-0">
                           {isMuted && (
                             <VolumeX size={14} className="text-[#8696a0]" />
@@ -1120,9 +1202,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                           {isPinned && (
                             <Pin size={14} className="text-[#8696a0] rotate-45" />
                           )}
-                          {isUnread && (
+                          {viewFilter === 'archived' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold uppercase tracking-wider">
+                              Arquivada
+                            </span>
+                          )}
+                          {unreadCountNumber > 0 && !isOutgoing && (
                             <span className="bg-[#25D366] text-black font-bold text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
-                              {unreadBadgeText || '1'}
+                              {unreadCountNumber}
                             </span>
                           )}
                         </div>

@@ -220,6 +220,7 @@ async function atualizarLeadMensagemRecebida(phone, previa, createdAt, textoPuro
     last_client_message_at: quando,
     last_client_message_text: textoPuro ?? previa,
     waiting_since: quando,
+    unread: true,
   });
   // Ultima mensagem DO CLIENTE: independente da ultima da conversa. Se o atendente ja respondeu depois
   // (last_message_at mais novo) o PATCH acima nao entra, mas last_client_message_* ainda precisa avancar.

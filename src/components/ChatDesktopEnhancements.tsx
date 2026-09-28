@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Play, 
   Pause, 
@@ -12,6 +13,11 @@ import {
   Search, 
   ChevronUp, 
   ChevronDown, 
+  ChevronRight,
+  MoreVertical,
+  MoreHorizontal,
+  MessageCircle,
+  Package,
   X, 
   UploadCloud, 
   FileAudio, 
@@ -55,8 +61,10 @@ function safeFormatDate(d: any, fmt: string) {
 }
 
 // ==========================================
-// 1. REPRODUTOR DE ÁUDIO COM VELOCIDADE (1x, 1.5x, 2x)
+// 1. REPRODUTOR DE ÁUDIO COM VELOCIDADE (1x, 1.5x, 2x) & WAVEFORM ESTILO WHATSAPP
 // ==========================================
+const WAVEFORM_HEIGHTS = [8, 14, 20, 12, 16, 22, 18, 10, 14, 24, 18, 12, 8, 14, 22, 16, 12, 20, 14, 10, 16, 22, 18, 12, 8, 14, 10, 6];
+
 export const AudioMessagePlayer = ({
   src,
   transcription,
@@ -64,6 +72,8 @@ export const AudioMessagePlayer = ({
   onTranscribe,
   isTranscribing = false,
   isOutgoing = false,
+  senderPhotoUrl,
+  senderName,
   onError,
   hasError = false,
 }: {
@@ -73,6 +83,8 @@ export const AudioMessagePlayer = ({
   onTranscribe?: () => void;
   isTranscribing?: boolean;
   isOutgoing?: boolean;
+  senderPhotoUrl?: string;
+  senderName?: string;
   onError?: () => void;
   hasError?: boolean;
 }) => {
@@ -133,12 +145,11 @@ export const AudioMessagePlayer = ({
     }
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTime = Number(e.target.value);
-    setCurrentTime(newTime);
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
-    }
+  const handleSeekIndex = (index: number) => {
+    if (!duration || !audioRef.current) return;
+    const targetTime = (index / WAVEFORM_HEIGHTS.length) * duration;
+    setCurrentTime(targetTime);
+    audioRef.current.currentTime = targetTime;
   };
 
   const formatSeconds = (sec: number) => {
@@ -159,9 +170,12 @@ export const AudioMessagePlayer = ({
     }
   };
 
+  const currentPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const activeBarIndex = Math.floor((currentPercent / 100) * WAVEFORM_HEIGHTS.length);
+
   return (
     <div
-      className="space-y-2 w-full max-w-[280px] sm:max-w-[320px] min-w-0 select-none touch-manipulation"
+      className="space-y-1.5 w-full max-w-[290px] sm:max-w-[330px] min-w-0 select-none touch-manipulation text-white"
       onMouseEnter={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
       onTouchStart={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
     >
@@ -173,35 +187,65 @@ export const AudioMessagePlayer = ({
         className="hidden"
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
+        {/* Avatar com microfonezinho no canto inferior direito estilo WhatsApp iOS */}
+        <div className="relative shrink-0">
+          <div className="w-10 h-10 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center overflow-hidden">
+            {senderPhotoUrl ? (
+              <img src={senderPhotoUrl} alt={senderName || ''} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-xs font-bold text-white/70">{(senderName || 'A').slice(0, 2).toUpperCase()}</span>
+            )}
+          </div>
+          <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#00a884] border-2 border-[#111b21] flex items-center justify-center text-white shadow-sm">
+            <Mic size={9} strokeWidth={2.5} />
+          </div>
+        </div>
+
         {/* Play/Pause Button */}
         <button
           type="button"
           onClick={togglePlay}
-          className={cn(
-            "w-9 h-9 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 transition-transform active:scale-95 shadow-sm",
-            isOutgoing 
-              ? "bg-primary-500 hover:bg-primary-600 text-white" 
-              : "bg-emerald-500 hover:bg-emerald-600 text-white"
-          )}
+          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-transform active:scale-95 text-white/90 hover:text-white"
           title={isPlaying ? "Pausar" : "Tocar áudio"}
         >
-          {isPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}
+          {isPlaying ? (
+            <Pause size={18} fill="currentColor" />
+          ) : (
+            <Play size={18} fill="currentColor" className="ml-0.5" />
+          )}
         </button>
 
-        {/* Progress bar + time */}
-        <div className="flex-1 flex flex-col justify-center gap-1 min-w-[70px] sm:min-w-[100px]">
-          <input
-            type="range"
-            min={0}
-            max={duration || 100}
-            value={currentTime}
-            onChange={handleSeek}
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary-500 focus:outline-none"
-          />
-          <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 px-0.5">
-            <span>{formatSeconds(currentTime)}</span>
-            <span>{formatSeconds(duration)}</span>
+        {/* Waveform interativa estilo WhatsApp */}
+        <div className="flex-1 flex flex-col justify-center gap-1 min-w-[100px]">
+          <div className="flex items-center gap-[2px] h-6 cursor-pointer py-1" title="Clique para avançar/retroceder">
+            {WAVEFORM_HEIGHTS.map((h, idx) => {
+              const isPlayed = idx <= activeBarIndex;
+              return (
+                <div
+                  key={idx}
+                  onClick={() => handleSeekIndex(idx)}
+                  className="flex-1 flex items-center justify-center h-full hover:opacity-80 transition-opacity"
+                >
+                  <div
+                    style={{ height: `${h}px` }}
+                    className={cn(
+                      "w-[2px] sm:w-[2.5px] rounded-full transition-colors",
+                      isPlayed ? "bg-[#53bdeb]" : "bg-white/30"
+                    )}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex justify-between items-center text-[9.5px] font-medium text-white/50 px-0.5">
+            <span>{formatSeconds(currentTime > 0 ? currentTime : duration)}</span>
+            {speed > 1 && (
+              <span className="text-[8.5px] px-1 rounded bg-[#53bdeb]/20 text-[#53bdeb] font-bold">
+                {speed}x
+              </span>
+            )}
           </div>
         </div>
 
@@ -210,19 +254,19 @@ export const AudioMessagePlayer = ({
           type="button"
           onClick={handleSpeedChange}
           className={cn(
-            "h-7 sm:h-6 px-2 sm:px-1.5 rounded-md text-[10px] font-black tracking-tight shrink-0 transition-all border active:scale-95",
+            "h-6 px-1.5 rounded text-[9.5px] font-black tracking-tight shrink-0 transition-all border active:scale-95",
             speed > 1 
-              ? "bg-primary-50 text-primary-600 border-primary-300 shadow-sm" 
-              : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
+              ? "bg-[#53bdeb]/20 text-[#53bdeb] border-[#53bdeb]/40 shadow-sm" 
+              : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10 hover:text-white"
           )}
-          title="Alterar velocidade de reprodução (1x, 1.5x, 2x)"
+          title="Alterar velocidade (1x, 1.5x, 2x)"
         >
           {speed}x
         </button>
       </div>
 
       {hasError && (
-        <p className="text-[10px] font-bold text-rose-500">
+        <p className="text-[10px] font-bold text-rose-400">
           Não foi possível carregar o áudio.{' '}
           <a href={src} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-0.5">
             Abrir link <ExternalLink size={9} />
@@ -307,108 +351,235 @@ export const MessageHoverActions = ({
   isDeleting?: boolean;
 }) => {
   const [copied, setCopied] = useState(false);
+  const [isActionSheetOpen, setIsActionSheetOpen] = useState(false);
 
   const effectiveText = text || transcriptionText || fileName || (mediaContentType ? `[${mediaContentType}]` : '') || '';
 
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCopy = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (!effectiveText) return;
     try {
       await navigator.clipboard.writeText(effectiveText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      setIsActionSheetOpen(false);
     } catch {
       // Ignora erro
     }
   };
 
-  const handleQuoteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleQuoteClick = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (onQuote) {
       onQuote(effectiveText || 'Mensagem');
+      setIsActionSheetOpen(false);
     }
   };
 
   if (!effectiveText && !canEditOrDelete && !onQuote && !onForward && !onSaveSticker) return null;
 
   return (
-    <div className={cn(
-      "absolute -top-3.5 z-20 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 group-hover:opacity-100 transition-all duration-150 flex items-center gap-0.5 p-0.5 rounded-full bg-slate-900/90 border border-white/15 backdrop-blur-md shadow-lg",
-      isOutgoing ? "right-2" : "left-2"
-    )}>
-      {/* Botão de Salvar Figurinha nos Favoritos */}
-      {isSticker && onSaveSticker && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onSaveSticker(); }}
-          title={isStickerSaved ? "Figurinha salva nas Favoritas" : "Salvar figurinha nas Favoritas"}
-          className={cn(
-            "w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer",
-            isStickerSaved
-              ? "text-amber-400 bg-amber-400/20"
-              : "text-white/70 hover:text-amber-400 hover:bg-white/10 active:bg-white/20"
-          )}
-        >
-          <Star size={11} className={isStickerSaved ? "fill-amber-400" : ""} />
-        </button>
-      )}
+    <>
+      {/* Botões rápidos no desktop (hover) */}
+      <div className={cn(
+        "absolute -top-3.5 z-20 hidden sm:flex opacity-0 group-hover:opacity-100 transition-all duration-150 items-center gap-0.5 p-0.5 rounded-full bg-[#202c33] border border-white/10 backdrop-blur-md shadow-lg",
+        isOutgoing ? "right-2" : "left-2"
+      )}>
+        {/* Botão de Salvar Figurinha nos Favoritos */}
+        {isSticker && onSaveSticker && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onSaveSticker(); }}
+            title={isStickerSaved ? "Figurinha salva nas Favoritas" : "Salvar figurinha nas Favoritas"}
+            className={cn(
+              "w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer",
+              isStickerSaved
+                ? "text-amber-400 bg-amber-400/20"
+                : "text-white/70 hover:text-amber-400 hover:bg-white/10 active:bg-white/20"
+            )}
+          >
+            <Star size={11} className={isStickerSaved ? "fill-amber-400" : ""} />
+          </button>
+        )}
 
-      {effectiveText && (
-        <button
-          type="button"
-          onClick={handleCopy}
-          title={copied ? "Copiado!" : "Copiar texto"}
-          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors"
-        >
-          {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
-        </button>
-      )}
+        {effectiveText && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            title={copied ? "Copiado!" : "Copiar texto"}
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors"
+          >
+            {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+          </button>
+        )}
 
-      {onQuote && (
-        <button
-          type="button"
-          onClick={handleQuoteClick}
-          title="Responder / Citar esta mensagem (duplo clique também responde)"
-          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-emerald-400 hover:bg-white/10 active:bg-white/20 transition-colors"
-        >
-          <Reply size={12} className="rotate-180" />
-        </button>
-      )}
+        {onQuote && (
+          <button
+            type="button"
+            onClick={handleQuoteClick}
+            title="Responder / Citar esta mensagem"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-emerald-400 hover:bg-white/10 active:bg-white/20 transition-colors"
+          >
+            <Reply size={12} className="rotate-180" />
+          </button>
+        )}
 
-      {onForward && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onForward(); }}
-          title="Encaminhar mensagem"
-          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-sky-400 hover:bg-white/10 active:bg-white/20 transition-colors"
-        >
-          <Forward size={12} />
-        </button>
-      )}
+        {onForward && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onForward(); }}
+            title="Encaminhar mensagem"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-sky-400 hover:bg-white/10 active:bg-white/20 transition-colors"
+          >
+            <Forward size={12} />
+          </button>
+        )}
 
-      {canEditOrDelete && onEdit && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          title="Editar mensagem"
-          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-primary-300 hover:bg-primary-500/20 active:bg-primary-500/30 transition-colors"
-        >
-          <Pencil size={11} />
-        </button>
-      )}
+        {canEditOrDelete && onEdit && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            title="Editar mensagem"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-primary-300 hover:bg-primary-500/20 active:bg-primary-500/30 transition-colors"
+          >
+            <Pencil size={11} />
+          </button>
+        )}
 
-      {canEditOrDelete && onDelete && (
+        {canEditOrDelete && onDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            disabled={isDeleting}
+            title="Apagar para todos"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 transition-colors disabled:opacity-50"
+          >
+            {isDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+          </button>
+        )}
+
+        {/* Mais opções (Action Sheet) */}
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          disabled={isDeleting}
-          title="Apagar para todos"
-          className="w-7 h-7 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-white/70 hover:text-rose-400 hover:bg-rose-500/20 active:bg-rose-500/30 transition-colors disabled:opacity-50"
+          onClick={(e) => { e.stopPropagation(); setIsActionSheetOpen(true); }}
+          title="Mais opções da mensagem"
+          className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors"
         >
-          {isDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+          <MoreHorizontal size={11} />
         </button>
+      </div>
+
+      {/* Gatilho visível no Mobile: pequeno botão no canto da mensagem */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setIsActionSheetOpen(true); }}
+        className="sm:hidden absolute top-1 right-1 w-5 h-5 rounded-full bg-black/40 text-white/60 hover:text-white flex items-center justify-center transition-colors z-10"
+        title="Opções da mensagem"
+      >
+        <MoreHorizontal size={11} />
+      </button>
+
+      {/* PORTAL DO ACTION SHEET ESTILO WHATSAPP IOS (Z-INDEX TOTAL NO BODY, NUNCA CORTA) */}
+      {isActionSheetOpen && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 z-[99999] bg-black/75 backdrop-blur-sm flex flex-col justify-end sm:justify-center items-center p-3 animate-in fade-in duration-200 select-none"
+          onClick={(e) => { e.stopPropagation(); setIsActionSheetOpen(false); }}
+        >
+          <div 
+            className="w-full max-w-sm space-y-2.5 pb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Emojis de Reação Rápida no Topo (WhatsApp iOS) */}
+            <div className="flex items-center justify-around bg-[#1f2c34] border border-white/10 rounded-full px-3 py-2 shadow-2xl">
+              {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji, i) => (
+                <span key={i} className="text-2xl hover:scale-125 transition-transform cursor-pointer active:scale-95">
+                  {emoji}
+                </span>
+              ))}
+            </div>
+
+            {/* Menu de Ações Estilo iOS */}
+            <div className="bg-[#1f2c34] border border-white/10 rounded-2xl overflow-hidden shadow-2xl divide-y divide-white/5 text-sm font-semibold text-white">
+              {onQuote && (
+                <button
+                  type="button"
+                  onClick={() => handleQuoteClick()}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors text-left"
+                >
+                  <span className="text-white/90">Responder</span>
+                  <Reply size={16} className="text-white/50 rotate-180" />
+                </button>
+              )}
+
+              {effectiveText && (
+                <button
+                  type="button"
+                  onClick={() => handleCopy()}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors text-left"
+                >
+                  <span className="text-white/90">{copied ? 'Copiado!' : 'Copiar Texto'}</span>
+                  <Copy size={16} className={copied ? "text-emerald-400" : "text-white/50"} />
+                </button>
+              )}
+
+              {onForward && (
+                <button
+                  type="button"
+                  onClick={() => { onForward(); setIsActionSheetOpen(false); }}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors text-left"
+                >
+                  <span className="text-white/90">Encaminhar</span>
+                  <Forward size={16} className="text-white/50" />
+                </button>
+              )}
+
+              {isSticker && onSaveSticker && (
+                <button
+                  type="button"
+                  onClick={() => { onSaveSticker(); setIsActionSheetOpen(false); }}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors text-left"
+                >
+                  <span className="text-white/90">{isStickerSaved ? 'Salva nas Favoritas' : 'Favoritar Figurinha'}</span>
+                  <Star size={16} className={isStickerSaved ? "text-amber-400 fill-amber-400" : "text-white/50"} />
+                </button>
+              )}
+
+              {canEditOrDelete && onEdit && (
+                <button
+                  type="button"
+                  onClick={() => { onEdit(); setIsActionSheetOpen(false); }}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 active:bg-white/10 transition-colors text-left"
+                >
+                  <span className="text-white/90">Editar Mensagem</span>
+                  <Pencil size={16} className="text-white/50" />
+                </button>
+              )}
+
+              {canEditOrDelete && onDelete && (
+                <button
+                  type="button"
+                  onClick={() => { onDelete(); setIsActionSheetOpen(false); }}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-rose-500/10 active:bg-rose-500/20 text-rose-400 transition-colors text-left"
+                >
+                  <span>Apagar para Todos</span>
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Botão Cancelar */}
+            <button
+              type="button"
+              onClick={() => setIsActionSheetOpen(false)}
+              className="w-full py-3 bg-[#1f2c34] hover:bg-[#2a3942] active:bg-[#182229] border border-white/10 rounded-2xl text-center text-sm font-bold text-white transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 };
 
@@ -571,6 +742,12 @@ export const CustomerContextSidebar = ({
   onOpenMediaViewer,
   onStartSale,
   onOpenChatWithPhone,
+  orderSummaryDraft,
+  setOrderSummaryDraft,
+  estimatedValueDraft,
+  setEstimatedValueDraft,
+  onSaveOrderInfo,
+  isSavingOrderInfo = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -619,6 +796,12 @@ export const CustomerContextSidebar = ({
   onOpenMediaViewer?: (media: any) => void;
   onStartSale?: () => void;
   onOpenChatWithPhone?: (phone: string) => void;
+  orderSummaryDraft?: string;
+  setOrderSummaryDraft?: (v: string) => void;
+  estimatedValueDraft?: string | number;
+  setEstimatedValueDraft?: (v: string | number) => void;
+  onSaveOrderInfo?: () => void;
+  isSavingOrderInfo?: boolean;
 }) => {
   const [newTagInput, setNewTagInput] = useState('');
   const [participantSearch, setParticipantSearch] = useState('');
@@ -746,106 +929,185 @@ export const CustomerContextSidebar = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 text-xs">
         {/* ABA EXCLUSIVA DO GRUPO: PARTICIPANTES */}
         {isGroup && resolvedTab === 'participants' && (
-          <div className="space-y-3">
-            {/* Card Resumo do Grupo */}
-            <div className="p-3 bg-white/[0.03] border border-white/10 rounded-xl space-y-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-xs shrink-0">
-                  <Users size={16} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h5 className="font-bold text-white text-xs truncate">
-                    {conversation.name || 'Grupo de WhatsApp'}
-                  </h5>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-[10px] text-emerald-400 font-bold">
-                      {(groupParticipants || []).length} participante{(groupParticipants || []).length === 1 ? '' : 's'}
-                    </span>
-                    <span className="text-white/30 text-[10px]">•</span>
-                    <span className="text-[9.5px] text-white/50">WhatsApp</span>
-                  </div>
+          <div className="space-y-4">
+            {/* Perfil do Grupo Estilo WhatsApp iOS (IMG_7568) */}
+            <div className="text-center py-2 space-y-2">
+              <div className="relative w-24 h-24 mx-auto rounded-full bg-slate-900 border-2 border-white/10 flex items-center justify-center overflow-hidden shadow-2xl">
+                {conversation.photoUrl ? (
+                  <img src={conversation.photoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Users size={38} className="text-emerald-400" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center justify-center gap-1.5">
+                  <span>🥇</span>
+                  <span>{conversation.name || 'Rafa Arts'}</span>
+                  <span>🥇</span>
+                </h3>
+                <p className="text-xs text-white/50 mt-0.5">
+                  Grupo • {(groupParticipants || []).length} membros
+                </p>
+                <div className="flex items-center justify-center gap-1 text-[11px] text-white/60 mt-1">
+                  <span className="text-emerald-400 font-semibold">Sistema:</span>
+                  <span>pro.rafaartsgraphics.com.br</span>
+                  <Pencil size={10} className="text-emerald-400/80 cursor-pointer" />
                 </div>
               </div>
             </div>
 
-            {/* Ação rápida: Iniciar Venda */}
-            {onStartSale && (
+            {/* 4 Botões de Ação Rápida em Blocos Cinza Estilo WhatsApp iOS */}
+            <div className="grid grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={onStartSale}
-                className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
+                title="Iniciar Venda PDV"
               >
-                <ShoppingBag size={13} strokeWidth={2.5} />
-                <span>Iniciar Venda no PDV</span>
+                <ShoppingBag size={18} className="text-emerald-400" />
+                <span className="text-[10px] font-medium text-white/80">Venda</span>
               </button>
-            )}
 
-            {/* Busca de participantes */}
-            {(groupParticipants || []).length > 3 && (
-              <div className="relative">
-                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
-                <input
-                  type="text"
-                  value={participantSearch}
-                  onChange={(e) => setParticipantSearch(e.target.value)}
-                  placeholder="Buscar participante..."
-                  className="w-full bg-white/5 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-500/50"
-                />
+              <button
+                type="button"
+                onClick={() => setActiveTab('media')}
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
+                title="Ver Mídias"
+              >
+                <ImageIcon size={18} className="text-purple-400" />
+                <span className="text-[10px] font-medium text-white/80">Mídias</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('participants')}
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
+                title="Ver Membros"
+              >
+                <Users size={18} className="text-sky-400" />
+                <span className="text-[10px] font-medium text-white/80">Membros</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  // Aciona a busca no chat pai
+                  window.dispatchEvent(new CustomEvent('open-chat-search'));
+                }}
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
+                title="Pesquisar mensagens"
+              >
+                <Search size={18} className="text-white/60" />
+                <span className="text-[10px] font-medium text-white/80">Buscar</span>
+              </button>
+            </div>
+
+            {/* Seção Agrupada: Mídia, links e docs */}
+            <div className="bg-[#1c1c1e] rounded-2xl border border-white/5 overflow-hidden divide-y divide-white/5">
+              <button
+                type="button"
+                onClick={() => setActiveTab('media')}
+                className="w-full px-3.5 py-3 flex items-center justify-between hover:bg-white/5 transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
+                    <ImageIcon size={15} />
+                  </div>
+                  <span className="text-xs font-semibold text-white">Mídia, links e docs</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-white/40 text-xs">
+                  <span>{(groupMedia || []).length}</span>
+                  <ChevronRight size={14} />
+                </div>
+              </button>
+            </div>
+
+            {/* Seção: Participantes com busca */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-white/50">
+                  Participantes ({(groupParticipants || []).length})
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold">Clique para conversar</span>
               </div>
-            )}
 
-            {/* Lista de participantes */}
-            <div className="space-y-1.5 max-h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
-              {filteredParticipants.length === 0 ? (
-                <p className="text-center py-6 text-white/30 text-[11px]">Nenhum participante listado ainda.</p>
-              ) : (
-                filteredParticipants.map((p: any, idx: number) => (
-                  <div
-                    key={p.id || idx}
-                    className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 transition-colors group"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-white/80 font-bold text-[10px] shrink-0">
-                        {(p.name || p.phoneNumber || '?').slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-white truncate max-w-[140px]">
-                            {p.name || p.phoneNumber || 'Participante'}
-                          </span>
-                          {p.admin && (
-                            <span className="text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300">
-                              Admin
-                            </span>
+              {(groupParticipants || []).length > 3 && (
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
+                  <input
+                    type="text"
+                    value={participantSearch}
+                    onChange={(e) => setParticipantSearch(e.target.value)}
+                    placeholder="Buscar participante..."
+                    className="w-full bg-[#1c1c1e] border border-white/10 rounded-xl pl-7 pr-3 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+              )}
+
+              {/* Lista de participantes clicáveis para abrir chat individual */}
+              <div className="bg-[#1c1c1e] rounded-2xl border border-white/5 overflow-hidden divide-y divide-white/5 max-h-[360px] overflow-y-auto custom-scrollbar">
+                {filteredParticipants.length === 0 ? (
+                  <p className="text-center py-6 text-white/30 text-[11px]">Nenhum participante listado ainda.</p>
+                ) : (
+                  filteredParticipants.map((p: any, idx: number) => {
+                    const phoneOrId = p.phoneNumber || p.phone || (typeof p.id === 'string' && p.id.includes('@') ? p.id.split('@')[0] : p.id);
+                    return (
+                      <div
+                        key={p.id || idx}
+                        onClick={() => onOpenChatWithPhone && phoneOrId && onOpenChatWithPhone(phoneOrId)}
+                        className="flex items-center justify-between gap-2 p-2.5 hover:bg-white/5 transition-colors group cursor-pointer"
+                        title="Clique para abrir conversa individual com este participante"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-white/80 font-bold text-[10px] shrink-0">
+                            {(p.name || phoneOrId || '?').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-white truncate max-w-[140px]">
+                                {p.name || phoneOrId || 'Participante'}
+                              </span>
+                              {p.admin && (
+                                <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                                  Admin
+                                </span>
+                              )}
+                            </div>
+                            {phoneOrId && (
+                              <span className="text-[10px] text-white/40 block truncate">
+                                {phoneOrId}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {onOpenChatWithPhone && phoneOrId && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenChatWithPhone(phoneOrId)}
+                              title="Abrir chat individual"
+                              className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                            >
+                              <MessageCircle size={14} />
+                            </button>
+                          )}
+                          {onStartSale && (
+                            <button
+                              type="button"
+                              onClick={onStartSale}
+                              title="Iniciar Venda PDV"
+                              className="p-1.5 rounded-lg bg-white/5 text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                            >
+                              <ShoppingBag size={13} />
+                            </button>
                           )}
                         </div>
-                        {p.phoneNumber && (
-                          <span className="text-[9px] text-white/40 block truncate">
-                            {p.phoneNumber}
-                          </span>
-                        )}
-                        {p.messageCount && (
-                          <span className="text-[8.5px] text-white/30 block">
-                            {p.messageCount} mensage{p.messageCount === 1 ? 'm' : 'ns'} enviada{p.messageCount === 1 ? '' : 's'}
-                          </span>
-                        )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {onStartSale && (
-                        <button
-                          type="button"
-                          onClick={onStartSale}
-                          title="Iniciar Venda PDV"
-                          className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-                        >
-                          <ShoppingBag size={12} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         )}
