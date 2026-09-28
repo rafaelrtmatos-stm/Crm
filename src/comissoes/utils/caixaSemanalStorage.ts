@@ -10,7 +10,7 @@
 // nunca re-somar o histórico inteiro do colaborador (ver fecharCaixa/avancarCaixaSeNecessario).
 
 import { supabase } from '../../supabase';
-import { ServiceItem } from '../types';
+import { ServiceItem, MetaValorItem } from '../types';
 import { Desconto, calculateDescontosNoPeriodo, ModalidadeRemuneracao } from './supabaseStorage';
 import { calcularRemuneracaoSemanal } from './remuneracaoHelper';
 
@@ -383,7 +383,7 @@ export function calcularResumoCaixa(
   services: ServiceItem[],
   descontos: Desconto[],
   pagamentos: Pagamento[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO');
@@ -397,6 +397,9 @@ export function calcularResumoCaixa(
       salarioBase,
       comissaoPadraoPercentual: Number(extra?.comissaoPadraoPercentual) || 0,
       metaPercentual: Number(extra?.metaPercentual) || 0,
+      metasValores: extra?.metasValores,
+      metaValorMinimo: extra?.metaValorMinimo,
+      metaValorMaximo: extra?.metaValorMaximo,
     },
     totalProducao,
     totalComissaoServicos
@@ -432,7 +435,7 @@ export function calcularResumoNoIntervalo(
   pagamentos: Pagamento[],
   inicio: string,
   fim: string,
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO');
@@ -449,6 +452,9 @@ export function calcularResumoNoIntervalo(
       salarioBase: salarioBaseTotal,
       comissaoPadraoPercentual: Number(extra?.comissaoPadraoPercentual) || 0,
       metaPercentual: Number(extra?.metaPercentual) || 0,
+      metasValores: extra?.metasValores,
+      metaValorMinimo: extra?.metaValorMinimo,
+      metaValorMaximo: extra?.metaValorMaximo,
     },
     totalProducao,
     totalComissaoServicos
@@ -548,7 +554,7 @@ export async function avancarCaixaSeNecessario(
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
 ): Promise<WeeklyCaixa> {
   let caixa = caixaInicial;
   const hoje = getTodayISO();

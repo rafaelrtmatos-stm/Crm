@@ -49,11 +49,15 @@ export function jidsAlternativos(numero, ehGrupo) {
   return lista;
 }
 
-export async function buscarMensagensDoChat(evoHeaders, remoteJid) {
+export async function buscarMensagensDoChat(evoHeaders, remoteJid, limit = 50, page = 1) {
   const r = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${INSTANCE_NAME}`, {
     method: 'POST',
     headers: evoHeaders,
-    body: JSON.stringify({ where: { key: { remoteJid } }, limit: 200 }),
+    body: JSON.stringify({
+      where: { key: { remoteJid } },
+      limit: Number(limit) || 50,
+      page: Number(page) || 1,
+    }),
   });
   if (!r.ok) throw new Error(`Falha ao buscar mensagens na Evolution API (${r.status}).`);
   const data = await r.json();
@@ -132,16 +136,20 @@ export default async function handler(req, res) {
     return;
   }
 
+  const limit = Math.min(100, Math.max(1, Number(req.body?.limit) || 50));
+  const page = Math.max(1, Number(req.body?.page) || 1);
+  const syncToDb = req.body?.syncToDb !== false;
+
   try {
     const { remoteJid, ehGrupo } = await resolverRemoteJid(numero);
     const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
     // A conversa pode estar guardada na Evolution sob outro JID que nao o calculado a partir do
     // telefone normalizado do CRM (ver jidsAlternativos). Tenta o principal e so cai nos
     // alternativos quando ele volta vazio -- caso normal continua sendo UMA chamada so.
-    let registros = await buscarMensagensDoChat(evoHeaders, remoteJid);
+    let registros = await buscarMensagensDoChat(evoHeaders, remoteJid, limit, page);
     if (registros.length === 0) {
       for (const jidAlt of jidsAlternativos(numero, ehGrupo)) {
-        registros = await buscarMensagensDoChat(evoHeaders, jidAlt).catch(() => []);
+        registros = await buscarMensagensDoChat(evoHeaders, jidAlt, limit, page).catch(() => []);
         if (registros.length > 0) break;
       }
     }
@@ -154,7 +162,40 @@ export default async function handler(req, res) {
       // que loadMessages já usa hoje.
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    res.status(200).json({ ok: true, messages: mensagens });
+    // Se solicitado ou por padrão, restaura no banco de dados para nunca mais perder o histórico
+    if (syncToDb && mensagens.length > 0) {
+      try {
+        const rows = mensagens.map((m) => ({
+          company_id: COMPANY_ID,
+          phone: numero,
+          text: m.text,
+          direction: m.direction,
+          sender_name: m.senderName || null,
+          channel: 'WhatsApp',
+          whatsapp_message_id: m.id || null,
+          created_at: m.createdAt,
+          media_url: m.mediaUrl || null,
+          file_name: m.fileName || null,
+          media_content_type: m.mediaContentType || null,
+          is_note: false,
+          delivery_status: m.deliveryStatus || null,
+        }));
+
+        await fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+          method: 'POST',
+          headers: {
+            ...supaHeaders,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=ignore-duplicates,return=minimal',
+          },
+          body: JSON.stringify(rows),
+        });
+      } catch (errSync) {
+        console.warn('[CRM] Aviso ao sincronizar mensagens no crm_messages:', errSync);
+      }
+    }
+
+    res.status(200).json({ ok: true, messages: mensagens, totalReturned: mensagens.length });
   } catch (err) {
     console.error('Falha ao buscar histórico ao vivo da Evolution API:', err);
     res.status(500).json({ error: 'Erro ao buscar mensagens.' });

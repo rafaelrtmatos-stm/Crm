@@ -665,7 +665,7 @@ const MessageStatusTicks = ({
   const statusResolvido = (status === 'delivered' || status === 'read') ? status : 'sent';
   const isRead = statusResolvido === 'read';
   const isDelivered = statusResolvido === 'delivered';
-  const label = isRead ? 'Lida' : isDelivered ? 'Recebida' : 'Enviada';
+  const label = isRead ? 'Lido' : isDelivered ? 'Recebido' : 'Enviado';
   const sentTime = m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : null;
   const deliveredTime = m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : null;
   const readTime = m?.readAt ? safeFormat(m.readAt, 'HH:mm') : null;
@@ -673,51 +673,104 @@ const MessageStatusTicks = ({
 
   return (
     <div className="relative inline-flex items-center shrink-0">
-      {/* Botão "Ver histórico" da mensagem: alvo de toque maior (padding próprio) em vez do
-          ícone de 13px sozinho, que era pequeno demais pra tocar com precisão no mobile. */}
+      {/* Botão "Ver histórico" da mensagem: claramente visível, fácil de clicar e com texto legível */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onToggle?.();
         }}
-        title={`${label}${activeTime ? ` às ${activeTime}` : ''} — toque para ver o histórico completo`}
+        title={`Status: ${label}${activeTime ? ` às ${activeTime}` : ''} — clique para ver o histórico detalhado`}
         aria-label={`Ver histórico da mensagem: ${label}`}
         className={cn(
-          "inline-flex items-center justify-center -m-1 p-1 rounded-md cursor-pointer transition-transform active:scale-90 shrink-0",
-          isRead ? "text-sky-400" : "text-white/50",
-          isOpen && "ring-1 ring-white/30 bg-white/5"
+          "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md cursor-pointer transition-all active:scale-95 text-[9.5px] font-bold border shrink-0 shadow-xs select-none",
+          isRead 
+            ? "bg-sky-500/15 text-sky-300 border-sky-500/35 hover:bg-sky-500/25" 
+            : isDelivered 
+              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/35 hover:bg-emerald-500/25" 
+              : "bg-white/10 text-white/80 border-white/15 hover:bg-white/20",
+          isOpen && "ring-2 ring-white/40 shadow-md"
         )}
       >
-        {statusResolvido === 'sent' ? <Check size={14} strokeWidth={2.5} /> : <CheckCheck size={14} strokeWidth={2.5} />}
+        {statusResolvido === 'sent' ? (
+          <Check size={12} strokeWidth={2.5} className="shrink-0 text-slate-200" />
+        ) : (
+          <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-sky-300" : "text-emerald-300")} />
+        )}
+        <span className="leading-none">{label}</span>
+        {activeTime && (
+          <span className="text-[8.5px] opacity-60 font-medium leading-none">· {activeTime}</span>
+        )}
       </button>
 
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
-          {/* Painel compacto com o histórico completo (Enviada/Recebida/Lida), cada etapa com
-              ícone, texto legível e horário quando disponível -- não só o status atual. */}
+          <div className="fixed inset-0 z-40 bg-black/20 sm:bg-transparent" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
+          {/* Painel/modal compacto com o histórico completo (Enviado/Recebido/Lido), ícones e horários */}
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-full mb-1.5 right-0 z-50 w-56 max-w-[calc(100vw-32px)] bg-slate-900/95 border border-white/20 text-white rounded-xl px-3 py-2.5 shadow-xl backdrop-blur-md text-[11px] animate-in fade-in zoom-in-95 duration-150 select-none space-y-1.5"
+            className="absolute bottom-full mb-2 right-0 z-50 w-64 max-w-[calc(100vw-32px)] bg-[#1a2333]/98 border border-white/20 text-white rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl text-xs animate-in fade-in zoom-in-95 duration-150 select-none space-y-2.5"
           >
-            <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Histórico da Mensagem</p>
-            <div className="flex items-center gap-2">
-              <Check size={13} strokeWidth={2.5} className="text-slate-300 shrink-0" />
-              <span className="font-bold text-slate-200 flex-1">Enviada</span>
-              <span className="text-white/50 font-medium">{sentTime || 'Não disponível'}</span>
+            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+              <p className="text-[9.5px] font-black uppercase tracking-wider text-white/50 flex items-center gap-1.5">
+                <Clock size={11} className="text-primary-300" /> Histórico da Mensagem
+              </p>
+              <button 
+                type="button" 
+                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
+                className="text-white/40 hover:text-white p-0.5 rounded cursor-pointer"
+              >
+                <X size={12} />
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isDelivered || isRead ? "text-emerald-400" : "text-white/20")} />
-              <span className={cn("font-bold flex-1", isDelivered || isRead ? "text-emerald-300" : "text-white/30")}>Recebida</span>
-              <span className={cn("font-medium", isDelivered || isRead ? "text-white/50" : "text-white/20")}>{deliveredTime || 'Não disponível'}</span>
+
+            <div className="space-y-2">
+              {/* Enviado */}
+              <div className="flex items-center gap-2.5 p-1.5 rounded-xl bg-white/5 border border-white/5">
+                <div className="w-6 h-6 rounded-lg bg-white/10 text-white flex items-center justify-center shrink-0">
+                  <Check size={13} strokeWidth={2.5} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-100 text-[11px] leading-tight">Enviado</p>
+                  <p className="text-[10px] text-white/50 font-medium truncate">{sentTime ? `Às ${sentTime}` : 'Registrado no sistema'}</p>
+                </div>
+                <span className="text-[9px] font-black text-slate-300 bg-white/10 px-1.5 py-0.5 rounded">✓</span>
+              </div>
+
+              {/* Recebido */}
+              <div className={cn("flex items-center gap-2.5 p-1.5 rounded-xl border transition-colors", (isDelivered || isRead) ? "bg-emerald-500/10 border-emerald-500/20" : "bg-white/[0.02] border-white/5 opacity-60")}>
+                <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", (isDelivered || isRead) ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/20")}>
+                  <CheckCheck size={13} strokeWidth={2.5} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={cn("font-bold text-[11px] leading-tight", (isDelivered || isRead) ? "text-emerald-300" : "text-white/40")}>Recebido</p>
+                  <p className={cn("text-[10px] font-medium truncate", (isDelivered || isRead) ? "text-white/60" : "text-white/30")}>
+                    {deliveredTime ? `Às ${deliveredTime}` : (isDelivered || isRead ? 'Entregue no aparelho' : 'Aguardando entrega')}
+                  </p>
+                </div>
+                {(isDelivered || isRead) && (
+                  <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">✓✓</span>
+                )}
+              </div>
+
+              {/* Lido */}
+              <div className={cn("flex items-center gap-2.5 p-1.5 rounded-xl border transition-colors", isRead ? "bg-sky-500/10 border-sky-500/20" : "bg-white/[0.02] border-white/5 opacity-60")}>
+                <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", isRead ? "bg-sky-500/20 text-sky-400" : "bg-white/5 text-white/20")}>
+                  <CheckCheck size={13} strokeWidth={2.5} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={cn("font-bold text-[11px] leading-tight", isRead ? "text-sky-300" : "text-white/40")}>Lido</p>
+                  <p className={cn("text-[10px] font-medium truncate", isRead ? (readTime ? `Às ${readTime}` : 'Visualizado pelo cliente') : 'Aguardando leitura')}>
+                    {isRead ? (readTime ? `Às ${readTime}` : 'Visualizado pelo cliente') : 'Aguardando leitura'}
+                  </p>
+                </div>
+                {isRead && (
+                  <span className="text-[9px] font-black text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded">Lido</span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-sky-400" : "text-white/20")} />
-              <span className={cn("font-bold flex-1", isRead ? "text-sky-300" : "text-white/30")}>Lida</span>
-              <span className={cn("font-medium", isRead ? "text-white/50" : "text-white/20")}>{readTime || 'Não disponível'}</span>
-            </div>
-            <div className="absolute top-full right-1.5 -mt-px border-solid border-t-slate-900/95 border-t-[4px] border-x-transparent border-x-[4px] border-b-0" />
+
+            <div className="absolute top-full right-3 -mt-px border-solid border-t-[#1a2333]/98 border-t-[5px] border-x-transparent border-x-[5px] border-b-0" />
           </div>
         </>
       )}
@@ -3378,72 +3431,87 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       </Drawer>
 
       {/* Modal Quitar Saldo Devedor */}
-      {settleModalOrder && (
-        <Modal
-          isOpen={!!settleModalOrder}
-          onClose={() => setSettleModalOrder(null)}
-          title="Quitar Saldo Devedor do Serviço / Venda"
-          size="md"
-        >
-          <div className="space-y-6 p-4">
-            <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-white/50">Cliente:</span>
-                <span className="text-sm font-black text-white">{(settleModalOrder.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+      {settleModalOrder && (() => {
+        const saldoEmAberto = Math.max(0, settleModalOrder.total - (settleModalOrder.downPayment || 0));
+        const formaLabel = settleMethod === 'pix' ? 'PIX' : settleMethod === 'dinheiro' ? 'Dinheiro' : settleMethod === 'cartao_credito' ? 'Cartão Crédito' : 'Cartão Débito';
+        return (
+          <Modal
+            isOpen={!!settleModalOrder}
+            onClose={() => setSettleModalOrder(null)}
+            title="Quitar Saldo Devedor"
+            size="compact"
+            className="max-w-[380px] w-full mx-auto p-3.5 sm:p-4 rounded-2xl"
+          >
+            <div className="space-y-3">
+              {/* Cliente e Pedido */}
+              <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 flex items-center justify-between text-xs">
+                <div className="min-w-0">
+                  <span className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Cliente</span>
+                  <span className="text-xs font-black text-white truncate block">{(settleModalOrder.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Pedido</span>
+                  <span className="text-xs font-mono font-bold text-primary-300">#{settleModalOrder.id.slice(-6).toUpperCase()}</span>
+                </div>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
-                <span className="text-sm font-bold text-white">R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-emerald-400">Entrada Já Paga:</span>
-                <span className="text-sm font-bold text-emerald-400">R$ {(settleModalOrder.downPayment || 0).toFixed(2).replace('.', ',')}</span>
-              </div>
-              <div className="flex justify-between items-center border-t border-white/10 pt-2">
-                <span className="text-xs font-black text-rose-400 uppercase">Saldo A Quitar Agora:</span>
-                <span className="text-xl font-black text-rose-400">R$ {(settleModalOrder.total - (settleModalOrder.downPayment || 0)).toFixed(2).replace('.', ',')}</span>
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Recebimento do Saldo</label>
+              {/* Cards de Valores Destacados e Maiores */}
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'pix', label: 'PIX QR' },
-                  { id: 'dinheiro', label: 'Dinheiro' },
-                  { id: 'cartao_credito', label: 'Cartão Crédito' },
-                  { id: 'cartao_debito', label: 'Cartão Débito' }
-                ].map(m => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setSettleMethod(m.id as any)}
-                    className={cn(
-                      "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
-                      settleMethod === m.id
-                        ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
-                        : "bg-white/5 border-white/10 text-white/60 hover:text-white"
-                    )}
-                  >
-                    {m.label}
-                  </button>
-                ))}
+                <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-black uppercase text-rose-300 tracking-wider block">Valor em Aberto</span>
+                  <span className="text-lg sm:text-xl font-black text-rose-400 block font-mono">R$ {saldoEmAberto.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[7.5px] text-white/40 block">Total: R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
+                </div>
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-black uppercase text-emerald-300 tracking-wider block">Valor a Pagar</span>
+                  <span className="text-lg sm:text-xl font-black text-emerald-400 block font-mono">R$ {saldoEmAberto.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[7.5px] text-emerald-300/80 font-bold block">{formaLabel}</span>
+                </div>
+              </div>
+
+              {/* Forma de Pagamento */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase text-white/50 tracking-wider block">Forma de Pagamento</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'pix', label: 'PIX QR' },
+                    { id: 'dinheiro', label: 'Dinheiro' },
+                    { id: 'cartao_credito', label: 'Cartão Crédito' },
+                    { id: 'cartao_debito', label: 'Cartão Débito' }
+                  ].map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setSettleMethod(m.id as any)}
+                      className={cn(
+                        "py-2 px-2.5 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer active:scale-95",
+                        settleMethod === m.id
+                          ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-sm"
+                          : "bg-white/5 border-white/10 text-white/60 hover:text-white"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ações */}
+              <div className="flex gap-2 pt-1">
+                <Button variant="ghost" size="sm" className="flex-1 h-9 text-[11px] font-bold" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
+                <Button 
+                  size="sm"
+                  className="flex-[2] h-9 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black text-[11px] uppercase tracking-wider gap-1.5 shadow-sm active:scale-95"
+                  onClick={() => handleSettleBalanceInDashboard(settleModalOrder)}
+                >
+                  <CheckCircle2 size={14} />
+                  <span>Quitar Débito</span>
+                </Button>
               </div>
             </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="ghost" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
-              <Button 
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
-                onClick={() => handleSettleBalanceInDashboard(settleModalOrder)}
-              >
-                <CheckCircle2 size={16} />
-                <span>Confirmar Recebimento do Saldo</span>
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        );
+      })()}
     </div>
   );
 };
@@ -4184,6 +4252,43 @@ export const ChatPanel = ({
   // Aponta pro loadMessages do useEffect do chat (mais abaixo), pra recarregar a lista logo depois
   // de criar/editar/apagar uma nota -- no WhatsApp a lista vem da Evolution + notas de crm_messages.
   const recarregarMensagensRef = useRef<(() => void) | null>(null);
+  const [isFetchingOlderHistory, setIsFetchingOlderHistory] = useState(false);
+  const historyPageRef = useRef<number>(1);
+  const hasMoreHistoryRef = useRef<boolean>(true);
+  const autoSyncedPhonesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    historyPageRef.current = 1;
+    hasMoreHistoryRef.current = true;
+  }, [conversation?.id, conversation?.phone]);
+
+  const handlePuxarMaisHistorico = async (targetPage?: number) => {
+    const phoneDigits = (conversation?.phone || '').replace(/\D/g, '');
+    if (!phoneDigits || isFetchingOlderHistory) return;
+    setIsFetchingOlderHistory(true);
+    try {
+      const pageToFetch = targetPage !== undefined ? targetPage : (historyPageRef.current + 1);
+      const resp = await fetch('/api/whatsapp-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({ phone: conversation.phone, limit: 50, page: pageToFetch, syncToDb: true }),
+      });
+      const json = await resp.json().catch(() => null);
+      if (json?.ok && Array.isArray(json.messages)) {
+        if (json.messages.length === 0) {
+          hasMoreHistoryRef.current = false;
+        } else {
+          historyPageRef.current = pageToFetch;
+          recarregarMensagensRef.current?.();
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao puxar histórico da Evolution:', err);
+    } finally {
+      setIsFetchingOlderHistory(false);
+    }
+  };
+
   const handleAddNote = async () => {
     if (!newNoteText.trim() || !conversation || !currentCompany) return;
     setIsSavingNote(true);
@@ -4325,26 +4430,99 @@ export const ChatPanel = ({
     try { await deleteDoc(doc(db, 'tasks', task.id)); } catch (err) { console.error('Erro ao excluir tarefa:', err); }
   };
 
-  // --- Vendas do cliente (mesmo telefone) -- fecha o ciclo conversa -> nota -> contrato/orçamento,
-  // reaproveitando a navegacao com destaque que a Ficha do Cliente ja usa (pendingOpenContratoId /
-  // pendingOpenOrcamentoId / pendingReceiptOpenId, ver AppContext).
+  // --- Vendas do cliente -- fecha o ciclo conversa -> nota -> contrato/orçamento,
+  // exatamente igual ao clique no cliente (Ficha do Cliente em Contatos), casando por
+  // cliente_id (do cadastro vinculado), telefone (últimos 8 dígitos) e nome completo oficial.
   const [clienteVendas, setClienteVendas] = useState<any[]>([]);
   const [isLoadingVendas, setIsLoadingVendas] = useState(false);
   useEffect(() => {
     let ativo = true;
-    const digitos = (conversation?.phone || '').replace(/\D/g, '');
-    if (!digitos || digitos.length < 6) { setClienteVendas([]); return; }
+    const digitosConv = (conversation?.phone || '').replace(/\D/g, '');
+    const ultimos8Conv = digitosConv.slice(-8);
+    const digitosCli = (clienteVinculado?.phone || '').replace(/\D/g, '');
+    const ultimos8Cli = digitosCli.slice(-8);
+
+    // Precisa de ao menos um critério de identificação
+    if ((!ultimos8Conv || ultimos8Conv.length < 6) && !clienteVinculado?.id && !clienteVinculado?.full_name) {
+      setClienteVendas([]);
+      return;
+    }
+
     setIsLoadingVendas(true);
-    const ultimos8 = digitos.slice(-8);
-    supabase.from('vendas')
-      .select('id, customer_name, customer_phone, total, status, down_payment, contrato_id, orcamento_id, created_at')
-      .is('deleted_at', null)
-      .ilike('customer_phone', `%${ultimos8}%`)
-      .order('created_at', { ascending: false })
-      .limit(15)
-      .then(({ data }) => { if (ativo) { setClienteVendas(data || []); setIsLoadingVendas(false); } });
+
+    const carregarVendas = async () => {
+      try {
+        const orClauses: string[] = [];
+        if (clienteVinculado?.id) {
+          orClauses.push(`cliente_id.eq.${clienteVinculado.id}`);
+        }
+        if (ultimos8Conv && ultimos8Conv.length >= 6) {
+          orClauses.push(`customer_phone.ilike.%${ultimos8Conv}%`);
+        }
+        if (ultimos8Cli && ultimos8Cli.length >= 6 && ultimos8Cli !== ultimos8Conv) {
+          orClauses.push(`customer_phone.ilike.%${ultimos8Cli}%`);
+        }
+        const nomeOficial = (clienteVinculado?.full_name || '').trim();
+        if (nomeOficial && nomeOficial.length >= 3 && !/^\+?\d+$/.test(nomeOficial)) {
+          const nomeSanitizado = nomeOficial.replace(/,/g, '');
+          orClauses.push(`customer_name.ilike.%${nomeSanitizado}%`);
+        }
+
+        let query = supabase
+          .from('vendas')
+          .select('id, cliente_id, customer_name, customer_phone, total, status, down_payment, contrato_id, orcamento_id, created_at, items')
+          .is('deleted_at', null);
+
+        if (orClauses.length > 0) {
+          query = query.or(orClauses.join(','));
+        }
+
+        const { data, error } = await query
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        if (!ativo) return;
+
+        if (error) {
+          console.warn('Erro ao carregar vendas do cliente na conversa:', error);
+          setIsLoadingVendas(false);
+          return;
+        }
+
+        // Deduplica por id e monta itemsSummary como na Ficha do Cliente
+        const mapa = new Map<string, any>();
+        (data || []).forEach((v: any) => {
+          if (!mapa.has(v.id)) {
+            const total = Number(v.total) || 0;
+            const down = v.down_payment !== null ? Number(v.down_payment) : (v.status === 'completed' ? total : 0);
+            const isFullyPaid = v.status === 'completed' || down >= total;
+            const itemsList = Array.isArray(v.items) ? v.items : [];
+            const itemsSummary = itemsList.map((i: any) => i.name || i.product_name).filter(Boolean).join(', ') || 'Venda PDV';
+            mapa.set(v.id, {
+              ...v,
+              total,
+              down_payment: down,
+              isFullyPaid,
+              itemsSummary,
+            });
+          }
+        });
+
+        const lista = Array.from(mapa.values()).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        setClienteVendas(lista);
+      } catch (err) {
+        console.error('Falha ao processar vendas do cliente:', err);
+      } finally {
+        if (ativo) setIsLoadingVendas(false);
+      }
+    };
+
+    carregarVendas();
     return () => { ativo = false; };
-  }, [conversation?.phone]);
+  }, [conversation?.phone, conversation?.id, clienteVinculado?.id, clienteVinculado?.full_name, clienteVinculado?.phone]);
 
   // --- Transcrição de áudio ---
   // Toggle por conversa (salvo no proprio lead, ver Lead em types.ts) -- fica identico nas duas
@@ -4679,6 +4857,22 @@ export const ChatPanel = ({
           sweptTranscriptionPhonesRef.current.add(conversation.phone);
           reprocessPendingTranscriptions(conversation.phone, user?.id);
         }
+
+        // Se a conversa estiver vazia ou com apenas 1 mensagem (recém apagada/cliente acabou de mandar),
+        // puxa automaticamente as últimas 50 mensagens do WhatsApp na Evolution e sincroniza no banco
+        if (conversation.phone && mapped.length <= 1 && !autoSyncedPhonesRef.current.has(conversation.phone)) {
+          autoSyncedPhonesRef.current.add(conversation.phone);
+          fetch('/api/whatsapp-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+            body: JSON.stringify({ phone: conversation.phone, limit: 50, page: 1, syncToDb: true }),
+          }).then((r) => r.json()).then((j) => {
+            if (j?.ok && j.messages?.length > mapped.length) {
+              recarregarMensagensRef.current?.();
+            }
+          }).catch(() => {});
+        }
+
         return true;
       } catch (err) {
         console.warn('[CRM] Falha ao carregar mensagens do WhatsApp em crm_messages:', err);
@@ -6821,36 +7015,80 @@ export const ChatPanel = ({
           )}
 
           {activeTab === 'sales' && (
-            <motion.div key="sales" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-4 overflow-y-auto custom-scrollbar h-full">
-               <h3 className="text-xl font-bold text-white italic">Vendas do Cliente</h3>
-               <p className="text-[10px] text-white/30">Pedidos com o mesmo telefone dessa conversa — clique pra abrir a nota, o contrato ou o orçamento vinculado.</p>
+            <motion.div key="sales" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 md:p-8 space-y-4 overflow-y-auto custom-scrollbar h-full">
+               <div className="flex items-center justify-between">
+                 <div>
+                   <h3 className="text-xl font-bold text-white italic">Histórico de Vendas</h3>
+                   <p className="text-[10px] text-white/40">
+                     Vendas do cadastro do cliente ou mesmo telefone — igual à Ficha do Cliente.
+                   </p>
+                 </div>
+                 {clienteVendas.length > 0 && (
+                   <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-black">
+                     {clienteVendas.length} {clienteVendas.length === 1 ? 'nota' : 'notas'}
+                   </span>
+                 )}
+               </div>
+
+               {clienteVendas.length > 0 && (
+                 <div className="grid grid-cols-3 gap-2 p-3 bg-white/5 border border-white/10 rounded-2xl text-center">
+                   <div>
+                     <p className="text-[8.5px] font-black uppercase text-white/40 tracking-wider">Faturado</p>
+                     <p className="text-xs font-black text-white mt-0.5">
+                       R$ {clienteVendas.reduce((acc, v) => acc + (v.total || 0), 0).toFixed(2).replace('.', ',')}
+                     </p>
+                   </div>
+                   <div>
+                     <p className="text-[8.5px] font-black uppercase text-emerald-400 tracking-wider">Pago</p>
+                     <p className="text-xs font-black text-emerald-300 mt-0.5">
+                       R$ {clienteVendas.reduce((acc, v) => acc + (v.isFullyPaid ? v.total : (v.down_payment || 0)), 0).toFixed(2).replace('.', ',')}
+                     </p>
+                   </div>
+                   <div>
+                     <p className="text-[8.5px] font-black uppercase text-amber-400 tracking-wider">Pendente</p>
+                     <p className="text-xs font-black text-amber-300 mt-0.5">
+                       R$ {clienteVendas.reduce((acc, v) => acc + Math.max(0, (v.total || 0) - (v.down_payment || 0)), 0).toFixed(2).replace('.', ',')}
+                     </p>
+                   </div>
+                 </div>
+               )}
+
                {isLoadingVendas ? (
                  <div className="flex justify-center py-10"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
                ) : clienteVendas.length === 0 ? (
-                 <p className="text-xs text-white/20 text-center py-8">Nenhuma venda encontrada com esse telefone ainda.</p>
+                 <p className="text-xs text-white/20 text-center py-8">Nenhuma venda encontrada para este cliente ainda.</p>
                ) : (
                  <div className="space-y-2">
                    {clienteVendas.map((venda) => {
                      const saldo = (venda.total || 0) - (venda.down_payment || 0);
                      const pendente = saldo > 0 || venda.status === 'pending';
                      return (
-                       <div key={venda.id} className="p-3 bg-white/5 border border-white/10 rounded-xl space-y-2">
+                       <div key={venda.id} className="p-3 bg-white/5 hover:bg-white/[0.08] border border-white/10 rounded-xl space-y-2 transition-colors">
                           <div className="flex items-center justify-between gap-2">
-                             <button onClick={() => { setPendingReceiptOpenId?.(venda.id); setRootActiveTab?.('pos'); }} className="text-left min-w-0 flex-1">
-                                <p className="text-xs font-black text-white truncate">#{venda.id.slice(-8).toUpperCase()}</p>
-                                <p className="text-[9px] text-white/30">{venda.created_at ? safeFormat(venda.created_at, 'dd/MM/yyyy HH:mm') : ''}</p>
+                             <button
+                               onClick={() => { setPendingReceiptOpenId?.(venda.id); setRootActiveTab?.('pos'); }}
+                               className="text-left min-w-0 flex-1 group cursor-pointer"
+                               title="Abrir comprovante da venda no PDV"
+                             >
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-mono font-black text-primary-400 group-hover:underline">#{venda.id.slice(-8).toUpperCase()}</p>
+                                  <p className="text-[9px] text-white/30">{venda.created_at ? safeFormat(venda.created_at, 'dd/MM/yyyy HH:mm') : ''}</p>
+                                </div>
+                                <p className="text-[11px] font-bold text-white truncate mt-0.5">{venda.itemsSummary || 'Venda PDV'}</p>
                              </button>
-                             <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", pendente ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
-                               {pendente ? `FALTA R$ ${saldo.toFixed(2).replace('.', ',')}` : 'PAGO'}
-                             </Badge>
-                             <span className="text-xs font-black text-white shrink-0">R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                             <div className="flex items-center gap-2 shrink-0">
+                               <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none shrink-0", pendente ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>
+                                 {pendente ? `FALTA R$ ${saldo.toFixed(2).replace('.', ',')}` : 'PAGO'}
+                               </Badge>
+                               <span className="text-xs font-black text-white shrink-0">R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                             </div>
                           </div>
                           {(venda.contrato_id || venda.orcamento_id) && (
-                            <div className="flex flex-wrap gap-1">
+                            <div className="flex flex-wrap gap-1 pt-1 border-t border-white/5">
                                {venda.contrato_id && (
                                  <button
                                    onClick={() => { setPendingOpenContratoId?.(venda.contrato_id); setRootActiveTab?.('pos'); }}
-                                   className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors"
+                                   className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors cursor-pointer"
                                  >
                                    Contrato
                                  </button>
@@ -6858,7 +7096,7 @@ export const ChatPanel = ({
                                {venda.orcamento_id && (
                                  <button
                                    onClick={() => { setPendingOpenOrcamentoId?.(venda.orcamento_id); setRootActiveTab?.('pos'); }}
-                                   className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors"
+                                   className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors cursor-pointer"
                                  >
                                    Orçamento
                                  </button>
@@ -7614,6 +7852,23 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const excluirLeadComCascata = async (lead: Lead) => {
     if (lead.phone) {
       await supabase.from('crm_messages').delete().eq('company_id', 'rafa-arts').eq('phone', lead.phone);
+      try {
+        const raw = String(lead.phone).trim();
+        const clean = raw.replace(/\D/g, '');
+        const ultimos8 = clean.slice(-8);
+        const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
+        if (ultimos8 && ultimos8.length >= 6) {
+          orClauses.push(`phone.ilike.%${ultimos8}%`);
+        }
+        await supabase
+          .from('crm_notifications')
+          .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: 'lead_deleted' })
+          .eq('company_id', 'rafa-arts')
+          .or(orClauses.join(','))
+          .eq('status', 'pending');
+      } catch (errNotif) {
+        console.warn('Erro ao resolver notificações na exclusão do lead:', errNotif);
+      }
     }
     await supabase.from('leads').delete().eq('id', lead.id);
   };
@@ -15425,12 +15680,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setDownPayment(0);
     setScheduledFor(order.scheduledFor ? isoToLocalDatetimeInput(order.scheduledFor) : '');
     setPendingPaymentMethod('');
-    setEditingPaymentsList(order.payments ? order.payments.map(p => ({ ...p })) : []);
+    const existingPayments = order.payments ? order.payments.map(p => ({ ...p })) : [];
+    setEditingPaymentsList(existingPayments);
     setSaleDiscountValue(order.discountValue || 0);
     setSaleDiscountInput(order.discountValue ? Number(order.discountValue) : '');
     setSaleDiscountMode('valor');
     setSaleCreditApplied(0);
     setAllowExtraPaymentEntry(false);
+
+    // Preenche automaticamente o valor em aberto da venda ao clicar em Quitar
+    const paidBefore = existingPayments.length > 0
+      ? existingPayments.reduce((sum, p) => sum + (p.value || 0), 0)
+      : (order.downPayment ?? order.receivedValue ?? 0);
+    const balanceRemaining = Math.max(0, order.total - (order.discountValue || 0) - paidBefore);
+    setNewPaymentMode('valor');
+    setNewPaymentInput(balanceRemaining > 0 ? Number(balanceRemaining.toFixed(2)) : '');
+    setNewPaymentMethod(order.paymentMethod && PAYMENT_METHOD_OPTIONS.some(o => o.id === order.paymentMethod) ? order.paymentMethod : 'pix');
+
     setIsPaymentModalOpen(true);
   };
 
@@ -21046,72 +21312,87 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
      </Modal>
 
      {/* Modal Quitar Saldo Devedor */}
-     {settleModalOrder && (
-       <Modal
-         isOpen={!!settleModalOrder}
-         onClose={() => setSettleModalOrder(null)}
-         title="Quitar Saldo Devedor do Serviço / Venda"
-         size="md"
-       >
-         <div className="space-y-6 p-4">
-           <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-2">
-             <div className="flex justify-between items-center">
-               <span className="text-xs font-bold text-white/50">Cliente:</span>
-               <span className="text-sm font-black text-white">{(settleModalOrder.customerName || 'Cliente de Balcão').toUpperCase()}</span>
-             </div>
-             <div className="flex justify-between items-center">
-               <span className="text-xs font-bold text-white/50">Total do Pedido:</span>
-               <span className="text-sm font-bold text-white">R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
-             </div>
-             <div className="flex justify-between items-center">
-               <span className="text-xs font-bold text-emerald-400">Entrada Já Paga:</span>
-               <span className="text-sm font-bold text-emerald-400">R$ {(settleModalOrder.downPayment || 0).toFixed(2).replace('.', ',')}</span>
-             </div>
-             <div className="flex justify-between items-center border-t border-white/10 pt-2">
-               <span className="text-xs font-black text-rose-400 uppercase">Saldo A Quitar Agora:</span>
-               <span className="text-xl font-black text-rose-400">R$ {(settleModalOrder.total - (settleModalOrder.downPayment || 0)).toFixed(2).replace('.', ',')}</span>
-             </div>
-           </div>
+     {settleModalOrder && (() => {
+        const saldoEmAberto = Math.max(0, settleModalOrder.total - (settleModalOrder.downPayment || 0));
+        const formaLabel = settleMethod === 'pix' ? 'PIX' : settleMethod === 'dinheiro' ? 'Dinheiro' : settleMethod === 'cartao_credito' ? 'Cartão Crédito' : 'Cartão Débito';
+        return (
+          <Modal
+            isOpen={!!settleModalOrder}
+            onClose={() => setSettleModalOrder(null)}
+            title="Quitar Saldo Devedor"
+            size="compact"
+            className="max-w-[380px] w-full mx-auto p-3.5 sm:p-4 rounded-2xl"
+          >
+            <div className="space-y-3">
+              {/* Cliente e Pedido */}
+              <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 flex items-center justify-between text-xs">
+                <div className="min-w-0">
+                  <span className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Cliente</span>
+                  <span className="text-xs font-black text-white truncate block">{(settleModalOrder.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[8px] font-black uppercase text-white/40 tracking-wider block">Pedido</span>
+                  <span className="text-xs font-mono font-bold text-primary-300">#{settleModalOrder.id.slice(-6).toUpperCase()}</span>
+                </div>
+              </div>
 
-           <div className="space-y-2">
-             <label className="text-[10px] font-black uppercase text-white/60 tracking-wider block">Forma de Recebimento do Saldo</label>
-             <div className="grid grid-cols-2 gap-2">
-               {[
-                 { id: 'pix', label: 'PIX QR' },
-                 { id: 'dinheiro', label: 'Dinheiro' },
-                 { id: 'cartao_credito', label: 'Cartão Crédito' },
-                 { id: 'cartao_debito', label: 'Cartão Débito' }
-               ].map(m => (
-                 <button
-                   key={m.id}
-                   type="button"
-                   onClick={() => setSettleMethod(m.id as any)}
-                   className={cn(
-                     "py-3 px-3 rounded-xl border text-xs font-bold transition-all text-center",
-                     settleMethod === m.id
-                       ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-lg shadow-primary-500/20"
-                       : "bg-white/5 border-white/10 text-white/60 hover:text-white"
-                   )}
-                 >
-                   {m.label}
-                 </button>
-               ))}
-             </div>
-           </div>
+              {/* Cards de Valores Destacados */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-black uppercase text-rose-300 tracking-wider block">Valor em Aberto</span>
+                  <span className="text-lg sm:text-xl font-black text-rose-400 block">R$ {saldoEmAberto.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[7.5px] text-white/40 block">Total: R$ {settleModalOrder.total.toFixed(2).replace('.', ',')}</span>
+                </div>
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-black uppercase text-emerald-300 tracking-wider block">Valor a Pagar</span>
+                  <span className="text-lg sm:text-xl font-black text-emerald-400 block">R$ {saldoEmAberto.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[7.5px] text-emerald-300/80 font-bold block">{formaLabel}</span>
+                </div>
+              </div>
 
-           <div className="flex justify-end gap-3 pt-2">
-             <Button variant="ghost" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
-             <Button 
-               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2"
-               onClick={() => handleSettleBalance(settleModalOrder)}
-             >
-               <CheckCircle2 size={16} />
-               <span>Confirmar Recebimento do Saldo</span>
-             </Button>
-           </div>
-         </div>
-       </Modal>
-     )}
+              {/* Forma de Pagamento */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase text-white/50 tracking-wider block">Forma de Pagamento</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'pix', label: 'PIX QR' },
+                    { id: 'dinheiro', label: 'Dinheiro' },
+                    { id: 'cartao_credito', label: 'Cartão Crédito' },
+                    { id: 'cartao_debito', label: 'Cartão Débito' }
+                  ].map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setSettleMethod(m.id as any)}
+                      className={cn(
+                        "py-2 px-2.5 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer active:scale-95",
+                        settleMethod === m.id
+                          ? "bg-primary-500 border-primary-400 text-slate-900 font-black shadow-sm"
+                          : "bg-white/5 border-white/10 text-white/60 hover:text-white"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ações */}
+              <div className="flex gap-2 pt-1">
+                <Button variant="ghost" size="sm" className="flex-1 h-9 text-[11px] font-bold" onClick={() => setSettleModalOrder(null)}>Cancelar</Button>
+                <Button 
+                  size="sm"
+                  className="flex-[2] h-9 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black text-[11px] uppercase tracking-wider gap-1.5 shadow-sm active:scale-95"
+                  onClick={() => handleSettleBalance(settleModalOrder)}
+                >
+                  <CheckCircle2 size={14} />
+                  <span>Quitar Débito</span>
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
 
      {editingSale && (
        <Modal
@@ -23038,43 +23319,43 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            isOpen={isPixQrModalOpen}
            onClose={() => setIsPixQrModalOpen(false)}
            title="Pagamento via PIX"
-           size="sm"
-           className="mx-auto p-3.5 sm:p-4"
+           size="compact"
+           className="max-w-[320px] w-full mx-auto p-3 sm:p-4 rounded-2xl"
          >
-           <div className="flex flex-col items-center gap-2.5 p-1">
-             <div className="w-[240px] h-[240px] sm:w-[260px] sm:h-[260px] max-w-full bg-white rounded-2xl p-2 shadow-lg flex items-center justify-center shrink-0">
+           <div className="flex flex-col items-center gap-2 p-0.5">
+             <div className="w-[210px] h-[210px] max-w-full bg-white rounded-xl p-2 shadow-md flex items-center justify-center shrink-0">
                <PixQrImage payload={pixPayload} className="h-full w-full object-contain" />
              </div>
 
-             <div className="w-full bg-slate-900/60 rounded-2xl border border-white/10 p-3 space-y-1.5">
-               <div className="flex justify-between text-xs">
-                 <span className="text-white/40 font-bold uppercase">Valor</span>
-                 <span className="text-white font-black">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
+             <div className="w-full bg-slate-900/80 rounded-xl border border-white/10 p-2.5 space-y-1 text-xs">
+               <div className="flex justify-between items-center text-xs">
+                 <span className="text-white/40 font-bold uppercase text-[10px]">Valor</span>
+                 <span className="text-emerald-400 font-black text-sm">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
                </div>
-               <div className="flex justify-between text-xs">
-                 <span className="text-white/40 font-bold uppercase">Nome</span>
-                 <span className="text-white font-black">{pixConfig.beneficiaryName}</span>
+               <div className="flex justify-between items-center text-xs">
+                 <span className="text-white/40 font-bold uppercase text-[10px]">Beneficiário</span>
+                 <span className="text-white font-bold truncate max-w-[170px]">{pixConfig.beneficiaryName}</span>
                </div>
                {pixConfig.bank && (
-                 <div className="flex justify-between text-xs">
-                   <span className="text-white/40 font-bold uppercase">Banco</span>
-                   <span className="text-white font-black">{pixConfig.bank}</span>
+                 <div className="flex justify-between items-center text-xs">
+                   <span className="text-white/40 font-bold uppercase text-[10px]">Banco</span>
+                   <span className="text-white/80 font-medium truncate max-w-[170px]">{pixConfig.bank}</span>
                  </div>
                )}
-               <div className="flex justify-between text-xs">
-                 <span className="text-white/40 font-bold uppercase">Chave PIX</span>
-                 <span className="text-white font-black break-all text-right ml-4">{pixConfig.key}</span>
+               <div className="flex justify-between items-center text-xs pt-1 border-t border-white/5">
+                 <span className="text-white/40 font-bold uppercase text-[10px]">Chave</span>
+                 <span className="text-white font-mono text-[11px] font-bold break-all text-right ml-2">{pixConfig.key}</span>
                </div>
              </div>
 
-             <div className="w-full flex gap-2">
+             <div className="w-full grid grid-cols-2 gap-1.5 pt-0.5">
                <button
                   type="button"
                   onClick={() => {
                      navigator.clipboard.writeText(pixConfig.key);
                      showAlert("Chave PIX copiada!");
                   }}
-                  className="flex-1 py-2 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
+                  className="py-2 px-2 rounded-xl bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
                >
                   Copiar Chave
                </button>
@@ -23084,12 +23365,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      navigator.clipboard.writeText(pixPayload);
                      showAlert("Código Pix Copia e Cola copiado!");
                   }}
-                  className="flex-1 py-2 rounded-xl bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95"
+                  className="py-2 px-2 rounded-xl bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
                >
                   Copia e Cola
                </button>
              </div>
-             <Button variant="ghost" size="sm" className="w-full" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
+             <Button variant="ghost" size="sm" className="w-full h-8 text-[11px] font-bold text-white/50 hover:text-white" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
            </div>
          </Modal>
        );
@@ -23211,6 +23492,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            onClose={handleCloseReceiptViewer}
            title="Visualizar Recibo"
            size="md"
+           className="max-w-xl mx-auto rounded-2xl sm:rounded-3xl p-3 sm:p-4"
          >
            <div className="space-y-3 p-2">
              <div className="flex items-center justify-between border-b border-white/5 pb-3">
@@ -23232,24 +23514,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                <div className="space-y-3">
                  {/* Dados do Cliente */}
-                 <div className="bg-slate-900/50 rounded-2xl p-4 border border-white/5 space-y-2">
-                   <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px] mb-1">Cliente</h4>
-                   <p className="text-sm font-black text-white">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
+                 <div className="bg-slate-900/50 rounded-2xl p-3.5 border border-white/5 space-y-2">
+                   <div className="flex items-center justify-between">
+                     <h4 className="text-[9px] font-black uppercase text-primary-300 tracking-[2px]">Cliente</h4>
+                     {viewingReceiptEmail && <span className="text-[10px] text-white/40 truncate max-w-[140px]">{viewingReceiptEmail}</span>}
+                   </div>
+                   <p className="text-sm font-black text-white truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
                    {sale.customerPhone ? (
-                     <button
-                       onClick={() => handleOpenChatFromReceipt(sale)}
-                       disabled={enviandoReciboWhatsApp}
-                       className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-xs font-bold underline decoration-dotted disabled:opacity-50 cursor-pointer"
-                       title="Enviar imagem do recibo e legenda para o WhatsApp do cliente"
-                     >
-                       {enviandoReciboWhatsApp ? <Loader2 size={13} className="animate-spin" /> : <MessageSquare size={13} />}
-                       <span>{sale.customerPhone}</span>
-                       {enviandoReciboWhatsApp && <span className="text-[10px] text-emerald-300 font-normal">(enviando...)</span>}
-                     </button>
+                     <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
+                       <span className="text-xs font-bold text-white/70 flex items-center gap-1.5">
+                         <Phone size={11} className="text-emerald-400" />
+                         {sale.customerPhone}
+                       </span>
+                       <button
+                         type="button"
+                         onClick={() => handleOpenChatFromReceipt(sale)}
+                         disabled={enviandoReciboWhatsApp}
+                         className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-xs active:scale-95"
+                         title="Enviar recibo completo com imagem para o WhatsApp do cliente"
+                       >
+                         {enviandoReciboWhatsApp ? <Loader2 size={12} className="animate-spin" /> : <MessageSquare size={12} />}
+                         <span>{enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}</span>
+                       </button>
+                     </div>
                    ) : (
-                     <p className="text-xs text-white/30">Sem telefone cadastrado</p>
+                     <div className="flex items-center justify-between text-xs text-amber-300/80 pt-1 border-t border-white/5">
+                       <span className="text-[10.5px]">Sem telefone cadastrado</span>
+                       <button
+                         type="button"
+                         onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
+                         className="text-[10.5px] font-bold text-primary-300 underline hover:text-white cursor-pointer"
+                       >
+                         + Adicionar
+                       </button>
+                     </div>
                    )}
-                   {viewingReceiptEmail && <p className="text-xs text-white/50">{viewingReceiptEmail}</p>}
                  </div>
                </div>
 
@@ -23347,97 +23646,47 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
              </div>
 
-             {/* Etapa de produção: aparece SEMPRE (nota em aberto OU já quitada). Quitar a nota não muda a etapa —
-                 quem escolhe é o usuário, ex.: pedido todo pago, mas ainda "Aguardando Arte". */}
+             {/* Etapa de produção: compacto, sem duplicar envio de recibo que já está no card do cliente */}
              {sale.status !== 'canceled' && (
-               <div className="bg-slate-900/60 rounded-2xl p-3.5 border border-white/10 space-y-3 shadow-md">
-                 <div className="space-y-1.5">
-                   <label className="text-[9.5px] font-black uppercase text-white/50 tracking-widest block">Etapa Atual</label>
-                   <select
-                     value={sale.serviceStatus || ''}
-                     onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(sale.id, e.target.value); }}
-                     className="w-full h-9 bg-slate-900/90 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
-                   >
-                     {!sale.serviceStatus && (
-                       <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
-                     )}
-                     {STAGE_ORDER.map(id => (
-                       <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                     ))}
-                   </select>
-                 </div>
-
-                 {/* Contato do Cliente com Envio Imediato */}
-                 <div className="pt-2.5 border-t border-white/10 space-y-2">
-                   <div className="flex items-center justify-between text-xs">
-                     <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                       <Phone size={12} /> Contato do Cliente
-                     </span>
-                     <span className="text-[11px] font-bold text-white/80 truncate max-w-[220px]" title={sale.customerName || 'Cliente'}>
-                       {sale.customerName || 'Cliente Balcão'} {sale.customerPhone ? `• ${sale.customerPhone}` : ''}
-                     </span>
-                   </div>
-
-                   {sale.customerPhone ? (
-                     <Button
-                       className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-2.5 h-auto flex items-center justify-center gap-2 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                       onClick={() => handleOpenChatFromReceipt(sale)}
-                       disabled={enviandoReciboWhatsApp}
-                       title="Enviar imagem do recibo e legenda diretamente para o WhatsApp do cliente"
-                     >
-                       {enviandoReciboWhatsApp ? (
-                         <>
-                           <Loader2 size={15} className="animate-spin shrink-0" />
-                           <span>Enviando Recibo (Imagem + Legenda)...</span>
-                         </>
-                       ) : (
-                         <>
-                           <MessageSquare size={15} className="shrink-0" />
-                           <span>Enviar Imagem do Recibo com Legenda (WhatsApp)</span>
-                         </>
-                       )}
-                     </Button>
-                   ) : (
-                     <div className="flex items-center justify-between bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 text-amber-300 text-xs">
-                       <span className="text-[10.5px]">Nenhum telefone cadastrado nesta nota.</span>
-                       <button
-                         type="button"
-                         onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
-                         className="text-[10.5px] font-black underline hover:text-white cursor-pointer ml-2"
-                       >
-                         Adicionar Telefone
-                       </button>
-                     </div>
+               <div className="bg-slate-900/60 rounded-xl p-2.5 sm:p-3 border border-white/10 space-y-1.5 shadow-md">
+                 <label className="text-[9px] font-black uppercase text-white/50 tracking-widest block">Etapa de Produção</label>
+                 <select
+                   value={sale.serviceStatus || ''}
+                   onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(sale.id, e.target.value); }}
+                   className="w-full h-8 bg-slate-900/90 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
+                 >
+                   {!sale.serviceStatus && (
+                     <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
                    )}
-                 </div>
+                   {STAGE_ORDER.map(id => (
+                     <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                   ))}
+                 </select>
                </div>
              )}
 
              {/* Ações */}
-             <div className="flex flex-wrap gap-2 pt-2">
+             <div className="flex flex-wrap gap-1.5 pt-1.5">
                {isPending && (
                  <Button
                    size="sm"
                    icon={CheckCircle2}
-                   className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none"
+                   className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-sm"
                    onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
                  >
-                   Pagar
+                   Quitar
                  </Button>
                )}
-               <Button variant="secondary" size="sm" icon={Printer} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handlePrintReceipt(sale)}>
+               <Button variant="secondary" size="sm" icon={Printer} className="flex-1 min-w-[85px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10" onClick={() => handlePrintReceipt(sale)}>
                  Imprimir
                </Button>
-               <Button variant="secondary" size="sm" icon={ImageIcon} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptImagem(sale)}>
+               <Button variant="secondary" size="sm" icon={ImageIcon} className="flex-1 min-w-[85px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10" onClick={() => handleDownloadReceiptImagem(sale)}>
                  Imagem
                </Button>
-               <Button variant="secondary" size="sm" icon={FileText} className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={() => handleDownloadReceiptPdf(sale)}>
-                 Baixar PDF
+               <Button variant="secondary" size="sm" icon={FileText} className="flex-1 min-w-[85px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10" onClick={() => handleDownloadReceiptPdf(sale)}>
+                 PDF
                </Button>
-               {/* Botão de WhatsApp removido daqui: já existe o botão grande "Enviar Imagem do Recibo com Legenda (WhatsApp)"
-                   acima (handleOpenChatFromReceipt), que chama exatamente a mesma função (handleSendReceiptWithImageAndCaption).
-                   Tê-lo duplicado nas duas ações confundia — mantido só o principal. */}
-               <Button variant="ghost" size="sm" className="flex-1 min-w-[110px] text-[9px] uppercase tracking-wider font-black h-11" onClick={handleCloseReceiptViewer}>
+               <Button variant="ghost" size="sm" className="flex-1 min-w-[80px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 text-white/50 hover:text-white" onClick={handleCloseReceiptViewer}>
                  Fechar
                </Button>
              </div>

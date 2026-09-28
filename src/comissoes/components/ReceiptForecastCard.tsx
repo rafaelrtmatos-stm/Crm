@@ -1,6 +1,7 @@
-import React from 'react';
-import { Wallet, ChevronRight, Calculator, ArrowUpRight } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Wallet, ChevronRight, Calculator, Target, TrendingUp, Award, ShieldCheck } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
+import { MetaValorItem } from '../types';
 
 interface ReceiptForecastCardProps {
   baseSalary: number;
@@ -13,8 +14,10 @@ interface ReceiptForecastCardProps {
   // Saldo do caixa acumulado fora do período (dívida ou crédito).
   previousBalance?: number;
   cycleDates?: string;
-  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta';
+  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta' | 'faturamento_geral';
   metaPercentual?: number;
+  metasValores?: MetaValorItem[];
+  metaValorMinimo?: number;
   onOpenAddModal?: () => void;
   onOpenDescontos?: () => void;
 }
@@ -29,11 +32,62 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   cycleDates,
   modalidadeRemuneracao = 'fixo_comissao',
   metaPercentual,
+  metasValores,
+  metaValorMinimo = 600,
   onOpenDescontos,
 }) => {
   const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid + previousBalance;
-  const hasAdjustments = totalDiscounts > 0 || totalPaid > 0 || previousBalance !== 0;
   const isHojeSabado = new Date().getDay() === 6;
+
+  // Cálculo detalhado da modalidade META
+  const infoMeta = useMemo(() => {
+    if (modalidadeRemuneracao !== 'meta') return null;
+
+    const valorMinimo = Number(metaValorMinimo) > 0 ? Number(metaValorMinimo) : 600;
+    const metasValidas = (metasValores || []).filter(
+      (m) => Number(m.valorProducao) > 0 && Number(m.valorReceber) > 0
+    );
+
+    const ordenadas = [...metasValidas].sort((a, b) => Number(a.valorProducao) - Number(b.valorProducao));
+    const atingidas = ordenadas.filter((m) => totalProduction >= Number(m.valorProducao));
+    const naoAtingidas = ordenadas.filter((m) => totalProduction < Number(m.valorProducao));
+
+    let atualNome = 'Piso Mínimo Garantido';
+    let atualValorReceber = valorMinimo;
+    let bateuAlgumaFaixa = false;
+
+    if (atingidas.length > 0) {
+      bateuAlgumaFaixa = true;
+      const maior = atingidas[atingidas.length - 1];
+      atualNome = maior.nome || `Faixa ${formatCurrency(maior.valorProducao)}`;
+      atualValorReceber = Number(maior.valorReceber);
+    }
+
+    let proximaFaixa: MetaValorItem | null = null;
+    let quantoFalta = 0;
+    let progressoPercentual = 100;
+
+    if (naoAtingidas.length > 0) {
+      proximaFaixa = naoAtingidas[0];
+      quantoFalta = Math.max(0, Number(proximaFaixa.valorProducao) - totalProduction);
+      progressoPercentual = Math.min(
+        100,
+        Math.max(0, Math.round((totalProduction / Number(proximaFaixa.valorProducao)) * 100))
+      );
+    }
+
+    return {
+      valorMinimo,
+      ordenadas,
+      atingidas,
+      bateuAlgumaFaixa,
+      atualNome,
+      atualValorReceber,
+      proximaFaixa,
+      quantoFalta,
+      progressoPercentual,
+    };
+  }, [modalidadeRemuneracao, metasValores, metaValorMinimo, totalProduction]);
 
   return (
     <div
@@ -56,7 +110,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span>Previsão de Recebimento</span>
             </div>
             <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
-              {isHojeSabado ? 'Fechamento (até Sexta)' : 'Semanal'}
+              {isHojeSabado ? 'Fechamento (até Sexta)' : 'Semanal (Sáb a Sex)'}
             </span>
           </div>
 
@@ -64,10 +118,10 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
           <div className="bg-black/25 backdrop-blur-md rounded-2xl p-4 border border-white/15 shadow-inner flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <span className="text-xs uppercase tracking-wider text-white/90 font-black block whitespace-nowrap truncate">
-                Total Estimado
+                Total a Receber
               </span>
               <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                {isHojeSabado ? 'Fechamento oficial até sexta-feira' : 'Previsão líquida da semana'}
+                {isHojeSabado ? 'Fechamento oficial da semana' : 'Previsão líquida da semana'}
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
@@ -75,6 +129,65 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* ========================================================= */}
+        {/* 1.1 TERMÔMETRO E PROGRESSO DA META (QUANDO MODALIDADE META) */}
+        {/* ========================================================= */}
+        {infoMeta && (
+          <div className="bg-black/30 backdrop-blur-md rounded-2xl p-4 border border-white/15 space-y-3 shadow-inner">
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-white/15">
+              <span className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-white/90">
+                <Target className="w-4 h-4 text-amber-300 shrink-0" />
+                Status da Meta
+              </span>
+              <span
+                className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
+                  infoMeta.bateuAlgumaFaixa
+                    ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40'
+                    : 'bg-blue-500/25 text-blue-200 border-blue-400/40'
+                }`}
+              >
+                {infoMeta.bateuAlgumaFaixa ? `🏆 ${infoMeta.atualNome}` : `🛡️ ${infoMeta.atualNome}`}
+              </span>
+            </div>
+
+            {/* Informações de Faturamento e Próxima Meta */}
+            {infoMeta.proximaFaixa ? (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-white/80">
+                    Sua Produção: <strong className="font-mono text-white">{formatCurrency(totalProduction)}</strong>
+                  </span>
+                  <span className="text-amber-300 font-bold">
+                    Faltam: <strong className="font-mono text-amber-200">{formatCurrency(infoMeta.quantoFalta)}</strong>
+                  </span>
+                </div>
+
+                {/* Barra de Progresso Visual */}
+                <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden p-0.5 border border-white/15">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all duration-500 shadow-sm"
+                    style={{ width: `${infoMeta.progressoPercentual}%` }}
+                  />
+                </div>
+
+                <div className="text-[11px] text-white/85 flex items-center justify-between pt-0.5 leading-tight">
+                  <span>
+                    Próxima: <strong>{infoMeta.proximaFaixa.nome || 'Faixa Seguinte'}</strong> ({formatCurrency(infoMeta.proximaFaixa.valorProducao)})
+                  </span>
+                  <span className="text-emerald-300 font-black">
+                    Recebe: {formatCurrency(infoMeta.proximaFaixa.valorReceber)}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 text-xs font-bold text-center flex items-center justify-center gap-2">
+                <Award className="w-4 h-4 text-emerald-300 shrink-0" />
+                <span>Parabéns! Você alcançou a maior faixa de remuneração da semana!</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ========================================================= */}
         {/* 2. COMPOSIÇÃO DOS VALORES (SEM CORTES OU TRUNCATE) */}
@@ -86,13 +199,13 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               Composição do Valor
             </span>
             <span className="text-[10px] text-white/70 font-mono font-normal whitespace-nowrap">
-              {cycleDates || 'Ciclo Atual'}
+              {cycleDates || 'Ciclo Sáb a Sex'}
             </span>
           </div>
 
           <div className="space-y-2 text-xs">
-            {/* 1. Salário Base (quando modalidade não é 'meta') */}
-            {modalidadeRemuneracao !== 'meta' && (
+            {/* 1. Salário Base (quando modalidade não é 'meta' nem 'faturamento_geral' puro) */}
+            {modalidadeRemuneracao !== 'meta' && (baseSalary > 0 || modalidadeRemuneracao === 'fixo') && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
                 <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
                   {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : 'Salário Base'}
@@ -101,19 +214,33 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
-            {/* 2. Comissões ou Meta sobre a Produção */}
-            {modalidadeRemuneracao !== 'fixo' && (
+            {/* 2. Modalidade META: Mostra se é faixa atingida ou piso mínimo garantido */}
+            {modalidadeRemuneracao === 'meta' && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
                 <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
-                  {modalidadeRemuneracao === 'meta'
-                    ? `+ Meta (${metaPercentual || 0}% de ${formatCurrency(totalProduction || 0)})`
+                  {infoMeta?.bateuAlgumaFaixa
+                    ? `+ Meta (${infoMeta.atualNome})`
+                    : `+ Piso Mínimo Garantido (${formatCurrency(infoMeta?.valorMinimo || 600)})`}
+                </span>
+                <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">
+                  +{formatCurrency(totalCommission)}
+                </span>
+              </div>
+            )}
+
+            {/* 3. Outras modalidades: Comissões sobre Produção ou Faturamento */}
+            {modalidadeRemuneracao !== 'fixo' && modalidadeRemuneracao !== 'meta' && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
+                <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
+                  {modalidadeRemuneracao === 'faturamento_geral'
+                    ? `+ Comissão (${metaPercentual || 0}% do Faturamento Geral)`
                     : '+ Comissões da Semana'}
                 </span>
                 <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
               </div>
             )}
 
-            {/* 3. Descontos (faltas, atrasos, etc.) */}
+            {/* 4. Descontos (faltas, atrasos, etc.) */}
             {totalDiscounts > 0 && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 gap-2">
                 <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Descontos / Faltas</span>
@@ -121,7 +248,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
-            {/* 4. Já Recebido na Semana (Vales/Adiantamentos) */}
+            {/* 5. Já Recebido na Semana (Vales/Adiantamentos) */}
             {totalPaid > 0 && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-amber-950/40 border border-amber-500/30 gap-2">
                 <span className="text-amber-200 font-semibold text-xs whitespace-nowrap">- Já Recebido (Vales)</span>
@@ -129,7 +256,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
-            {/* 5. Saldo Anterior do Caixa (Crédito ou Dívida fora do ciclo) */}
+            {/* 6. Saldo Anterior do Caixa (Crédito ou Dívida fora do ciclo) */}
             {previousBalance !== 0 && (
               <div
                 className={`flex items-center justify-between py-1.5 px-3 rounded-xl gap-2 ${
@@ -152,7 +279,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
-            {/* 6. Linha de Fechamento Líquido */}
+            {/* 7. Linha de Fechamento Líquido */}
             <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/20 border border-white/30 shadow-sm mt-1 gap-2">
               <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
               <span className="font-black text-white font-mono text-base whitespace-nowrap">{formatCurrency(forecastTotal)}</span>
@@ -183,3 +310,4 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
     </div>
   );
 };
+

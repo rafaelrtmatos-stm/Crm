@@ -118,7 +118,7 @@ import {
   ClientesEsperaModule
 } from './components/Modules';
 import { MessagesSidebarPopup, carregarInfoGrupos } from './components/MessagesSidebarPopup';
-import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
+import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, marcarNotificacoesResolvidas, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
 import { AssistantChatWidget } from './components/AssistantChatWidget';
@@ -156,16 +156,16 @@ const SidebarItem = ({
   <button
     onClick={onClick}
     className={cn(
-      "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all duration-200 group text-xs font-semibold border relative",
+      "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 group text-sm font-semibold border relative",
       active 
         ? "bg-gradient-to-r from-red-950/80 via-red-900/60 to-red-600/80 text-white border-red-500/40 shadow-md shadow-red-950/40" 
         : "text-white/60 hover:bg-white/5 hover:text-white border-transparent"
     )}
   >
-    <Icon size={17} className={cn("transition-transform shrink-0", active ? "text-red-400" : "text-white/50 group-hover:text-white")} />
+    <Icon size={18} className={cn("transition-transform shrink-0", active ? "text-red-400" : "text-white/50 group-hover:text-white")} />
     <span className="truncate">{label}</span>
     {badgeCount !== undefined && badgeCount > 0 && (
-      <span className="ml-auto min-w-4 h-4 bg-emerald-500 text-slate-950 text-[9px] uppercase font-black px-1 rounded-full flex items-center justify-center shrink-0 select-none animate-pulse">
+      <span className="ml-auto min-w-4 h-4 bg-emerald-500 text-slate-950 text-[10px] uppercase font-black px-1.5 rounded-full flex items-center justify-center shrink-0 select-none animate-pulse">
         {badgeCount}
       </span>
     )}
@@ -1392,7 +1392,7 @@ export default function App() {
   // Vale igual pra grupo: o grupo tem lead proprio (phone = digitos do JID do grupo), entao
   // abrir por telefone ja abre o grupo. `messageId` e a mensagem que gerou a notificacao: o
   // ChatPanel (Modules.tsx) rola ate ela e a destaca, em vez de cair no fim da conversa.
-  const openNotificationLead = async (phone?: string | null, messageId?: string | null) => {
+  const openNotificationLead = async (phone?: string | null, messageId?: string | null, notif?: NotificacaoPendente | null) => {
     setPendingOpenMessageId(messageId || null);
     if (messageId) {
       // Se a conversa nao chegar a abrir (lead nao encontrado), nao deixa o alvo preso pra
@@ -1409,11 +1409,16 @@ export default function App() {
       try {
         const raw = String(phone).trim();
         const clean = raw.replace(/\D/g, '');
+        const ultimos8 = clean.slice(-8);
+        const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
+        if (ultimos8.length >= 6) {
+          orClauses.push(`phone.ilike.%${ultimos8}%`);
+        }
         const { data } = await supabase
           .from('leads')
           .select('id')
           .eq('company_id', 'rafa-arts')
-          .or(`phone.eq.${raw},phone.eq.${clean}`)
+          .or(orClauses.join(','))
           .order('updated_at', { ascending: false })
           .limit(1);
 
@@ -1433,14 +1438,39 @@ export default function App() {
         const foundRetry = await findAndSelectLead();
         if (!foundRetry) {
           setTimeout(async () => {
-            await findAndSelectLead();
+            const finalTry = await findAndSelectLead();
+            if (!finalTry) {
+              // Se o lead ou mensagens foram apagados, o usuário não conseguia abrir nem resolver.
+              // Oferece a resolução imediata para limpar a notificação pendente do sino.
+              const confirmar = window.confirm(
+                'Esta conversa ou lead não foi encontrada no CRM (ela pode ter sido excluída anteriormente).\n\nDeseja marcar esta notificação como resolvida para retirá-la do sino de notificações?'
+              );
+              if (confirmar) {
+                const ids = notif?.ids || [];
+                if (ids.length > 0) {
+                  await marcarNotificacoesResolvidas(ids, user?.name);
+                } else {
+                  const raw = String(phone).trim();
+                  const clean = raw.replace(/\D/g, '');
+                  const ultimos8 = clean.slice(-8);
+                  const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
+                  if (ultimos8.length >= 6) orClauses.push(`phone.ilike.%${ultimos8}%`);
+                  await supabase
+                    .from('crm_notifications')
+                    .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
+                    .eq('company_id', 'rafa-arts')
+                    .or(orClauses.join(','))
+                    .eq('status', 'pending');
+                }
+              }
+            }
           }, 800);
         }
       }, 350);
     }
   };
 
-  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, n.messageId); };
+  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, n.messageId, n); };
 
   // Clique numa notificacao mostrada pelo service worker (public/sw.js): o SW avisa a aba
   // aberta e aqui abrimos a conversa, igual o onclick da Notification antiga fazia.
@@ -2862,7 +2892,7 @@ export default function App() {
                 exit={{ x: -320 }}
                 transition={{ duration: 0.5, type: 'spring', damping: 25, stiffness: 120 }}
                 className={cn(
-                  "fixed lg:static inset-y-0 left-0 z-50 w-56 lg:w-[230px] shrink-0 bg-slate-950/90 backdrop-blur-3xl border-r border-white/10 flex flex-col p-3.5 shadow-2xl lg:shadow-none lg:bg-slate-950/40",
+                  "fixed lg:static inset-y-0 left-0 z-50 w-64 lg:w-[260px] shrink-0 bg-slate-950/90 backdrop-blur-3xl border-r border-white/10 flex flex-col p-4 shadow-2xl lg:shadow-none lg:bg-slate-950/40",
                   !isSidebarOpen && "hidden lg:flex"
                 )}
               >

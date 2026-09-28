@@ -610,6 +610,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
       if (phones.length) {
         await supabase.from('crm_messages').delete().eq('company_id', 'rafa-arts').in('phone', phones);
+        try {
+          await supabase
+            .from('crm_notifications')
+            .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: 'conversation_deleted' })
+            .eq('company_id', 'rafa-arts')
+            .in('phone', phones)
+            .eq('status', 'pending');
+        } catch (e) {
+          console.warn('Erro ao resolver notificações na exclusão de conversas:', e);
+        }
       }
       await supabase.from('leads').delete().in('id', ids);
 

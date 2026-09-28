@@ -907,18 +907,18 @@ export const CustomerContextSidebar = ({
             {isLoadingVendas ? (
               <div className="flex justify-center py-6"><RefreshCw size={16} className="animate-spin text-primary-500" /></div>
             ) : clienteVendas.length === 0 ? (
-              <p className="text-center py-6 text-white/30 text-[11px]">Nenhuma venda registrada com este telefone.</p>
+              <p className="text-center py-6 text-white/30 text-[11px]">Nenhuma venda registrada para este cliente.</p>
             ) : (
               clienteVendas.map(venda => {
                 const saldo = (venda.total || 0) - (venda.down_payment || 0);
                 const pendente = saldo > 0 || venda.status === 'pending';
                 return (
-                  <div key={venda.id} className="p-2.5 bg-white/5 border border-white/10 rounded-xl space-y-1.5">
+                  <div key={venda.id} className="p-2.5 bg-white/5 hover:bg-white/[0.08] border border-white/10 rounded-xl space-y-1.5 transition-colors">
                     <div className="flex items-center justify-between">
                       <button
                         type="button"
                         onClick={() => onOpenVenda?.(venda.id)}
-                        className="text-left font-black text-white hover:text-primary-300 text-[11px] truncate flex-1"
+                        className="text-left font-black text-white hover:text-primary-300 text-[11px] truncate flex-1 cursor-pointer"
                       >
                         #{venda.id.slice(-8).toUpperCase()}
                       </button>
@@ -926,6 +926,9 @@ export const CustomerContextSidebar = ({
                         R$ {(venda.total || 0).toFixed(2).replace('.', ',')}
                       </span>
                     </div>
+                    {venda.itemsSummary && (
+                      <p className="text-[10px] font-bold text-white/90 truncate">{venda.itemsSummary}</p>
+                    )}
                     <div className="flex items-center justify-between text-[9px] text-white/40">
                       <span>{safeFormatDate(venda.created_at, 'dd/MM/yyyy HH:mm')}</span>
                       <Badge className={cn("text-[8px] font-black uppercase px-1 py-0.2 border-none", pendente ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300")}>

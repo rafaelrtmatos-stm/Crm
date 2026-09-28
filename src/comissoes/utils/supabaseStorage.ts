@@ -1,16 +1,17 @@
 import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
-import { ServiceItem, UserSettings, SummaryStats, ThemeMode } from '../types';
+import { ServiceItem, UserSettings, SummaryStats, ThemeMode, MetaValorItem } from '../types';
 
 // 'livre' = colaborador pode usar lançamento manual E puxar de nota;
 // 'somente_nota' = só pode puxar de nota (lançamento manual fica oculto).
 export type ModoLancamentoComissao = 'livre' | 'somente_nota';
 
-// 3 Modalidades de remuneração para funcionários:
+// Modalidades de remuneração para funcionários:
 // 1. 'fixo': valor fixo semanal configurável (ex: R$ 350,00)
 // 2. 'fixo_comissao': valor fixo semanal + % de comissão sobre a produção própria (ex: R$ 400,00 + 10%)
-// 3. 'meta': % sobre a produção própria com piso mínimo e teto máximo (ex: 25% | mín R$ 600 | máx R$ 1.000)
-export type ModalidadeRemuneracao = 'fixo' | 'fixo_comissao' | 'meta';
+// 3. 'faturamento_geral': % de comissão sobre o faturamento geral da empresa/período
+// 4. 'meta': percentual ou valor sobre meta
+export type ModalidadeRemuneracao = 'fixo' | 'fixo_comissao' | 'meta' | 'faturamento_geral';
 
 export interface Colaborador {
   id: string;
@@ -26,6 +27,7 @@ export interface Colaborador {
   metaPercentual: number;
   metaValorMinimo: number;
   metaValorMaximo: number;
+  metasValores?: MetaValorItem[];
 }
 
 export const mapColaboradorRow = (row: any): Colaborador => {
@@ -42,9 +44,9 @@ export const mapColaboradorRow = (row: any): Colaborador => {
 
   const rawModalidade = row.modalidade_remuneracao || localExtra?.modalidade;
   let modalidade: ModalidadeRemuneracao = 'fixo_comissao';
-  if (rawModalidade === 'fixo' || rawModalidade === 'meta' || rawModalidade === 'fixo_comissao') {
+  if (rawModalidade === 'fixo' || rawModalidade === 'meta' || rawModalidade === 'fixo_comissao' || rawModalidade === 'faturamento_geral') {
     modalidade = rawModalidade;
-  } else if (Number(row.meta_percentual || localExtra?.metaPercentual) > 0 || Number(row.meta_valor_minimo || localExtra?.metaValorMinimo) > 0) {
+  } else if (Number(row.meta_percentual || localExtra?.metaPercentual) > 0 || Number(row.meta_valor_minimo || localExtra?.metaValorMinimo) > 0 || (localExtra?.metasValores && localExtra.metasValores.length > 0)) {
     modalidade = 'meta';
   } else if (Number(row.salario_base) > 0 && Number(row.comissao_padrao_percentual) === 0) {
     modalidade = 'fixo';
@@ -64,6 +66,9 @@ export const mapColaboradorRow = (row: any): Colaborador => {
     metaPercentual: Number(row.meta_percentual ?? localExtra?.metaPercentual) || 0,
     metaValorMinimo: Number(row.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0,
     metaValorMaximo: Number(row.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0,
+    metasValores: Array.isArray(localExtra?.metasValores)
+      ? localExtra.metasValores
+      : (Array.isArray(row.metas_valores) ? row.metas_valores : undefined),
   };
 };
 
@@ -650,13 +655,23 @@ export function colaboradorToUserSettings(c: Colaborador): UserSettings {
     themePreference: c.tema,
     modalidadeRemuneracao: c.modalidadeRemuneracao,
     metaPercentual: c.metaPercentual,
+    metasValores: c.metasValores,
+    metaValorMinimo: c.metaValorMinimo,
+    metaValorMaximo: c.metaValorMaximo,
   };
 }
 
 export const calculateSummaryStats = (
   services: ServiceItem[],
   baseSalary: number,
-  settings?: { modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta'; metaPercentual?: number; defaultCommissionRate?: number }
+  settings?: {
+    modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta' | 'faturamento_geral';
+    metaPercentual?: number;
+    defaultCommissionRate?: number;
+    metasValores?: MetaValorItem[];
+    metaValorMinimo?: number;
+    metaValorMaximo?: number;
+  }
 ): SummaryStats => {
   const validServices = services.filter((s) => s.status !== 'CANCELADO');
   const totalProduction = validServices.reduce((acc, s) => acc + (s.productionValue || 0), 0);
@@ -674,9 +689,25 @@ export const calculateSummaryStats = (
     totalBaseSalary = baseSalary;
     forecastTotal = baseSalary;
   } else if (modalidade === 'meta') {
-    totalCommission = (totalProduction * metaPerc) / 100;
+    const ordenadas = (settings?.metasValores || []).filter(
+      (m: any) => Number(m.valorProducao) > 0 && Number(m.valorReceber) > 0
+    ).sort((a: any, b: any) => Number(a.valorProducao) - Number(b.valorProducao));
+    const atingidas = ordenadas.filter((m: any) => totalProduction >= Number(m.valorProducao));
+    const minimo = Number(settings?.metaValorMinimo) > 0 ? Number(settings.metaValorMinimo) : 600;
+
+    if (atingidas.length > 0) {
+      totalCommission = Number(atingidas[atingidas.length - 1].valorReceber);
+    } else if (metaPerc > 0) {
+      totalCommission = Math.max(minimo, (totalProduction * metaPerc) / 100);
+    } else {
+      totalCommission = minimo;
+    }
     totalBaseSalary = 0;
     forecastTotal = totalCommission;
+  } else if (modalidade === 'faturamento_geral') {
+    totalCommission = metaPerc > 0 ? (totalProduction * metaPerc) / 100 : 0;
+    totalBaseSalary = baseSalary;
+    forecastTotal = baseSalary + totalCommission;
   } else {
     // fixo_comissao
     totalCommission = totalCommissionRaw;
@@ -690,7 +721,7 @@ export const calculateSummaryStats = (
   const canceledCount = services.filter((s) => s.status === 'CANCELADO').length;
   const averageCommissionRate =
     modalidade === 'meta'
-      ? metaPerc
+      ? (totalProduction > 0 ? (totalCommission / totalProduction) * 100 : 0)
       : modalidade === 'fixo'
         ? 0
         : totalProduction > 0

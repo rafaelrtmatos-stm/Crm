@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Bell, BellRing, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
+import { AlertTriangle, Bell, BellRing, Check, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
 import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
@@ -399,12 +399,16 @@ const MARGEM_TELA = 12;
 export const NotificacoesPendentesBell = ({
   itens,
   onAbrir,
+  onResolver,
 }: {
   itens: NotificacaoPendente[];
   onAbrir: (n: NotificacaoPendente) => void;
+  onResolver?: (n: NotificacaoPendente) => void;
 }) => {
   const [aberto, setAberto] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  const [resolvendoPhones, setResolvendoPhones] = useState<Set<string>>(new Set());
+  const [resolvendoTodas, setResolvendoTodas] = useState(false);
   const botaoRef = useRef<HTMLButtonElement>(null);
   const total = itens.length;
 
@@ -432,6 +436,62 @@ export const NotificacoesPendentesBell = ({
     };
   }, [aberto, calcularPosicao]);
 
+  const handleResolverItem = async (e: React.MouseEvent, n: NotificacaoPendente) => {
+    e.stopPropagation();
+    if (resolvendoPhones.has(n.phone)) return;
+    setResolvendoPhones(prev => new Set(prev).add(n.phone));
+    try {
+      if (onResolver) {
+        onResolver(n);
+      }
+      await marcarNotificacoesResolvidas(n.ids);
+      const raw = String(n.phone).trim();
+      const clean = raw.replace(/\D/g, '');
+      const ultimos8 = clean.slice(-8);
+      const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
+      if (ultimos8 && ultimos8.length >= 6) {
+        orClauses.push(`phone.ilike.%${ultimos8}%`);
+      }
+      await supabase
+        .from('crm_notifications')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+        .eq('company_id', 'rafa-arts')
+        .or(orClauses.join(','))
+        .eq('status', 'pending');
+    } catch (err) {
+      console.error('Erro ao resolver notificacao pelo sino:', err);
+    } finally {
+      setResolvendoPhones(prev => {
+        const next = new Set(prev);
+        next.delete(n.phone);
+        return next;
+      });
+    }
+  };
+
+  const handleResolverTodas = async () => {
+    if (total === 0 || resolvendoTodas) return;
+    const ok = window.confirm(`Marcar todas as ${total} notificações pendentes como resolvidas?`);
+    if (!ok) return;
+    setResolvendoTodas(true);
+    try {
+      const todosIds = itens.flatMap(n => n.ids);
+      if (todosIds.length > 0) {
+        await marcarNotificacoesResolvidas(todosIds);
+      }
+      await supabase
+        .from('crm_notifications')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+        .eq('company_id', 'rafa-arts')
+        .eq('status', 'pending');
+      setAberto(false);
+    } catch (err) {
+      console.error('Erro ao resolver todas as notificacoes:', err);
+    } finally {
+      setResolvendoTodas(false);
+    }
+  };
+
   return (
     <div className="relative">
       <button
@@ -458,31 +518,44 @@ export const NotificacoesPendentesBell = ({
             role="dialog"
             aria-label="Notificações"
             style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
-            className="fixed z-[311] flex flex-col overflow-hidden bg-[#1a2333]/95 border border-white/10 rounded-2xl shadow-2xl"
+            className="fixed z-[311] flex flex-col overflow-hidden bg-[#1a2333]/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-md"
           >
             <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
               <div className="min-w-0">
                 <p className="text-[11px] font-black uppercase tracking-wider text-white">Notificações</p>
-                <p className="text-[10px] text-white/40">Abrir a conversa não resolve — só “Marcar como resolvido”.</p>
+                <p className="text-[10px] text-white/40">Clique na mensagem para abrir ou em Resolver para concluir.</p>
               </div>
-              <span className="shrink-0 px-2.5 h-6 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center whitespace-nowrap">
-                {total > 0 ? `${total} pendente${total > 1 ? 's' : ''}` : 'Nenhuma'}
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                {total > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResolverTodas}
+                    disabled={resolvendoTodas}
+                    className="text-[10px] font-bold text-amber-300/90 hover:text-amber-200 hover:underline px-1.5 py-0.5 rounded cursor-pointer disabled:opacity-50"
+                    title="Marcar todas as notificações como resolvidas"
+                  >
+                    {resolvendoTodas ? 'Resolvendo...' : 'Resolver todas'}
+                  </button>
+                )}
+                <span className="shrink-0 px-2 h-5 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center whitespace-nowrap">
+                  {total > 0 ? `${total} pendente${total > 1 ? 's' : ''}` : 'Nenhuma'}
+                </span>
+              </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar divide-y divide-white/5">
               {total === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-white/40">Nenhuma notificação pendente.</p>
               ) : (
                 itens.map(n => {
                   const nome = nomeDaNotificacao(n);
                   const hora = formatarHoraNotificacao(n.lastMessageAt);
+                  const estaResolvendo = resolvendoPhones.has(n.phone);
                   return (
-                    <button
+                    <div
                       key={n.phone}
-                      type="button"
+                      className="w-full flex items-center gap-2.5 px-3.5 py-3 hover:bg-white/5 transition-colors group cursor-pointer"
                       onClick={() => { setAberto(false); onAbrir(n); }}
-                      className="w-full flex items-start gap-3 px-4 py-3 text-left bg-transparent border-b border-white/5 last:border-b-0 hover:bg-white/5 transition-colors cursor-pointer"
                     >
                       <FotoNotificacao
                         url={n.photoUrl}
@@ -491,7 +564,7 @@ export const NotificacoesPendentesBell = ({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="min-w-0 text-xs font-black text-white truncate">{nome}</p>
+                          <p className="min-w-0 text-xs font-black text-white truncate group-hover:text-primary-300 transition-colors">{nome}</p>
                           {hora && <span className="text-[10px] text-white/40 shrink-0 tabular-nums">{hora}</span>}
                         </div>
                         {n.isGroup && n.senderName && <p className="text-[10px] text-primary-300 truncate">{n.senderName}</p>}
@@ -500,7 +573,21 @@ export const NotificacoesPendentesBell = ({
                         )}
                         <p className="text-[11px] text-white/60 line-clamp-2 break-words mt-0.5">{n.lastMessageText || 'Nova mensagem'}</p>
                       </div>
-                    </button>
+
+                      {/* Botão de Ação Direta: Marcar como Resolvido */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleResolverItem(e, n)}
+                        disabled={estaResolvendo}
+                        title="Marcar como resolvido e retirar do sino"
+                        className="shrink-0 p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/30 border border-emerald-500/20 active:scale-95 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <Check size={13} className="stroke-[3]" />
+                        <span className="hidden sm:inline text-[9.5px] font-bold uppercase tracking-wider">
+                          {estaResolvendo ? '...' : 'Resolver'}
+                        </span>
+                      </button>
+                    </div>
                   );
                 })
               )}

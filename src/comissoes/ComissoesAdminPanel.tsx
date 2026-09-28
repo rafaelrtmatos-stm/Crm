@@ -45,6 +45,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow } from './utils/supabaseStorage';
+import { MetaValorItem } from './types';
 import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
@@ -58,6 +59,7 @@ export interface UsuarioConta {
   name: string;
   email: string;
   role: string;
+  password?: string;
   colaborador_id?: string | null;
 }
 
@@ -76,6 +78,7 @@ interface ColaboradorRow {
   meta_percentual?: number;
   meta_valor_minimo?: number;
   meta_valor_maximo?: number;
+  metas_valores?: any;
   created_at: string;
   updated_at: string;
 }
@@ -94,6 +97,10 @@ interface ColaboradorWeeklyStats {
   percentualMeta: number;
   modalidade: ModalidadeRemuneracao;
   metaPercentual: number;
+  metasValores?: MetaValorItem[];
+  metaAtingidaNome?: string;
+  metaProximaNome?: string;
+  metaProximaValor?: number;
 }
 
 interface FormState {
@@ -106,11 +113,22 @@ interface FormState {
   modoLancamento: ModoLancamentoComissao;
   modalidadeRemuneracao: ModalidadeRemuneracao;
   metaPercentual: number;
+  metaValorMinimo: number;
+  metaValorMaximo: number;
+  metasValores: MetaValorItem[];
   ativo: boolean;
   usuarioId: string;
   criarNovaConta: boolean;
   novoEmailConta: string;
 }
+
+export const defaultMetasTemplate: MetaValorItem[] = [
+  { id: '1', nome: 'Faixa 1', valorProducao: 2640, valorReceber: 660, percentual: 25 },
+  { id: '2', nome: 'Faixa 2', valorProducao: 2880, valorReceber: 720, percentual: 25 },
+  { id: '3', nome: 'Faixa 3', valorProducao: 3300, valorReceber: 825, percentual: 25 },
+  { id: '4', nome: 'Faixa 4', valorProducao: 3600, valorReceber: 900, percentual: 25 },
+  { id: '5', nome: 'Faixa 5', valorProducao: 4000, valorReceber: 1000, percentual: 25 },
+];
 
 const emptyForm: FormState = {
   nome: '',
@@ -122,6 +140,9 @@ const emptyForm: FormState = {
   modoLancamento: 'livre',
   modalidadeRemuneracao: 'fixo_comissao',
   metaPercentual: 0,
+  metaValorMinimo: 600,
+  metaValorMaximo: 0,
+  metasValores: defaultMetasTemplate,
   ativo: true,
   usuarioId: '',
   criarNovaConta: false,
@@ -240,7 +261,7 @@ export default function ComissoesAdminPanel() {
       const { start, end } = weekBounds;
       const descBounds = getDescontosValesBounds(start, end);
 
-      const [servicosRes, descontosRes, pagamentosRes, usuariosRes, caixasRes] = await Promise.all([
+      const [servicosRes, descontosRes, pagamentosRes, usuariosRes, caixasRes, vendasRes] = await Promise.all([
         supabase
           .from('comissoes_servicos')
           .select('colaborador_id, comissao_valor, valor_producao, status')
@@ -258,17 +279,27 @@ export default function ComissoesAdminPanel() {
           .lte('data', descBounds.end),
         supabase
           .from('usuarios')
-          .select('id, name, email, role, colaborador_id')
+          .select('id, name, email, role, colaborador_id, password')
           .order('name', { ascending: true }),
         supabase
           .from('comissoes_caixas_semanais')
           .select('colaborador_id, saldo_anterior')
           .eq('status', 'aberto'),
+        supabase
+          .from('vendas')
+          .select('total, status, created_at')
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .is('deleted_at', null),
       ]);
 
       if (usuariosRes.data) {
         setUsuariosContas(usuariosRes.data as UsuarioConta[]);
       }
+
+      const faturamentoGeralSemana = (vendasRes.data || [])
+        .filter((v: any) => v.status !== 'canceled')
+        .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
 
       const servicos = servicosRes.data || [];
       const descontos = descontosRes.data || [];
@@ -328,22 +359,50 @@ export default function ComissoesAdminPanel() {
         const totalDescontos = calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end);
         const totalPago = pagamentosByColab[c.id] || 0;
 
+        // Carrega eventual configuração persistida localmente (resiliência caso a migration SQL ainda não tenha rodado)
+        let localExtra: any = null;
+        if (typeof window !== 'undefined' && c.id) {
+          try {
+            const raw = localStorage.getItem(`rpro_colab_remun_${c.id}`);
+            if (raw) localExtra = JSON.parse(raw);
+          } catch {
+            // ignore
+          }
+        }
+
         // Determina modalidade e parâmetros de remuneração
-        const modalidade: ModalidadeRemuneracao = c.modalidade_remuneracao || 'fixo_comissao';
+        const modalidade: ModalidadeRemuneracao =
+          c.modalidade_remuneracao ||
+          localExtra?.modalidade ||
+          (Number(c.meta_percentual || localExtra?.metaPercentual) > 0 || (localExtra?.metasValores && localExtra.metasValores.length > 0) ? 'meta' : 'fixo_comissao');
         const isFixo = modalidade === 'fixo';
-        const metaPercentual = Number(c.meta_percentual) || 0;
-        const metaSemanalEfetiva = isFixo ? 0 : metaSemanal;
+        const metaPercentual = Number(c.meta_percentual ?? localExtra?.metaPercentual) || 0;
+        const metasValores: MetaValorItem[] | undefined = Array.isArray(localExtra?.metasValores)
+          ? localExtra.metasValores
+          : (Array.isArray(c.metas_valores) ? c.metas_valores : undefined);
+        const metaValorMinimo = Number(c.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0;
+        const metaValorMaximo = Number(c.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0;
+
+        let metaSemanalEfetiva = isFixo ? 0 : metaSemanal;
+        if (modalidade === 'meta' && metasValores && metasValores.length > 0 && metaSemanalEfetiva === 0) {
+          metaSemanalEfetiva = Number(metasValores[metasValores.length - 1]?.valorProducao) || Number(metasValores[0]?.valorProducao) || 0;
+        }
 
         // Remuneração conforme modalidade:
         // FIXO: salario_base (produção não altera)
         // FIXO + COMISSÃO: salario_base + comissao existente
-        // META: producao_individual * (meta_percentual / 100)
+        // FATURAMENTO GERAL: % sobre o faturamento geral da empresa/período
+        // META: valores estipulados para cada meta batida (ou % sobre produção)
         const remuneracao = calcularRemuneracaoSemanal(
           {
             modalidade,
             salarioBase,
             comissaoPadraoPercentual: isFixo ? 0 : (Number(c.comissao_padrao_percentual) || 0),
             metaPercentual,
+            metasValores,
+            metaValorMinimo,
+            metaValorMaximo,
+            faturamentoGeral: faturamentoGeralSemana,
           },
           colabServicos.totalProducao,
           colabServicos.totalComissao
@@ -360,7 +419,7 @@ export default function ComissoesAdminPanel() {
         statsMap[c.id] = {
           salarioBase: remuneracao.salarioBaseEfetivo,
           totalComissao: remuneracao.comissaoEfetiva,
-          totalProducao: colabServicos.totalProducao,
+          totalProducao: modalidade === 'faturamento_geral' ? faturamentoGeralSemana : colabServicos.totalProducao,
           totalDescontos,
           totalPago,
           saldoAnterior,
@@ -371,6 +430,10 @@ export default function ComissoesAdminPanel() {
           percentualMeta,
           modalidade,
           metaPercentual,
+          metasValores,
+          metaAtingidaNome: remuneracao.metaAtingidaNome,
+          metaProximaNome: remuneracao.metaProximaNome,
+          metaProximaValor: remuneracao.metaProximaValor,
         };
       });
 
@@ -538,22 +601,30 @@ export default function ComissoesAdminPanel() {
     const modalidade: ModalidadeRemuneracao =
       c.modalidade_remuneracao ||
       localExtra?.modalidade ||
-      (Number(c.meta_percentual || localExtra?.metaPercentual) > 0 ? 'meta' : 'fixo_comissao');
+      (Number(c.meta_percentual || localExtra?.metaPercentual) > 0 || (localExtra?.metasValores && localExtra.metasValores.length > 0) ? 'meta' : 'fixo_comissao');
 
     const metaPercentual = Number(c.meta_percentual ?? localExtra?.metaPercentual) || 0;
+    const rawMetas: MetaValorItem[] = Array.isArray(localExtra?.metasValores) && localExtra.metasValores.length > 0
+      ? localExtra.metasValores
+      : (Array.isArray(c.metas_valores) && c.metas_valores.length > 0 ? c.metas_valores : defaultMetasTemplate);
+    const metaValorMinimo = Number(c.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0;
+    const metaValorMaximo = Number(c.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0;
     const linkedU = usuariosContas.find((u) => u.colaborador_id === c.id);
 
     setEditingId(c.id);
     setForm({
       nome: c.nome || '',
-      senha: c.senha || '',
+      senha: c.senha || linkedU?.password || '',
       cargo: c.cargo || '',
       salarioBase: Number(c.salario_base) || 0,
       comissaoPadraoPercentual: modalidade === 'fixo' ? 0 : (Number(c.comissao_padrao_percentual) || 10),
       metaSemanal: modalidade === 'fixo' ? 0 : (Number(c.meta_semanal) || 0),
-      modoLancamento: c.modo_lancamento_comissao === 'somente_nota' ? 'somente_nota' : 'livre',
+      modoLancamento: 'livre',
       modalidadeRemuneracao: modalidade,
       metaPercentual,
+      metaValorMinimo,
+      metaValorMaximo,
+      metasValores: rawMetas,
       ativo: c.ativo !== false,
       usuarioId: linkedU?.id || '',
       criarNovaConta: false,
@@ -561,6 +632,25 @@ export default function ComissoesAdminPanel() {
     });
     setShowPasswordInModal(false);
     setShowModal(true);
+  };
+
+  const handleSelectUsuarioConta = (usuarioId: string) => {
+    const selectedUser = usuariosContas.find((u) => u.id === usuarioId);
+    if (selectedUser) {
+      setForm((prev) => ({
+        ...prev,
+        usuarioId,
+        criarNovaConta: false,
+        nome: (!editingId || !prev.nome.trim()) ? selectedUser.name : prev.nome,
+        // USA A MESMA SENHA DO USUÁRIO JÁ CADASTRADO NO SISTEMA!
+        senha: selectedUser.password || prev.senha,
+      }));
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        usuarioId: '',
+      }));
+    }
   };
 
   const openLinkModal = (c: ColaboradorRow) => {
@@ -611,6 +701,8 @@ export default function ComissoesAdminPanel() {
         }
         showAlert(`Nova conta (${novoEmail}) criada e vinculada a ${linkingColaborador.nome}!`);
       } else if (selectedUsuarioForLink) {
+        const linkedUserObj = usuariosContas.find((u) => u.id === selectedUsuarioForLink);
+
         // Desvincula outros usuários deste colaborador
         await supabase
           .from('usuarios')
@@ -629,7 +721,19 @@ export default function ComissoesAdminPanel() {
           .eq('id', selectedUsuarioForLink);
 
         if (error) throw error;
-        showAlert('Vínculo de conta atualizado com sucesso!');
+
+        // Se o usuário selecionado tem senha cadastrada, sincroniza para o colaborador usar a mesma senha
+        if (linkedUserObj?.password) {
+          await supabase
+            .from('colaboradores')
+            .update({
+              senha: linkedUserObj.password,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', linkingColaborador.id);
+        }
+
+        showAlert(`Conta de ${linkedUserObj?.name || 'usuário'} vinculada com sucesso! A mesma senha de acesso foi sincronizada.`);
       } else {
         // Remove vínculo existente
         const { error } = await supabase
@@ -687,20 +791,27 @@ export default function ComissoesAdminPanel() {
     }
 
     setSaving(true);
-    // Funcionário fixo NÃO tem meta nem comissão!
+    // Modalidades
     const isFixo = form.modalidadeRemuneracao === 'fixo';
+    const isFatGeral = form.modalidadeRemuneracao === 'faturamento_geral';
     const isMeta = form.modalidadeRemuneracao === 'meta';
+
+    // Se o usuário já tem cadastro, usa e sincroniza a mesma senha
+    const linkedUserObj = form.usuarioId ? usuariosContas.find((u) => u.id === form.usuarioId) : null;
+    const finalSenha = form.senha.trim() || linkedUserObj?.password || '123456';
 
     const payload = {
       nome: form.nome.trim(),
-      senha: form.senha.trim(),
+      senha: finalSenha,
       cargo: form.cargo.trim() || null,
-      salario_base: isMeta ? 0 : (Number(form.salarioBase) || 0),
-      comissao_padrao_percentual: (isMeta || isFixo) ? 0 : (Number(form.comissaoPadraoPercentual) || 0),
-      meta_semanal: isFixo ? 0 : (Number(form.metaSemanal) || 0),
-      modo_lancamento_comissao: form.modoLancamento,
+      salario_base: (isMeta || isFatGeral) ? 0 : (Number(form.salarioBase) || 0),
+      comissao_padrao_percentual: (isMeta || isFixo || isFatGeral) ? 0 : (Number(form.comissaoPadraoPercentual) || 0),
+      meta_semanal: (isFixo || isFatGeral) ? 0 : (Number(form.metaSemanal) || 0),
+      modo_lancamento_comissao: 'livre',
       modalidade_remuneracao: form.modalidadeRemuneracao,
-      meta_percentual: isMeta ? (Number(form.metaPercentual) || 0) : 0,
+      meta_percentual: (isFatGeral || isMeta) ? (Number(form.metaPercentual) || 0) : 0,
+      meta_valor_minimo: isMeta ? (Number(form.metaValorMinimo) || 600) : 0,
+      metas_valores: isMeta ? form.metasValores : null,
       ativo: form.ativo,
       updated_at: new Date().toISOString(),
     };
@@ -779,12 +890,13 @@ export default function ComissoesAdminPanel() {
             .eq('colaborador_id', targetId)
             .neq('id', form.usuarioId);
 
-          // Vincula o usuário selecionado ao colaborador
+          // Vincula o usuário selecionado ao colaborador e sincroniza a mesma senha
           await supabase
             .from('usuarios')
             .update({
               colaborador_id: targetId,
               role: 'comissao',
+              password: finalSenha,
               updated_at: new Date().toISOString(),
             })
             .eq('id', form.usuarioId);
@@ -806,6 +918,9 @@ export default function ComissoesAdminPanel() {
         localStorage.setItem(`rpro_colab_remun_${targetId}`, JSON.stringify({
           modalidade: form.modalidadeRemuneracao,
           metaPercentual: form.metaPercentual,
+          metasValores: form.metasValores,
+          metaValorMinimo: form.metaValorMinimo,
+          metaValorMaximo: form.metaValorMaximo,
         }));
       } catch {
         // ignore
@@ -1496,13 +1611,14 @@ export default function ComissoesAdminPanel() {
                         className={`font-black uppercase px-2.5 py-0.5 rounded-lg border ${
                           stats.modalidade === 'fixo'
                             ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                            : stats.modalidade === 'meta'
+                            : stats.modalidade === 'faturamento_geral' || stats.modalidade === 'meta'
                             ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
                             : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                         }`}
                       >
                         {stats.modalidade === 'fixo' && '🔵 Fixo'}
-                        {stats.modalidade === 'meta' && `🟣 Meta (${stats.metaPercentual || 0}%)`}
+                        {stats.modalidade === 'faturamento_geral' && `🟣 Fat. Geral (${stats.metaPercentual || 0}%)`}
+                        {stats.modalidade === 'meta' && `🟣 Fat. Geral (${stats.metaPercentual || 0}%)`}
                         {stats.modalidade === 'fixo_comissao' && '🟢 Fixo + Comis.'}
                       </span>
 
@@ -1714,13 +1830,14 @@ export default function ComissoesAdminPanel() {
                               className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border w-fit ${
                                 stats.modalidade === 'fixo'
                                   ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                                  : stats.modalidade === 'meta'
+                                  : stats.modalidade === 'faturamento_geral' || stats.modalidade === 'meta'
                                   ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
                                   : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                               }`}
                             >
                               {stats.modalidade === 'fixo' && 'Fixo'}
-                              {stats.modalidade === 'meta' && `Meta ${stats.metaPercentual || 0}%`}
+                              {stats.modalidade === 'faturamento_geral' && `Fat. Geral ${stats.metaPercentual || 0}%`}
+                              {stats.modalidade === 'meta' && `Fat. Geral ${stats.metaPercentual || 0}%`}
                               {stats.modalidade === 'fixo_comissao' && 'Fixo + Com.'}
                             </span>
                             <span
@@ -1824,11 +1941,52 @@ export default function ComissoesAdminPanel() {
 
               {/* Corpo do Formulário */}
               <div className="p-6 space-y-5 overflow-y-auto custom-scrollbar flex-1">
-                {/* Seção 1: Dados de Acesso */}
-                <div className="space-y-3">
+                {/* Seção 1: Identificação & Conta de Acesso */}
+                <div className="space-y-3.5">
                   <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" /> 1. Identificação & Acesso
+                    <Users className="w-3.5 h-3.5" /> 1. Identificação & Conta de Acesso
                   </h4>
+
+                  {/* Seletor de conta de usuário existente no sistema */}
+                  <div className="p-3.5 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] space-y-2">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider flex items-center justify-between">
+                        <span>Vincular Conta de Usuário Existente</span>
+                        <span className="text-[9px] font-bold text-emerald-400 lowercase">usa a mesma senha cadastrada</span>
+                      </span>
+                      <select
+                        value={form.usuarioId}
+                        disabled={form.criarNovaConta}
+                        onChange={(e) => handleSelectUsuarioConta(e.target.value)}
+                        className="w-full h-10 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3 text-xs sm:text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-medium disabled:opacity-50"
+                      >
+                        <option value="">— Sem conta vinculada (Apenas acesso avulso por nome e senha) —</option>
+                        {usuariosContas.map((u) => {
+                          const isCurrent = editingId && u.colaborador_id === editingId;
+                          const otherColab = u.colaborador_id && !isCurrent 
+                            ? colaboradores.find((c) => c.id === u.colaborador_id) 
+                            : null;
+                          return (
+                            <option key={u.id} value={u.id}>
+                              {u.name} ({u.email}) {isCurrent ? '— [Vinculada a este Colaborador]' : otherColab ? `— [Já vinculada a ${otherColab.nome}]` : '— [Disponível]'}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    {form.usuarioId && (() => {
+                      const linked = usuariosContas.find((u) => u.id === form.usuarioId);
+                      return linked ? (
+                        <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>
+                            Conta de <strong>{linked.name}</strong> ({linked.email}) vinculada. Usando a <strong>mesma senha</strong> cadastrada no sistema.
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <label className="space-y-1 block">
@@ -1858,19 +2016,21 @@ export default function ComissoesAdminPanel() {
                     </label>
                   </div>
 
-                  {/* Campo de Senha com Gerador */}
+                  {/* Campo de Senha com sincronização */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                        Senha de Acesso *
+                        Senha de Acesso * {form.usuarioId && <span className="text-emerald-400 font-normal lowercase">(mesma senha da conta do usuário)</span>}
                       </span>
-                      <button
-                        type="button"
-                        onClick={handleGeneratePassword}
-                        className="text-[10px] font-bold text-[var(--accent-red)] hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <Sparkles className="w-3 h-3" /> Gerar Senha Segura
-                      </button>
+                      {!form.usuarioId && (
+                        <button
+                          type="button"
+                          onClick={handleGeneratePassword}
+                          className="text-[10px] font-bold text-[var(--accent-red)] hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="w-3 h-3" /> Gerar Senha Segura
+                        </button>
+                      )}
                     </div>
 
                     <div className="relative">
@@ -1892,14 +2052,15 @@ export default function ComissoesAdminPanel() {
                   </div>
                 </div>
 
-                {/* Seção 2: Modalidade de Remuneração e Parâmetros */}
+                {/* Seção 2: Modalidade de Remuneração */}
                 <div className="space-y-4 pt-3 border-t border-[var(--border-color)]">
                   <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
                     <DollarSign className="w-3.5 h-3.5" /> 2. Modalidade de Remuneração
                   </h4>
 
-                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / META */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / FATURAMENTO GERAL */}
+                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / META ESCALÁVEL / FATURAMENTO GERAL */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                     <button
                       type="button"
                       onClick={() => setForm({ ...form, modalidadeRemuneracao: 'fixo', metaSemanal: 0, comissaoPadraoPercentual: 0 })}
@@ -1916,7 +2077,7 @@ export default function ComissoesAdminPanel() {
                         </span>
                       </div>
                       <p className="text-[10px] text-[var(--text-muted)] leading-tight">
-                        Recebe valor semanal fixo. Não possui meta de produção.
+                        Recebe valor semanal fixo. Não depende de meta nem faturamento.
                       </p>
                     </button>
 
@@ -1942,7 +2103,7 @@ export default function ComissoesAdminPanel() {
 
                     <button
                       type="button"
-                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'meta' })}
+                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'meta', metaValorMinimo: form.metaValorMinimo || 600 })}
                       className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
                         form.modalidadeRemuneracao === 'meta'
                           ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
@@ -1952,11 +2113,31 @@ export default function ComissoesAdminPanel() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
                           <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'meta' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
-                          Meta
+                          Meta Escalável
                         </span>
                       </div>
                       <p className="text-[10px] text-[var(--text-muted)] leading-tight">
-                        % sobre a produção individual (sem valor mínimo/máximo obrigatório).
+                        Piso mínimo garantido + faixas de produção com remuneração escalável.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'faturamento_geral' })}
+                      className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                        form.modalidadeRemuneracao === 'faturamento_geral'
+                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
+                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
+                          <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'faturamento_geral' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
+                          % Faturamento Geral
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[var(--text-muted)] leading-tight">
+                        Recebe % calculada diretamente sobre o total faturado da empresa.
                       </p>
                     </button>
                   </div>
@@ -2036,12 +2217,177 @@ export default function ComissoesAdminPanel() {
                       </div>
                     )}
 
-                    {/* Modalidade 3: META */}
+                    {/* Modalidade 3: META ESCALÁVEL */}
                     {form.modalidadeRemuneracao === 'meta' && (
+                      <div className="space-y-4">
+                        {/* Piso Mínimo Garantido */}
+                        <div className="p-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <label className="block space-y-1">
+                              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                                Valor Mínimo Garantido Semanal (R$) *
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={form.metaValorMinimo ?? 600}
+                                onChange={(e) => setForm({ ...form, metaValorMinimo: Number(e.target.value) || 0 })}
+                                placeholder="600.00"
+                                className="w-48 h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-blue-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                              />
+                            </label>
+                            <span className="text-[11px] text-[var(--text-muted)] max-w-xs sm:text-right">
+                              Se a produção semanal não atingir nenhuma faixa, o colaborador receberá este piso garantido.
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Faixas de Produção */}
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-black uppercase text-[var(--text-main)] tracking-wider flex items-center gap-1.5">
+                              <Target className="w-3.5 h-3.5 text-amber-400" />
+                              Faixas de Produção e Remuneração (Sábado a Sexta)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextIndex = form.metasValores.length + 1;
+                                const novaFaixa: MetaValorItem = {
+                                  id: String(Date.now()),
+                                  nome: `Faixa ${nextIndex}`,
+                                  valorProducao: 0,
+                                  valorReceber: 0,
+                                  percentual: 25,
+                                };
+                                setForm({ ...form, metasValores: [...form.metasValores, novaFaixa] });
+                              }}
+                              className="h-8 px-3 rounded-xl bg-[var(--accent-red)]/20 hover:bg-[var(--accent-red)] text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border border-[var(--accent-red)]/40"
+                            >
+                              <Plus className="w-3.5 h-3.5" /> Adicionar Faixa
+                            </button>
+                          </div>
+
+                          <div className="space-y-2">
+                            {form.metasValores.map((m, idx) => {
+                              const perc = m.valorProducao > 0 && m.valorReceber > 0
+                                ? ((m.valorReceber / m.valorProducao) * 100).toFixed(1)
+                                : '—';
+                              return (
+                                <div
+                                  key={m.id || idx}
+                                  className="p-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] flex flex-wrap sm:flex-nowrap items-center gap-2.5 justify-between"
+                                >
+                                  <div className="w-28 shrink-0">
+                                    <input
+                                      type="text"
+                                      value={m.nome}
+                                      onChange={(e) => {
+                                        const updated = form.metasValores.map((item) =>
+                                          item.id === m.id ? { ...item, nome: e.target.value } : item
+                                        );
+                                        setForm({ ...form, metasValores: updated });
+                                      }}
+                                      placeholder={`Faixa ${idx + 1}`}
+                                      className="w-full h-9 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-lg px-2.5 text-xs text-[var(--text-main)] font-bold focus:outline-none focus:border-[var(--accent-red)]"
+                                    />
+                                  </div>
+
+                                  <div className="flex-1 flex items-center gap-2 min-w-[140px]">
+                                    <span className="text-[10px] text-[var(--text-muted)] font-black uppercase shrink-0">Produção:</span>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={m.valorProducao || ''}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value) || 0;
+                                        const updated = form.metasValores.map((item) => {
+                                          if (item.id !== m.id) return item;
+                                          const p = val;
+                                          const r = Number(item.valorReceber) || 0;
+                                          return {
+                                            ...item,
+                                            valorProducao: p,
+                                            percentual: p > 0 && r > 0 ? Number(((r / p) * 100).toFixed(1)) : item.percentual,
+                                          };
+                                        });
+                                        setForm({ ...form, metasValores: updated });
+                                      }}
+                                      placeholder="0.00"
+                                      className="w-full h-9 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-2.5 text-xs text-amber-400 font-bold focus:outline-none focus:border-[var(--accent-red)]"
+                                    />
+                                  </div>
+
+                                  <div className="flex-1 flex items-center gap-2 min-w-[140px]">
+                                    <span className="text-[10px] text-[var(--text-muted)] font-black uppercase shrink-0">Recebe:</span>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={m.valorReceber || ''}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value) || 0;
+                                        const updated = form.metasValores.map((item) => {
+                                          if (item.id !== m.id) return item;
+                                          const r = val;
+                                          const p = Number(item.valorProducao) || 0;
+                                          return {
+                                            ...item,
+                                            valorReceber: r,
+                                            percentual: p > 0 && r > 0 ? Number(((r / p) * 100).toFixed(1)) : item.percentual,
+                                          };
+                                        });
+                                        setForm({ ...form, metasValores: updated });
+                                      }}
+                                      placeholder="0.00"
+                                      className="w-full h-9 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-2.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-[var(--accent-red)]"
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] font-black px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 whitespace-nowrap">
+                                      {perc !== '—' ? `${perc}%` : '—'}
+                                    </span>
+                                    {form.metasValores.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setForm({
+                                            ...form,
+                                            metasValores: form.metasValores.filter((item) => item.id !== m.id),
+                                          });
+                                        }}
+                                        className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                        title="Excluir faixa"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed">
+                            📌 <strong>Regra de Cálculo Semanal (Sábado a Sexta):</strong>
+                            <ul className="list-disc list-inside mt-1 space-y-0.5 text-[10px] text-amber-200/90">
+                              <li>Se a produção não atingir nenhuma faixa: recebe o <strong>Piso Mínimo Garantido (R$ {form.metaValorMinimo || 600})</strong>.</li>
+                              <li>Se atingir uma faixa: recebe o valor da respectiva faixa.</li>
+                              <li>Se ultrapassar várias faixas: recebe o valor da <strong>maior faixa atingida</strong>.</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Modalidade 4: FATURAMENTO GERAL */}
+                    {form.modalidadeRemuneracao === 'faturamento_geral' && (
                       <div className="space-y-3">
                         <label className="space-y-1 block max-w-sm">
                           <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                            Percentual sobre a Produção (%) *
+                            Percentual sobre o Faturamento Geral (%) *
                           </span>
                           <div className="relative">
                             <input
@@ -2051,7 +2397,7 @@ export default function ComissoesAdminPanel() {
                               max="100"
                               value={form.metaPercentual || ''}
                               onChange={(e) => setForm({ ...form, metaPercentual: Number(e.target.value) || 0 })}
-                              placeholder="Ex: 25"
+                              placeholder="Ex: 5"
                               className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl pl-3.5 pr-8 text-sm text-emerald-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-emerald-400">
@@ -2059,157 +2405,19 @@ export default function ComissoesAdminPanel() {
                             </span>
                           </div>
                           <span className="text-[10px] text-[var(--text-muted)] block mt-0.5">
-                            Exemplos: 5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 50% ou qualquer outro percentual livre informado pelo administrador.
+                            Exemplos: 2%, 3%, 5%, 10% ou qualquer outro percentual sobre o total faturado no período.
                           </span>
                         </label>
 
                         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] leading-relaxed">
-                          💡 <strong>Fórmula da Modalidade Meta:</strong> Remuneração = Produção Individual × {form.metaPercentual || 0}%. O cálculo depende exclusivamente da produção individual multiplicada pelo percentual configurado (sem piso, sem teto e sem valor mínimo).
+                          💡 <strong>Comissão sobre Faturamento Geral:</strong> O colaborador recebe {form.metaPercentual || 0}% sobre o valor total faturado pela empresa no período.
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Seção 3: Modo de Lançamento de Comissões */}
-                <div className="space-y-3 pt-3 border-t border-[var(--border-color)]">
-                  <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
-                    <FileSpreadsheet className="w-3.5 h-3.5" /> 3. Regra de Lançamento de Comissão
-                  </h4>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Modo Livre */}
-                    <div
-                      onClick={() => setForm({ ...form, modoLancamento: 'livre' })}
-                      className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between space-y-2 ${
-                        form.modoLancamento === 'livre'
-                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
-                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
-                          <CheckCircle2 className={`w-4 h-4 ${form.modoLancamento === 'livre' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
-                          Modo Livre
-                        </span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Flexível</span>
-                      </div>
-                      <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                        Colaborador pode lançar serviços avulsos manualmente e também adicionar direto das notas/pedidos do sistema.
-                      </p>
-                    </div>
-
-                    {/* Somente Nota */}
-                    <div
-                      onClick={() => setForm({ ...form, modoLancamento: 'somente_nota' })}
-                      className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between space-y-2 ${
-                        form.modoLancamento === 'somente_nota'
-                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
-                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
-                          <CheckCircle2 className={`w-4 h-4 ${form.modoLancamento === 'somente_nota' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
-                          Somente Nota
-                        </span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">Controlado</span>
-                      </div>
-                      <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                        Só permite adicionar itens vinculados obrigatoriamente a uma nota de serviço já cadastrada na empresa.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seção 4: Conta de Usuário do Sistema (Anexar Conta) */}
-                <div className="space-y-3 pt-3 border-t border-[var(--border-color)]">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--accent-red)] flex items-center gap-1.5">
-                      <Link2 className="w-3.5 h-3.5" /> 4. Conta de Acesso ao Sistema (Anexar Conta)
-                    </h4>
-                    <span className="text-[10px] text-[var(--text-muted)]">Opcional</span>
-                  </div>
-
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                    Escolha qual conta de usuário anexar a este colaborador para permitir acesso unificado ao sistema e CRM.
-                  </p>
-
-                  <div className="p-4 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] space-y-3.5">
-                    {/* Seletor de conta existente */}
-                    <label className="space-y-1 block">
-                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                        Selecionar Conta de Usuário Existente
-                      </span>
-                      <select
-                        value={form.usuarioId}
-                        disabled={form.criarNovaConta}
-                        onChange={(e) => setForm({ ...form, usuarioId: e.target.value })}
-                        className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3 text-xs sm:text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-medium disabled:opacity-50"
-                      >
-                        <option value="">— Sem conta anexada (Apenas acesso com nome e senha do colaborador) —</option>
-                        {usuariosContas.map((u) => {
-                          const isCurrent = editingId && u.colaborador_id === editingId;
-                          const otherColab = u.colaborador_id && !isCurrent 
-                            ? colaboradores.find((c) => c.id === u.colaborador_id) 
-                            : null;
-                          return (
-                            <option key={u.id} value={u.id}>
-                              {u.name} ({u.email}) {isCurrent ? '— [Atualmente Vinculada]' : otherColab ? `— [Vinculada a ${otherColab.nome}]` : '— [Disponível]'}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </label>
-
-                    {/* Ou criar nova conta de login */}
-                    <div className="pt-2 border-t border-[var(--border-color)]/60 space-y-2.5">
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={form.criarNovaConta}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setForm({
-                              ...form,
-                              criarNovaConta: checked,
-                              novoEmailConta: checked && !form.novoEmailConta
-                                ? `${(form.nome || 'colaborador').toLowerCase().replace(/[^a-z0-9]/g, '')}@empresa.com`
-                                : form.novoEmailConta,
-                              usuarioId: checked ? '' : form.usuarioId,
-                            });
-                          }}
-                          className="w-4 h-4 rounded text-red-600 focus:ring-red-500 bg-[var(--bg-card)] border-[var(--border-color)]"
-                        />
-                        <span className="text-xs font-bold text-[var(--text-main)]">
-                          + Criar nova conta de login no sistema para este funcionário
-                        </span>
-                      </label>
-
-                      {form.criarNovaConta && (
-                        <div className="pl-6 space-y-2 animate-in fade-in duration-200">
-                          <label className="space-y-1 block">
-                            <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                              E-mail da Nova Conta de Login *
-                            </span>
-                            <input
-                              type="email"
-                              value={form.novoEmailConta}
-                              onChange={(e) => setForm({ ...form, novoEmailConta: e.target.value })}
-                              placeholder="exemplo@empresa.com"
-                              className="w-full h-10 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-mono"
-                            />
-                          </label>
-                          <p className="text-[10px] text-[var(--text-muted)]">
-                            ℹ️ O usuário será cadastrado no sistema com o nome informado e terá como senha inicial a <strong>Senha de Acesso</strong> configurada acima.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seção 5: Status Ativo / Inativo */}
+                {/* Seção 3: Status Ativo / Inativo */}
                 <div className="pt-3 border-t border-[var(--border-color)] flex items-center justify-between">
                   <div>
                     <span className="text-xs font-bold text-[var(--text-main)] block">Status da Conta</span>

@@ -346,6 +346,8 @@ export const SectionHeader = ({ title, subtitle, actions }: any) => (
 // --- MODAL ---
 export const Modal = ({ isOpen, onClose, title, children, size = 'md', className, contentClassName }: any) => {
   const sizes: Record<string, string> = {
+    compact: "max-w-[340px]",
+    xs: "max-w-sm",
     sm: "max-w-md",
     md: "max-w-2xl",
     lg: "max-w-5xl",

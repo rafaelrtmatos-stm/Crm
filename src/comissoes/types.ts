@@ -35,6 +35,14 @@ export interface ServiceItem {
 
 export type ThemeMode = 'dark' | 'light' | 'auto';
 
+export interface MetaValorItem {
+  id: string;
+  nome: string; // Ex: "Meta 1", "Meta 2", "Meta 3"
+  valorProducao: number; // Valor da meta em produção (R$)
+  valorReceber: number; // Valor que o colaborador recebe ao bater a meta (R$)
+  percentual?: number; // % opcional ou calculado
+}
+
 export interface UserSettings {
   userName: string;
   userRole: string;
@@ -42,8 +50,11 @@ export interface UserSettings {
   defaultCommissionRate: number; // Ex: 10%
   weeklyGoal: number; // Ex: R$ 2500,00
   themePreference: ThemeMode;
-  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta';
+  modalidadeRemuneracao?: 'fixo' | 'fixo_comissao' | 'meta' | 'faturamento_geral';
   metaPercentual?: number;
+  metasValores?: MetaValorItem[];
+  metaValorMinimo?: number;
+  metaValorMaximo?: number;
 }
 
 export interface FilterOptions {

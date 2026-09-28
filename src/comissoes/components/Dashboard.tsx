@@ -307,6 +307,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // ✅ Resumo real do período selecionado (Salário + Comissão - Descontos - Já Pago),
   // usando exatamente a mesma função já corrigida na aba Descontos. Isso é o que garante
   // que o "Total Estimado" do card de Previsão já desconta o que o colaborador recebeu --
+  // ✅ Resumo real do período selecionado (Salário + Comissão - Descontos - Já Pago),
+  // usando exatamente a mesma função já corrigida na aba Descontos. Isso é o que garante
+  // que o "Total Estimado" do card de Previsão já desconta o que o colaborador recebeu --
   // inclusive se recebeu A MAIS (o que vira déficit/dívida e tem que abater daqui).
   const resumoPeriodoAtivo = useMemo(() => {
     if (!caixa) return null;
@@ -317,9 +320,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+        metasValores: userSettings.metasValores,
+        metaValorMinimo: userSettings.metaValorMinimo,
+        metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
@@ -354,9 +360,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+        metasValores: userSettings.metasValores,
+        metaValorMinimo: userSettings.metaValorMinimo,
+        metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   const weeklyStats = useMemo(() => {
     const prod = weeklyServices.reduce((acc, s) => acc + s.productionValue, 0);
@@ -625,6 +634,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             cycleDates={`${formatDateBR(weeklyBounds.start)} a ${formatDateBR(weeklyBounds.end)}`}
             modalidadeRemuneracao={userSettings.modalidadeRemuneracao}
             metaPercentual={userSettings.metaPercentual}
+            metasValores={userSettings.metasValores}
+            metaValorMinimo={userSettings.metaValorMinimo}
             onOpenDescontos={onGoToDescontos}
           />
         </div>
@@ -661,7 +672,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   {userSettings.modalidadeRemuneracao === 'meta'
-                    ? `META ${userSettings.metaPercentual || 0}% (${period.toUpperCase()})`
+                    ? `META ALCANÇADA (${period.toUpperCase()})`
+                    : userSettings.modalidadeRemuneracao === 'faturamento_geral'
+                    ? `COMISSÃO (${period.toUpperCase()})`
                     : `COMISSÃO (${period.toUpperCase()})`}
                 </span>
                 <div className="text-3xl sm:text-4xl font-black text-[var(--accent-red)] font-mono mt-1">
@@ -669,20 +682,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               </div>
               <div className="p-3.5 rounded-xl bg-gradient-red text-white shadow-red-glow">
-                <Percent className="w-6 h-6 stroke-[2.5]" />
+                <Target className="w-6 h-6 stroke-[2.5]" />
               </div>
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
               <span>
-                {userSettings.modalidadeRemuneracao === 'meta' ? 'Meta Semana: ' : 'Acumulado Semana: '}
+                {userSettings.modalidadeRemuneracao === 'meta' ? 'Total Meta da Semana: ' : 'Acumulado Semana: '}
                 <strong className="text-emerald-400 font-bold">{formatCurrency(weeklyStats.weeklyCommission)}</strong>
               </span>
               <span className="text-[var(--text-muted)]">
-                Taxa: <strong className="text-[var(--text-main)]">
-                  {userSettings.modalidadeRemuneracao === 'meta'
-                    ? `${userSettings.metaPercentual || 0}%`
-                    : `${displayStats.averageCommissionRate.toFixed(1)}%`}
-                </strong>
+                {userSettings.modalidadeRemuneracao === 'meta' ? (
+                  <span className="text-emerald-400 font-bold">Faixa Semanal</span>
+                ) : userSettings.modalidadeRemuneracao === 'fixo' ? (
+                  <span className="text-blue-400 font-bold">Fixo</span>
+                ) : (
+                  <>Taxa Média: <strong className="text-[var(--text-main)]">{displayStats.averageCommissionRate.toFixed(1)}%</strong></>
+                )}
               </span>
             </div>
           </div>
