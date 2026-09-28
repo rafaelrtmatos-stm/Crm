@@ -76,6 +76,7 @@ export const AudioMessagePlayer = ({
   senderName,
   onError,
   hasError = false,
+  initialDuration,
 }: {
   src: string;
   transcription?: { text: string };
@@ -87,19 +88,30 @@ export const AudioMessagePlayer = ({
   senderName?: string;
   onError?: () => void;
   hasError?: boolean;
+  initialDuration?: number;
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState<number>(initialDuration || 0);
   const [speed, setSpeed] = useState<1 | 1.5 | 2>(1);
   const [copiedTranscription, setCopiedTranscription] = useState(false);
+
+  useEffect(() => {
+    if (initialDuration && initialDuration > 0 && (!duration || duration === 0)) {
+      setDuration(initialDuration);
+    }
+  }, [initialDuration]);
 
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
     const updateTime = () => setCurrentTime(el.currentTime);
-    const updateDuration = () => setDuration(el.duration || 0);
+    const updateDuration = () => {
+      if (el.duration && !isNaN(el.duration) && isFinite(el.duration)) {
+        setDuration(el.duration);
+      }
+    };
     const onEnded = () => {
       setIsPlaying(false);
       setCurrentTime(0);
@@ -109,13 +121,21 @@ export const AudioMessagePlayer = ({
 
     el.addEventListener('timeupdate', updateTime);
     el.addEventListener('loadedmetadata', updateDuration);
+    el.addEventListener('durationchange', updateDuration);
+    el.addEventListener('canplay', updateDuration);
     el.addEventListener('ended', onEnded);
     el.addEventListener('play', onPlay);
     el.addEventListener('pause', onPause);
 
+    if (el.duration && !isNaN(el.duration) && isFinite(el.duration)) {
+      setDuration(el.duration);
+    }
+
     return () => {
       el.removeEventListener('timeupdate', updateTime);
       el.removeEventListener('loadedmetadata', updateDuration);
+      el.removeEventListener('durationchange', updateDuration);
+      el.removeEventListener('canplay', updateDuration);
       el.removeEventListener('ended', onEnded);
       el.removeEventListener('play', onPlay);
       el.removeEventListener('pause', onPause);
@@ -125,7 +145,6 @@ export const AudioMessagePlayer = ({
   const togglePlay = () => {
     const el = audioRef.current;
     if (!el) return;
-    if (el.preload !== 'auto') el.preload = 'auto';
     if (isPlaying) {
       el.pause();
     } else {
@@ -153,7 +172,7 @@ export const AudioMessagePlayer = ({
   };
 
   const formatSeconds = (sec: number) => {
-    if (isNaN(sec) || !isFinite(sec)) return '0:00';
+    if (isNaN(sec) || !isFinite(sec) || sec <= 0) return duration > 0 ? formatSeconds(duration) : '0:00';
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
@@ -175,14 +194,12 @@ export const AudioMessagePlayer = ({
 
   return (
     <div
-      className="space-y-1.5 w-full max-w-[290px] sm:max-w-[330px] min-w-0 select-none touch-manipulation text-white"
-      onMouseEnter={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
-      onTouchStart={() => { if (audioRef.current && audioRef.current.preload !== 'metadata') audioRef.current.preload = 'metadata'; }}
+      className="space-y-1.5 w-full max-w-[290px] sm:max-w-[330px] min-w-0 select-none touch-manipulation text-slate-800"
     >
       <audio
         ref={audioRef}
         src={src}
-        preload="none"
+        preload="metadata"
         onError={onError}
         className="hidden"
       />
@@ -190,29 +207,29 @@ export const AudioMessagePlayer = ({
       <div className="flex items-center gap-2.5">
         {/* Avatar com microfonezinho no canto inferior direito estilo WhatsApp iOS */}
         <div className="relative shrink-0">
-          <div className="w-10 h-10 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center overflow-hidden">
+          <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-white/10 flex items-center justify-center overflow-hidden">
             {senderPhotoUrl ? (
               <img src={senderPhotoUrl} alt={senderName || ''} className="w-full h-full object-cover" />
             ) : (
-              <span className="text-xs font-bold text-white/70">{(senderName || 'A').slice(0, 2).toUpperCase()}</span>
+              <span className="text-xs font-bold text-slate-600 dark:text-white/70">{(senderName || 'A').slice(0, 2).toUpperCase()}</span>
             )}
           </div>
-          <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#00a884] border-2 border-[#111b21] flex items-center justify-center text-white shadow-sm">
+          <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#00a884] border-2 border-white dark:border-[#111b21] flex items-center justify-center text-white shadow-sm">
             <Mic size={9} strokeWidth={2.5} />
           </div>
         </div>
 
-        {/* Play/Pause Button */}
+        {/* Play/Pause Button - destaque garantido no WhatsApp */}
         <button
           type="button"
           onClick={togglePlay}
-          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-transform active:scale-95 text-white/90 hover:text-white"
+          className="w-9 h-9 rounded-full bg-[#00a884] hover:bg-[#008f6f] text-white flex items-center justify-center shrink-0 transition-transform active:scale-95 shadow-sm cursor-pointer"
           title={isPlaying ? "Pausar" : "Tocar áudio"}
         >
           {isPlaying ? (
-            <Pause size={18} fill="currentColor" />
+            <Pause size={17} fill="currentColor" />
           ) : (
-            <Play size={18} fill="currentColor" className="ml-0.5" />
+            <Play size={17} fill="currentColor" className="ml-0.5" />
           )}
         </button>
 
@@ -231,7 +248,7 @@ export const AudioMessagePlayer = ({
                     style={{ height: `${h}px` }}
                     className={cn(
                       "w-[2px] sm:w-[2.5px] rounded-full transition-colors",
-                      isPlayed ? "bg-[#53bdeb]" : "bg-white/30"
+                      isPlayed ? "bg-[#00a884]" : "bg-slate-300 dark:bg-white/30"
                     )}
                   />
                 </div>
@@ -239,10 +256,10 @@ export const AudioMessagePlayer = ({
             })}
           </div>
 
-          <div className="flex justify-between items-center text-[9.5px] font-medium text-white/50 px-0.5">
-            <span>{formatSeconds(currentTime > 0 ? currentTime : duration)}</span>
+          <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-white/60 px-0.5">
+            <span>{isPlaying || currentTime > 0 ? formatSeconds(currentTime) : (duration > 0 ? formatSeconds(duration) : '0:00')}</span>
             {speed > 1 && (
-              <span className="text-[8.5px] px-1 rounded bg-[#53bdeb]/20 text-[#53bdeb] font-bold">
+              <span className="text-[8.5px] px-1 rounded bg-[#00a884]/20 text-[#00a884] font-bold">
                 {speed}x
               </span>
             )}
@@ -254,10 +271,10 @@ export const AudioMessagePlayer = ({
           type="button"
           onClick={handleSpeedChange}
           className={cn(
-            "h-6 px-1.5 rounded text-[9.5px] font-black tracking-tight shrink-0 transition-all border active:scale-95",
+            "h-6 px-1.5 rounded text-[9.5px] font-black tracking-tight shrink-0 transition-all border active:scale-95 cursor-pointer",
             speed > 1 
-              ? "bg-[#53bdeb]/20 text-[#53bdeb] border-[#53bdeb]/40 shadow-sm" 
-              : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10 hover:text-white"
+              ? "bg-[#00a884]/20 text-[#00a884] border-[#00a884]/40 shadow-sm" 
+              : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 dark:bg-white/10 dark:text-white/80 dark:border-white/10"
           )}
           title="Alterar velocidade (1x, 1.5x, 2x)"
         >

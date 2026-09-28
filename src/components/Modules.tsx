@@ -825,8 +825,66 @@ const mapCrmMessageRow = (row: any): any => {
     quotedSender: qSender,
     quotedMediaType: qMediaType,
     quotedMediaUrl: qMediaUrl,
+    mediaDuration: row.media_duration || row.mediaDuration || undefined,
     createdAt: row.created_at,
   };
+};
+
+const uploadFileWithProgress = (
+  caminho: string,
+  arquivo: File | Blob,
+  mimeType: string,
+  onProgress?: (percent: number) => void
+): Promise<{ error: any; publicUrl?: string }> => {
+  return new Promise((resolve) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_URL) || 'https://areqouezrbdubfutjzki.supabase.co';
+      const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) || 'sb_publishable_YbzFXDHWQy-k0F9uNtVJ2g_urcsgmVt';
+      const url = `${supabaseUrl}/storage/v1/object/whatsapp-media/${caminho}`;
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('apikey', supabaseKey);
+      xhr.setRequestHeader('Authorization', `Bearer ${supabaseKey}`);
+      xhr.setRequestHeader('Content-Type', mimeType);
+      xhr.setRequestHeader('x-upsert', 'false');
+
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+            onProgress(percent);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const publicUrl = `${supabaseUrl}/storage/v1/object/public/whatsapp-media/${caminho}`;
+          if (onProgress) onProgress(100);
+          resolve({ error: null, publicUrl });
+        } else {
+          try {
+            const json = JSON.parse(xhr.responseText);
+            resolve({ error: new Error(json.message || json.error || `HTTP ${xhr.status}`) });
+          } catch {
+            resolve({ error: new Error(`HTTP ${xhr.status}`) });
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        resolve({ error: new Error('Falha de conexão no envio do arquivo') });
+      };
+
+      xhr.ontimeout = () => {
+        resolve({ error: new Error('Tempo limite excedido no upload') });
+      };
+
+      xhr.send(arquivo);
+    } catch (e) {
+      resolve({ error: e });
+    }
+  });
 };
 
 function deduplicateExtraCosts(costs: any[]): Array<{ id: string; description: string; amount: number; colaboradorId?: string; origemItemIndex?: number; date?: string }> {
@@ -3555,6 +3613,8 @@ export const ChatPanel = ({
   const fotoInputRef = useRef<HTMLInputElement>(null);
   const documentoInputRef = useRef<HTMLInputElement>(null);
   const [enviandoArquivo, setEnviandoArquivo] = useState(false);
+  // Mensagens de mídia com preview imediato, barra de progresso em tempo real e estado (PENDENTE -> ENVIANDO -> ENVIADA / ERRO)
+  const [optimisticMediaMessages, setOptimisticMediaMessages] = useState<any[]>([]);
   // Guarda o texto de um envio que falhou, pra mostrar o botão "Reenviar" (ver handleSendMessage) --
   // sem isso o atendente precisaria redigitar a mensagem inteira de novo.
   const [reenvioPendente, setReenvioPendente] = useState<string | null>(null);
@@ -4075,17 +4135,20 @@ export const ChatPanel = ({
   // Notas reaproveitam a mesma collection/consulta de mensagens (ja carregada pro chat, ver
   // useEffect abaixo) filtrando por isNote -- assim nao duplica listener nem dado.
   const notes = messages.filter(m => m.isNote);
-  const chatMessages = messages.filter(m => !m.isNote);
+  const chatMessages = useMemo(() => {
+    const base = messages.filter(m => !m.isNote);
+    if (optimisticMediaMessages.length === 0) return base;
+    return [...base, ...optimisticMediaMessages];
+  }, [messages, optimisticMediaMessages]);
 
   // --- PC / Desktop Experiência Avançada (Melhorias de Atendimento) ---
-  // 1. Painel lateral de contexto na 3ª coluna (Desktop)
+  // 1. Painel lateral de contexto na 3ª coluna (Desktop) - fechado por padrão
   const [showDesktopSidebar, setShowDesktopSidebar] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('rpro_chat_desktop_sidebar');
       if (saved !== null) return saved === 'true';
-      return window.innerWidth >= 1280;
     }
-    return true;
+    return false;
   });
   const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales' | 'participants' | 'media'>('sales');
 
@@ -5349,7 +5412,7 @@ export const ChatPanel = ({
       return;
     }
     if (arquivo.size === 0) { showAlert('Esse arquivo está vazio.'); return; }
-    const fotoValida = /^image\/(jpeg|png|webp)$/i.test(arquivo.type);
+    const fotoValida = /^image\/(jpeg|png|webp|gif|bmp)$/i.test(arquivo.type) || arquivo.type.startsWith('image/');
     const tipo: 'image' | 'document' = escolhido === 'image' && fotoValida && arquivo.size <= LIMITE_FOTO_MB * 1024 * 1024 ? 'image' : 'document';
     const limiteMb = tipo === 'image' ? LIMITE_FOTO_MB : LIMITE_DOCUMENTO_MB;
     if (arquivo.size > limiteMb * 1024 * 1024) {
@@ -5361,78 +5424,178 @@ export const ChatPanel = ({
     isAtBottomRef.current = true;
     setNewMessagesWhileScrolled(0);
     const legenda = newMessage.trim();
+    if (legenda) setNewMessage('');
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
-    setEnviandoArquivo(true);
-    try {
-      // 1) Sobe o arquivo pro Storage (bucket whatsapp-media, pasta enviados/).
-      const digitos = conversation.phone.replace(/\D/g, '');
-      const nomeSeguro = (arquivo.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120)) || 'arquivo';
-      const caminho = `enviados/${digitos}/${Date.now()}-${nomeSeguro}`;
-      const mimeType = arquivo.type || 'application/octet-stream';
-      const { error: erroUpload } = await supabase.storage.from('whatsapp-media').upload(caminho, arquivo, { contentType: mimeType, upsert: false });
-      if (erroUpload) {
-        console.error('Falha ao subir arquivo pro Storage:', erroUpload);
-        showAlert(`Não foi possível subir o arquivo: ${erroUpload.message}. Se o arquivo for grande, confira o limite de tamanho do Storage no Supabase. Nada foi enviado.`);
-        return;
-      }
-      const { data: publico } = supabase.storage.from('whatsapp-media').getPublicUrl(caminho);
-      const mediaUrl = publico?.publicUrl;
-      if (!mediaUrl) { showAlert('Não foi possível gerar o link do arquivo. Nada foi enviado.'); return; }
 
-      // 2) Manda o servidor disparar pro WhatsApp (ele registra em crm_messages depois da confirmacao).
-      let respData: any = {};
+    const optId = `temp-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const localBlobUrl = tipo === 'image' ? URL.createObjectURL(arquivo) : undefined;
+    const textoMsg = legenda || (tipo === 'image' ? '📷 Foto' : arquivo.name);
+
+    const executeUpload = async () => {
+      setEnviandoArquivo(true);
+      // PENDENTE -> ENVIANDO com progresso real
+      setOptimisticMediaMessages(prev => prev.map(m => m.id === optId ? { ...m, uploadStatus: 'uploading', uploadProgress: 0, uploadError: null } : m));
+
       try {
+        const digitos = conversation.phone.replace(/\D/g, '');
+        const nomeSeguro = (arquivo.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-120)) || 'arquivo';
+        const caminho = `enviados/${digitos}/${Date.now()}-${nomeSeguro}`;
+        const mimeType = arquivo.type || (tipo === 'image' ? 'image/png' : 'application/octet-stream');
+
+        // 1) Sobe com monitoramento de progresso real via XMLHttpRequest
+        let mediaUrl: string | undefined;
+        const resUp = await uploadFileWithProgress(caminho, arquivo, mimeType, (percent) => {
+          setOptimisticMediaMessages(prev => prev.map(m => m.id === optId ? { ...m, uploadProgress: percent, uploadStatus: 'uploading' } : m));
+        });
+
+        if (!resUp.error && resUp.publicUrl) {
+          mediaUrl = resUp.publicUrl;
+        } else {
+          const { error: erroUpload } = await supabase.storage.from('whatsapp-media').upload(caminho, arquivo, { contentType: mimeType, upsert: false });
+          if (erroUpload) throw erroUpload;
+          const { data: publico } = supabase.storage.from('whatsapp-media').getPublicUrl(caminho);
+          mediaUrl = publico?.publicUrl;
+        }
+
+        if (!mediaUrl) throw new Error('Não foi possível gerar o link do arquivo.');
+
+        // Atualiza mediaUrl mantendo o preview imediato
+        setOptimisticMediaMessages(prev => prev.map(m => m.id === optId ? { ...m, mediaUrl, uploadProgress: 100 } : m));
+
+        // 2) Manda o servidor disparar pro WhatsApp
         const resp = await fetch('/api/whatsapp-send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-          body: JSON.stringify({ phone: conversation.phone, mediaUrl, mediaType: tipo, fileName: arquivo.name, mimeType, text: legenda || undefined, senderName: senderDisplay, leadId: conversation.id || null }),
+          body: JSON.stringify({
+            phone: conversation.phone,
+            mediaUrl,
+            mediaType: tipo,
+            fileName: arquivo.name,
+            mimeType,
+            text: legenda || undefined,
+            senderName: senderDisplay,
+            leadId: conversation.id || null,
+          }),
         });
-        respData = await resp.json().catch(() => ({}));
+
+        const respData = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          showAlert(`Não foi possível enviar o arquivo pro WhatsApp: ${respData.error || 'erro desconhecido'}. O arquivo NÃO foi enviado.`);
+          throw new Error(respData.error || 'Erro ao disparar mensagem no WhatsApp');
+        }
+
+        // Sucesso: ENVIADA
+        setOptimisticMediaMessages(prev => prev.map(m => m.id === optId ? { ...m, uploadStatus: 'sent', uploadProgress: 100 } : m));
+
+        if (respData.saved !== true) {
+          const quando = respData.createdAt || new Date().toISOString();
+          await supabase.from('crm_messages').insert({
+            company_id: 'rafa-arts',
+            lead_id: conversation.id || null,
+            phone: conversation.phone,
+            text: textoMsg,
+            direction: 'outgoing',
+            sender_name: senderDisplay,
+            channel: 'WhatsApp',
+            whatsapp_message_id: respData.whatsappMessageId || null,
+            content_type: tipo,
+            media_url: mediaUrl,
+            file_name: arquivo.name,
+            media_mime_type: mimeType,
+            created_at: quando,
+          });
+          await supabase.from('leads').update({
+            last_message_at: quando,
+            last_message_text: textoMsg,
+            last_message_direction: 'outgoing',
+            waiting_since: null,
+            updated_at: new Date().toISOString(),
+          }).eq('id', conversation.id);
+        }
+
+        // Remove a mensagem otimista após 3 segundos mantendo a indicação de sucesso
+        setTimeout(() => {
+          setOptimisticMediaMessages(prev => prev.filter(m => m.id !== optId));
+          if (localBlobUrl) URL.revokeObjectURL(localBlobUrl);
+        }, 3000);
+
+      } catch (err: any) {
+        console.error('Falha ao enviar arquivo:', err);
+        const errMsg = err?.message || 'Falha no envio';
+        setOptimisticMediaMessages(prev => prev.map(m => m.id === optId ? {
+          ...m,
+          uploadStatus: 'error',
+          uploadError: errMsg,
+          retryFn: () => executeUpload(),
+        } : m));
+      } finally {
+        setEnviandoArquivo(false);
+      }
+    };
+
+    // Cria a mensagem otimista no estado PENDENTE / ENVIANDO para exibição imediata
+    const optimisticMessage: any = {
+      id: optId,
+      isOptimistic: true,
+      companyId: 'rafa-arts',
+      leadId: conversation.id,
+      phone: conversation.phone,
+      text: textoMsg,
+      direction: 'outgoing',
+      senderName: senderDisplay,
+      channel: 'WhatsApp',
+      contentType: tipo,
+      mediaContentType: tipo,
+      mediaUrl: localBlobUrl || '',
+      localBlobUrl,
+      fileName: arquivo.name,
+      createdAt: new Date().toISOString(),
+      uploadStatus: 'uploading',
+      uploadProgress: 0,
+      uploadError: null,
+      retryFn: () => executeUpload(),
+    };
+
+    setOptimisticMediaMessages(prev => [...prev, optimisticMessage]);
+
+    setTimeout(() => {
+      virtuosoRef.current?.scrollToIndex({ index: messages.length + 1, align: 'end', behavior: 'smooth' });
+    }, 40);
+
+    executeUpload();
+  };
+
+  // Colar imagem do Clipboard (Ctrl+V) na conversa
+  const handlePasteAnywhere = useCallback((e: React.ClipboardEvent | ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type && (item.type.startsWith('image/') || item.type.includes('image'))) {
+        const blob = item.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const ext = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+          const file = new File([blob], `imagem_colada_${Date.now()}.${ext}`, { type: blob.type || 'image/png' });
+          handleSendFile(file, 'image');
           return;
         }
-      } catch (sendErr) {
-        console.error('Falha ao disparar arquivo pro WhatsApp:', sendErr);
-        showAlert('Não foi possível enviar o arquivo pro WhatsApp (falha de conexão). O arquivo NÃO foi enviado.');
+      }
+    }
+  }, [conversation?.phone, conversation?.id, currentCompany?.id, newMessage, user]);
+
+  useEffect(() => {
+    if (activeTab !== 'chat') return;
+    const onWindowPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && target !== chatInputRef.current && (target.tagName === 'INPUT' || (target.tagName === 'TEXTAREA' && target !== chatInputRef.current))) {
         return;
       }
-      setNewMessage('');
-      if (respData.saved !== true) {
-        // Envio confirmado, mas o servidor nao conseguiu registrar: registra daqui (duplicata do eco do webhook e ignorada pelo banco).
-        const quando = respData.createdAt || new Date().toISOString();
-        const textoMsg = legenda || (tipo === 'image' ? '📷 Foto' : arquivo.name);
-        await supabase.from('crm_messages').insert({
-          company_id: 'rafa-arts',
-          lead_id: conversation.id || null,
-          phone: conversation.phone,
-          text: textoMsg,
-          direction: 'outgoing',
-          sender_name: senderDisplay,
-          channel: 'WhatsApp',
-          whatsapp_message_id: respData.whatsappMessageId || null,
-          content_type: tipo,
-          media_url: mediaUrl,
-          file_name: arquivo.name,
-          media_mime_type: mimeType,
-          created_at: quando,
-        });
-        await supabase.from('leads').update({
-          last_message_at: quando,
-          last_message_text: textoMsg,
-          last_message_direction: 'outgoing',
-          waiting_since: null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', conversation.id);
-      }
-    } catch (err) {
-      console.error('Erro ao enviar arquivo:', err);
-      showAlert('Erro inesperado ao enviar o arquivo. Nada foi enviado.');
-    } finally {
-      setEnviandoArquivo(false);
-    }
-  };
+      handlePasteAnywhere(e);
+    };
+    window.addEventListener('paste', onWindowPaste);
+    return () => window.removeEventListener('paste', onWindowPaste);
+  }, [activeTab, handlePasteAnywhere]);
 
   const isImageUrl = (url?: string | null) => {
     if (!url || typeof url !== 'string') return false;
@@ -6362,6 +6525,7 @@ export const ChatPanel = ({
                   setIsDraggingFile(false);
                   handleDropFiles(e.dataTransfer.files);
                 }}
+                onPaste={handlePasteAnywhere}
               >
                 <ChatDropZoneOverlay isDragging={isDraggingFile} />
                 <ChatSearchBar
@@ -6602,30 +6766,124 @@ export const ChatPanel = ({
                                   </button>
                                 </div>
                               ) : isImage ? (
-                                <div className="space-y-1.5 min-w-[160px]">
+                                <div className="space-y-1.5 min-w-[170px] max-w-[320px]">
                                    <div
-                                     onClick={() => setImageViewerModal({
-                                       url: m.mediaUrl,
-                                       caption: (m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto') ? m.text : undefined,
-                                       fileName: m.fileName || 'Imagem',
-                                     })}
-                                     className="block overflow-hidden rounded-xl cursor-pointer group/img relative"
+                                     onClick={() => {
+                                       if (!m.uploadStatus || m.uploadStatus === 'sent') {
+                                         setImageViewerModal({
+                                           url: m.mediaUrl,
+                                           caption: (m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto') ? m.text : undefined,
+                                           fileName: m.fileName || 'Imagem',
+                                         });
+                                       }
+                                     }}
+                                     className="block overflow-hidden rounded-xl cursor-pointer group/img relative bg-slate-900/50"
                                      title="Clique para visualizar a imagem ampliada"
                                    >
-                                     <img src={m.mediaUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl group-hover/img:scale-[1.02] transition-transform" loading="lazy" decoding="async" />
-                                     <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
-                                       <span className="bg-black/75 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow-md flex items-center gap-1">
-                                         <Eye size={12} /> Visualizar
-                                       </span>
-                                     </div>
+                                     <img src={m.mediaUrl || m.localBlobUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl group-hover/img:scale-[1.02] transition-transform" loading="lazy" decoding="async" />
+                                     {(!m.uploadStatus || m.uploadStatus === 'sent') && (
+                                       <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                                         <span className="bg-black/75 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow-md flex items-center gap-1">
+                                           <Eye size={12} /> Visualizar
+                                         </span>
+                                       </div>
+                                     )}
+                                     {(m.uploadStatus === 'uploading' || m.uploadStatus === 'pending') && (
+                                       <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px] flex flex-col items-center justify-center p-3 text-white pointer-events-none">
+                                         <div className="w-9 h-9 rounded-full bg-slate-900/90 border border-white/20 flex items-center justify-center mb-2 shadow-lg">
+                                           <Loader2 size={18} className="animate-spin text-emerald-400" />
+                                         </div>
+                                         <div className="w-full max-w-[130px] bg-white/20 rounded-full h-2 overflow-hidden p-[1px]">
+                                           <div
+                                             className="bg-gradient-to-r from-emerald-400 to-teal-300 h-full rounded-full transition-all duration-200"
+                                             style={{ width: `${Math.max(6, m.uploadProgress || 0)}%` }}
+                                           />
+                                         </div>
+                                         <div className="flex items-center gap-1.5 mt-1.5 text-[10px] font-bold text-white drop-shadow">
+                                           <span>{m.uploadProgress !== undefined && m.uploadProgress > 0 ? `${m.uploadProgress}%` : ''}</span>
+                                           <span className="text-white/80">{m.uploadStatus === 'pending' ? 'Iniciando...' : (m.uploadProgress === 100 ? 'Processando...' : 'Enviando...')}</span>
+                                         </div>
+                                       </div>
+                                     )}
+                                     {m.uploadStatus === 'sent' && (
+                                       <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-sm text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md border border-emerald-500/30">
+                                         <Check size={11} strokeWidth={3} />
+                                         <span>Enviada</span>
+                                       </div>
+                                     )}
+                                     {m.uploadStatus === 'error' && (
+                                       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-3 text-center text-white">
+                                         <AlertCircle size={22} className="text-rose-400 mb-1" />
+                                         <span className="text-[11px] font-bold text-rose-300">Falha no envio</span>
+                                         {m.uploadError && (
+                                           <span className="text-[9px] text-white/70 line-clamp-1 max-w-[160px] mt-0.5">{m.uploadError}</span>
+                                         )}
+                                         {m.retryFn && (
+                                           <button
+                                             type="button"
+                                             onClick={(e) => { e.stopPropagation(); m.retryFn(); }}
+                                             className="mt-2 px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] flex items-center gap-1 active:scale-95 transition-all shadow-md cursor-pointer pointer-events-auto"
+                                           >
+                                             <RefreshCw size={11} />
+                                             <span>Tentar novamente</span>
+                                           </button>
+                                         )}
+                                       </div>
+                                     )}
                                    </div>
+                                   {m.uploadStatus && (
+                                     <div className="px-2 py-1.5 rounded-xl bg-slate-900/90 text-white border border-white/10 text-[10px] font-medium">
+                                       {m.uploadStatus === 'uploading' || m.uploadStatus === 'pending' ? (
+                                         <div className="space-y-1">
+                                           <div className="flex items-center justify-between text-[10px] font-bold">
+                                             <span className="flex items-center gap-1 text-emerald-400">
+                                               <Loader2 size={10} className="animate-spin text-emerald-400" />
+                                               <span>{m.uploadStatus === 'pending' ? 'Iniciando...' : (m.uploadProgress === 100 ? 'Processando envio...' : 'Enviando...')}</span>
+                                             </span>
+                                             <span className="font-mono text-emerald-300 font-bold">{m.uploadProgress || 0}%</span>
+                                           </div>
+                                           <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                                             <div
+                                               className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-200"
+                                               style={{ width: `${Math.max(5, m.uploadProgress || 0)}%` }}
+                                             />
+                                           </div>
+                                         </div>
+                                       ) : m.uploadStatus === 'sent' ? (
+                                         <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                                           <CheckCircle2 size={12} className="text-emerald-400" />
+                                           <span>Enviada</span>
+                                         </div>
+                                       ) : m.uploadStatus === 'error' ? (
+                                         <div className="flex items-center justify-between gap-1 text-rose-400 font-bold">
+                                           <span className="flex items-center gap-1">
+                                             <AlertCircle size={12} className="text-rose-400 shrink-0" />
+                                             <span>Falha no envio</span>
+                                           </span>
+                                           {m.retryFn && (
+                                             <button
+                                               type="button"
+                                               onClick={(e) => { e.stopPropagation(); m.retryFn(); }}
+                                               className="px-2 py-0.5 text-[9px] bg-rose-600 hover:bg-rose-500 text-white rounded font-bold transition-all cursor-pointer"
+                                             >
+                                               Reenviar
+                                             </button>
+                                           )}
+                                         </div>
+                                       ) : null}
+                                     </div>
+                                   )}
                                    {m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto' && (
                                      <p
-                                       onClick={() => setImageViewerModal({
-                                         url: m.mediaUrl,
-                                         caption: m.text,
-                                         fileName: m.fileName || 'Imagem',
-                                       })}
+                                       onClick={() => {
+                                         if (!m.uploadStatus || m.uploadStatus === 'sent') {
+                                           setImageViewerModal({
+                                             url: m.mediaUrl,
+                                             caption: m.text,
+                                             fileName: m.fileName || 'Imagem',
+                                           });
+                                         }
+                                       }}
                                        className="px-1.5 pb-1 whitespace-pre-wrap break-words cursor-pointer hover:text-primary-600 transition-colors"
                                        title="Clique para visualizar a imagem ampliada"
                                      >
@@ -6668,6 +6926,7 @@ export const ChatPanel = ({
                                   isOutgoing={isOutgoing}
                                   onError={() => setAudiosComErro(prev => ({ ...prev, [m.id]: true }))}
                                   hasError={!!audiosComErro[m.id]}
+                                  initialDuration={m.mediaDuration}
                                 />
                               ) : <span className="whitespace-pre-wrap break-words select-text">{m.text}</span>}
                            </div>
@@ -6687,13 +6946,19 @@ export const ChatPanel = ({
                                </>
                              )}
                              {isOutgoing && !m.isNote && (
-                               <MessageStatusTicks
-                                 status={m.deliveryStatus}
-                                 m={m}
-                                 isOpen={statusMensagemAbertoId === m.id}
-                                 onToggle={() => setStatusMensagemAbertoId(prev => prev === m.id ? null : m.id)}
-                                 onClose={() => setStatusMensagemAbertoId(null)}
-                               />
+                               m.uploadStatus === 'uploading' || m.uploadStatus === 'pending' ? (
+                                 <Loader2 size={10} className="animate-spin text-slate-400" title="Enviando..." />
+                               ) : m.uploadStatus === 'error' ? (
+                                 <AlertCircle size={10} className="text-rose-500" title="Erro no envio" />
+                               ) : (
+                                 <MessageStatusTicks
+                                   status={m.deliveryStatus}
+                                   m={m}
+                                   isOpen={statusMensagemAbertoId === m.id}
+                                   onToggle={() => setStatusMensagemAbertoId(prev => prev === m.id ? null : m.id)}
+                                   onClose={() => setStatusMensagemAbertoId(null)}
+                                 />
+                               )
                              )}
                              <span className="text-white/20 shrink-0">•</span>
                              {isOutgoing ? (
@@ -6935,6 +7200,7 @@ export const ChatPanel = ({
                       ref={chatInputRef}
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
+                      onPaste={handlePasteAnywhere}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -16827,42 +17093,83 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
         {activeTab === 'venda' && (
           <>
-            {/* Cima no mobile / Esquerda no desktop: Terminal POS + Carrinho */}
-            <div className="basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-6 relative overflow-hidden justify-between min-h-0">
+            {/* 1ª COLUNA (Esquerda no desktop): Painel da Conversa do Cliente Vinculado */}
+            {isLinkedChatOpen && linkedLeadChat && (
+              <div className="order-2 md:order-none w-full md:w-[320px] lg:w-[350px] xl:w-[380px] md:flex-none border-t md:border-t-0 md:border-r border-slate-800 bg-slate-950 flex flex-col min-h-0 relative shadow-2xl z-20">
+                <div className="bg-slate-900 px-3 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[9.5px] font-black uppercase tracking-wider text-emerald-400 truncate">
+                        Conversa Vinculada à Venda
+                      </p>
+                      <p className="text-xs font-bold text-white truncate">
+                        {linkedLeadChat.contactName || linkedLeadChat.name || linkedLeadChat.fullName || linkedLeadChat.full_name || selectedCustomer?.name || 'Cliente'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLinkedChatOpen(false)}
+                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold px-2 shrink-0"
+                    title="Recolher conversa"
+                  >
+                    <X size={13} />
+                    <span>Recolher</span>
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <ChatPanel
+                    conversation={{
+                      ...linkedLeadChat,
+                      name: (linkedLeadChat.contactName || (!isPhoneLike(linkedLeadChat.fullName) ? linkedLeadChat.fullName : '') || linkedLeadChat.whatsappName || linkedLeadChat.name || linkedLeadChat.full_name || linkedLeadChat.phone || selectedCustomer?.name || 'Cliente').trim(),
+                      channel: 'WhatsApp'
+                    }}
+                    currentCompany={currentCompany}
+                    user={user}
+                    onClose={() => setIsLinkedChatOpen(false)}
+                    onLeadPatched={(leadId, patch) => {
+                      setLinkedLeadChat((prev: any) => prev && prev.id === leadId ? { ...prev, ...patch } : prev);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 2ª COLUNA (Direita da conversa no desktop): Terminal POS + Carrinho */}
+            <div className="order-1 md:order-none basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-3 lg:p-4 relative overflow-hidden justify-between min-h-0 min-w-0">
                {/* Top Bar */}
                <div className="flex justify-between items-center text-slate-900/50 pb-1 sm:pb-2 border-b border-slate-900/10">
-                  <div className="flex items-center gap-1 sm:gap-2">
-                     <ShoppingBag size={10} className="sm:hidden text-slate-900" />
-                     <ShoppingBag size={16} className="hidden sm:block text-slate-900" />
-                     <p className="text-[6px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[3px]">Rafa Arts POS Terminal</p>
+                  <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+                     <ShoppingBag size={13} className="text-slate-900 shrink-0" />
+                     <p className="text-[7px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[2px] truncate">Rafa Arts POS Terminal</p>
                   </div>
-                  <div className="flex items-center gap-1 sm:gap-2">
+                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                      {(Boolean(selectedCustomer?.phone || linkedLeadChat)) && (
                         <button
                            type="button"
                            onClick={handleToggleLinkedChat}
                            className={cn(
-                              "px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[7px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95",
+                              "px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[7.5px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0",
                               isLinkedChatOpen
                                  ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
                                  : "bg-emerald-500/20 border border-emerald-600/30 text-emerald-950 hover:bg-emerald-500/30"
                            )}
                            title={isLinkedChatOpen ? "Recolher conversa do cliente" : "Ver conversa deste cliente vinculada a esta venda (WhatsApp)"}
                         >
-                           <MessageSquare size={11} className={isLinkedChatOpen ? "text-white" : "text-emerald-800"} />
+                           <MessageSquare size={11} className={isLinkedChatOpen ? "text-white shrink-0" : "text-emerald-800 shrink-0"} />
                            <span>{isLinkedChatOpen ? "Recolher Chat" : "Ver Chat"}</span>
                         </button>
                      )}
-                     <p className="hidden sm:block text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
+                     <p className="hidden md:inline-block text-[9px] font-black uppercase tracking-[2px] opacity-70">#001-ALPHA</p>
                      {cart.length > 0 && (
                         <button
                            onClick={clearCart}
-                           className="text-[6px] sm:text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-1 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all flex items-center gap-0.5 sm:gap-1 cursor-pointer"
+                           className="text-[7px] sm:text-[9px] font-bold uppercase text-rose-700 bg-rose-500/10 hover:bg-rose-500/20 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer shrink-0"
                            title="Limpar Carrinho"
                         >
-                           <Trash2 size={7} className="sm:hidden" />
-                           <Trash2 size={10} className="hidden sm:block" />
-                           <span className="hidden xs:inline sm:inline">Limpar</span>
+                           <Trash2 size={10} className="shrink-0" />
+                           <span>Limpar</span>
                         </button>
                      )}
                   </div>
@@ -16924,15 +17231,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  type="button"
                                  onClick={handleToggleLinkedChat}
                                  className={cn(
-                                    "px-2 py-1 rounded-md text-[8px] sm:text-[10px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95",
+                                    "px-2 py-1 rounded-md text-[7.5px] sm:text-[9.5px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0",
                                     isLinkedChatOpen
                                        ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
                                        : "bg-emerald-600/20 text-emerald-950 border border-emerald-600/30 hover:bg-emerald-600/30"
                                  )}
                                  title={isLinkedChatOpen ? "Recolher conversa do cliente" : "Abrir conversa deste cliente no WhatsApp"}
                               >
-                                 <MessageSquare size={11} className={isLinkedChatOpen ? "text-white" : "text-emerald-800"} />
-                                 <span className="hidden xs:inline">{isLinkedChatOpen ? "Ocultar Chat" : "Conversa"}</span>
+                                 <MessageSquare size={11} className={isLinkedChatOpen ? "text-white shrink-0" : "text-emerald-800 shrink-0"} />
+                                 <span className="inline">{isLinkedChatOpen ? "Ocultar Chat" : "Conversa"}</span>
                               </button>
                            )}
                            <button
@@ -16942,24 +17249,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  setCustomerSearchTerm('');
                                  setIsCustomerModalOpen(true);
                               }}
-                              className="px-2 py-1 rounded-md bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[8px] sm:text-[10px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer"
+                              className="px-2 py-1 rounded-md bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[7.5px] sm:text-[9.5px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shrink-0"
                               title="Alterar ou trocar cliente da venda"
                            >
-                              <Search size={11} />
-                              <span className="hidden xs:inline">Alterar</span>
+                              <Search size={11} className="shrink-0" />
+                              <span className="inline">Alterar</span>
                            </button>
                            <button
                               onClick={() => {
                                  setSelectedCustomer(null);
                               }}
-                              className="p-1 rounded-md hover:bg-rose-500/20 text-rose-700 transition-all cursor-pointer"
+                              className="p-1 rounded-md hover:bg-rose-500/20 text-rose-700 transition-all cursor-pointer shrink-0"
                               title="Desvincular cliente (voltar para Cliente de Balcão)"
                            >
                               <X size={12} />
                            </button>
                         </>
                      ) : (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                            <button
                               onClick={() => {
                                  setCustomerModalIntent('preselect');
@@ -16967,10 +17274,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  setCustomerSearchTerm('');
                                  setIsCustomerModalOpen(true);
                               }}
-                              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[8px] sm:text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[7.5px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer shrink-0"
                               title="Pesquisar e selecionar cliente cadastrado"
                            >
-                              <Search size={11} className="text-primary-400" />
+                              <Search size={11} className="text-primary-400 shrink-0" />
                               <span>Selecionar Cliente</span>
                            </button>
                            <button
@@ -16980,10 +17287,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  setNewCustomerForm({ ...emptyCustomerForm });
                                  setIsCustomerModalOpen(true);
                               }}
-                              className="px-1.5 sm:px-2 py-1 sm:py-1.5 rounded-lg bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[8px] sm:text-[10px] font-bold uppercase transition-all hidden xs:flex items-center gap-0.5 cursor-pointer"
+                              className="px-1.5 sm:px-2 py-1 sm:py-1.5 rounded-lg bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[7.5px] sm:text-[9.5px] font-bold uppercase transition-all flex items-center gap-0.5 cursor-pointer shrink-0"
                               title="Cadastrar novo cliente rapidamente"
                            >
-                              <Plus size={11} />
+                              <Plus size={11} className="shrink-0" />
                               <span>Novo</span>
                            </button>
                         </div>
@@ -16992,17 +17299,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Total Banner */}
-               <div className="py-1.5 sm:py-3 px-2 sm:px-4 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-0.5 sm:my-2 gap-2">
+               <div className="py-1.5 sm:py-2.5 px-2 sm:px-3 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-0.5 sm:my-1.5 gap-1.5 flex-wrap sm:flex-nowrap">
                   <div className="min-w-0 flex-1">
-                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[6.5px] sm:text-[9px] font-black uppercase tracking-[1.5px] sm:tracking-[3px] text-slate-900/40">Total da Nota</p>
+                     <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
+                        <p className="text-[6.5px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/40">Total da Nota</p>
                         {saleDiscountValue > 0 && (
-                           <span className="text-[7px] sm:text-[8.5px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 rounded">
+                           <span className="text-[6.5px] sm:text-[8px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded whitespace-nowrap">
                               Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
                            </span>
                         )}
                         {saleCreditApplied > 0 && (
-                           <span className="text-[7px] sm:text-[8.5px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.2 rounded">
+                           <span className="text-[6.5px] sm:text-[8px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded whitespace-nowrap">
                               Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
                            </span>
                         )}
@@ -17026,15 +17333,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                            const margem = total > 0 ? (lucro / total) * 100 : 0;
                            return (
                               <span className={cn(
-                                 "text-[7px] sm:text-[8.5px] font-black px-1.5 py-0.5 rounded border flex items-center gap-1",
+                                 "text-[6.5px] sm:text-[8px] font-black px-1.5 py-0.2 rounded border flex items-center gap-0.5 whitespace-nowrap",
                                  lucro >= 0 ? "text-emerald-700 bg-emerald-500/15 border-emerald-500/30" : "text-rose-700 bg-rose-500/15 border-rose-500/30"
                               )} title={`Custo estimado: R$ ${custoTotal.toFixed(2).replace('.', ',')}`}>
-                                 <TrendingUp size={10} /> Lucro Previsto: R$ {lucro.toFixed(2).replace('.', ',')} ({margem.toFixed(0)}%)
+                                 <TrendingUp size={9} /> Lucro: R$ {lucro.toFixed(2).replace('.', ',')} ({margem.toFixed(0)}%)
                               </span>
                            );
                         })()}
                      </div>
-                     <h1 className="text-base sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tighter italic truncate">
+                     <h1 className="text-lg sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate">
                         R$ {total.toFixed(2).replace('.', ',')}
                      </h1>
                   </div>
@@ -17043,17 +17350,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         type="button"
                         onClick={() => setIsSaleDiscountModalOpen(true)}
                         className={cn(
-                           "px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-black uppercase text-[7px] sm:text-[9px] transition-all flex items-center gap-1 cursor-pointer border",
+                           "px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-black uppercase text-[7px] sm:text-[8.5px] transition-all flex items-center gap-1 cursor-pointer border shrink-0",
                            saleDiscountValue > 0
                               ? "bg-emerald-600 border-emerald-700 text-white shadow-sm hover:bg-emerald-700 active:scale-95"
                               : "bg-white/90 hover:bg-white text-slate-800 border-slate-900/10 shadow-xs active:scale-95"
                         )}
                         title="Lançar desconto geral na nota"
                      >
-                        <Percent size={11} className={saleDiscountValue > 0 ? "text-white" : "text-slate-600"} />
+                        <Percent size={10} className={saleDiscountValue > 0 ? "text-white shrink-0" : "text-slate-600 shrink-0"} />
                         <span>{saleDiscountValue > 0 ? `Desc R$ ${saleDiscountValue.toFixed(2).replace('.', ',')}` : 'Desconto'}</span>
                      </button>
-                     <Badge className="bg-slate-900 text-white border-none py-1 sm:py-1.5 px-2 sm:px-3 rounded-full font-black uppercase tracking-widest text-[7px] sm:text-[9px]">
+                     <Badge className="bg-slate-900 text-white border-none py-1 sm:py-1.5 px-2 sm:px-2.5 rounded-full font-black uppercase tracking-wider text-[7px] sm:text-[8.5px] shrink-0">
                         {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
                      </Badge>
                   </div>
@@ -17078,30 +17385,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                            const itemSubtotal = item.area ? item.price * item.area * item.quantity : item.price * item.quantity;
                            return (
                               <div key={idx} className="py-1 px-1.5 sm:py-1.5 sm:px-2 hover:bg-slate-900/5 rounded-lg transition-all group">
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between gap-1.5">
                                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
-                                    <span className="text-[8px] sm:text-[9px] font-black text-slate-900 bg-slate-900/10 px-1 py-0.5 sm:px-1.5 rounded-md min-w-[20px] sm:min-w-[24px] text-center shrink-0">
+                                    <span className="text-[7.5px] sm:text-[9px] font-black text-slate-900 bg-slate-900/10 px-1 py-0.5 sm:px-1.5 rounded-md min-w-[18px] sm:min-w-[22px] text-center shrink-0">
                                        {item.quantity}x
                                     </span>
                                     <div className="min-w-0 flex-1">
-                                       <p className="text-[9px] sm:text-[10px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
+                                       <p className="text-[8.5px] sm:text-[9.5px] font-bold text-slate-900 uppercase truncate leading-tight tracking-tight">
                                           {item.name}
                                        </p>
                                        {item.dimensions && (
-                                          <p className="text-[7px] sm:text-[8px] font-bold text-slate-500 tracking-wider">
+                                          <p className="text-[6.5px] sm:text-[7.5px] font-bold text-slate-500 tracking-wider truncate">
                                              {item.dimensions}{item.area ? ` (${item.area.toFixed(2).replace('.', ',')} m²)` : ''}
                                           </p>
                                        )}
                                        {item.descontoValor !== undefined && item.descontoValor > 0 && (
-                                          <p className="text-[7px] sm:text-[8px] font-bold text-emerald-600">
+                                          <p className="text-[6.5px] sm:text-[7.5px] font-bold text-emerald-600 truncate">
                                              Desconto: -R$ {item.descontoValor.toFixed(2).replace('.', ',')}
                                           </p>
                                        )}
                                     </div>
                                  </div>
 
-                                 <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-1 sm:ml-2">
-                                    <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
+                                 <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-1">
+                                    <div className="flex items-center gap-0.5 bg-slate-900/5 rounded-md p-0.5 border border-slate-900/10">
                                        <button
                                           onClick={() => updateCartQty(idx, -1)}
                                           className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
@@ -17109,7 +17416,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        >
                                           -
                                        </button>
-                                       <span className="text-[8px] sm:text-[9px] font-black px-0.5 sm:px-1 text-slate-900">{item.quantity}</span>
+                                       <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 text-slate-900">{item.quantity}</span>
                                        <button
                                           onClick={() => updateCartQty(idx, 1)}
                                           className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
@@ -17121,36 +17428,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                                     <button
                                        onClick={() => setObsItemIndex(obsItemIndex === idx ? null : idx)}
-                                       className={cn("p-0.5 sm:p-1 transition-colors cursor-pointer", item.observacao ? "text-amber-600" : "text-slate-400 hover:text-primary-600")}
+                                       className={cn("p-0.5 transition-colors cursor-pointer", item.observacao ? "text-amber-600" : "text-slate-400 hover:text-primary-600")}
                                        title="Observação do item"
                                     >
-                                       <MessageSquare size={11} className="sm:hidden" />
-                                       <MessageSquare size={12} className="hidden sm:block" />
+                                       <MessageSquare size={11} />
                                     </button>
 
                                     <button
                                        onClick={() => item.descontoValor ? removeItemDiscount(idx) : openItemDiscount(idx)}
                                        className={cn(
-                                         "p-0.5 sm:p-1 transition-colors cursor-pointer",
+                                         "p-0.5 transition-colors cursor-pointer",
                                          item.descontoValor ? "text-emerald-600 hover:text-rose-600" : "text-slate-400 hover:text-primary-600"
                                        )}
                                        title={item.descontoValor ? "Remover desconto" : "Desconto / editar preço"}
                                     >
-                                       <Percent size={11} className="sm:hidden" />
-                                       <Percent size={12} className="hidden sm:block" />
+                                       <Percent size={11} />
                                     </button>
 
-                                    <span className="text-[9px] sm:text-[10px] font-black text-slate-900 tracking-tight min-w-[48px] sm:min-w-[60px] text-right">
+                                    <span className="text-[8.5px] sm:text-[9.5px] font-black text-slate-900 tracking-tight min-w-[44px] sm:min-w-[54px] text-right">
                                        R$ {itemSubtotal.toFixed(2).replace('.', ',')}
                                     </span>
 
                                     <button
                                        onClick={() => removeFromCart(idx)}
-                                       className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 sm:p-1 cursor-pointer"
+                                       className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
                                        title="Remover Item"
                                     >
-                                       <Trash2 size={11} className="sm:hidden" />
-                                       <Trash2 size={12} className="hidden sm:block" />
+                                       <Trash2 size={11} />
                                     </button>
                                  </div>
                               </div>
@@ -17171,29 +17475,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Bottom Automation Bar */}
-               <div className="pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900">
-                  <div className="flex items-center gap-3">
-                     <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[9px] font-black uppercase tracking-wider opacity-70">PDV Conectado</span>
+               <div className="pt-1.5 sm:pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900 gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                     <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider opacity-70 whitespace-nowrap">PDV Conectado</span>
                      </div>
                      <button
                        type="button"
                        onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
                        title={soundAlertsEnabled ? 'Alerta sonoro de horário ativado — clique pra desativar' : 'Alerta sonoro de horário desativado — clique pra ativar'}
                        className={cn(
-                         "flex items-center gap-1 px-2 py-1 rounded-lg border-0 cursor-pointer transition-all",
+                         "flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border-0 cursor-pointer transition-all shrink-0",
                          soundAlertsEnabled ? "bg-primary-500/20 text-primary-700" : "bg-slate-900/10 text-slate-400"
                        )}
                      >
-                        {soundAlertsEnabled ? <Bell size={12} /> : <BellOff size={12} />}
-                        <span className="text-[8px] font-black uppercase tracking-wider">{soundAlertsEnabled ? 'Alertas On' : 'Alertas Off'}</span>
+                        {soundAlertsEnabled ? <Bell size={11} /> : <BellOff size={11} />}
+                        <span className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider">{soundAlertsEnabled ? 'Alertas On' : 'Alertas Off'}</span>
                      </button>
                      <button
                        type="button"
                        onClick={() => { playAlertBeep(); setAlertToast({ message: '⏰ Teste de alerta — se você ouviu o bipe e viu esse aviso, está tudo funcionando!' }); setTimeout(() => setAlertToast(null), 6000); }}
                        title="Testar o som e o aviso agora, sem precisar esperar um horário real"
-                       className="px-2 py-1 rounded-lg bg-white/5 text-white/40 hover:text-white border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
+                       className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-slate-900/10 text-slate-700 hover:text-slate-950 border-0 cursor-pointer text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider shrink-0"
                      >
                         Testar
                      </button>
@@ -17209,68 +17513,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             }
                          }}
                          title="Ativa notificação do navegador, que aparece mesmo com a aba minimizada"
-                         className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-700 hover:bg-amber-500/30 border-0 cursor-pointer text-[8px] font-black uppercase tracking-wider"
+                         className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-amber-500/20 text-amber-700 hover:bg-amber-500/30 border-0 cursor-pointer text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider shrink-0"
                        >
-                          Ativar Notificação do Navegador
+                          Ativar Notificação
                        </button>
                      )}
                   </div>
                   {user?.isAdmin && (
-                    <div className="text-right">
-                       <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
-                       <span className="text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <div className="text-right shrink-0">
+                       <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
+                       <span className="text-[9px] sm:text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                </div>
             </div>
 
-            {/* Painel da Conversa do Cliente Vinculado (Mesma Tela do PDV) */}
-            {isLinkedChatOpen && linkedLeadChat && (
-              <div className="w-full md:w-[380px] lg:w-[430px] xl:w-[470px] md:flex-none border-t md:border-t-0 md:border-l border-slate-700 bg-slate-950 flex flex-col min-h-0 relative shadow-2xl z-20">
-                <div className="bg-slate-900 px-3 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[9.5px] font-black uppercase tracking-wider text-emerald-400 truncate">
-                        Conversa Vinculada à Venda
-                      </p>
-                      <p className="text-xs font-bold text-white truncate">
-                        {linkedLeadChat.contactName || linkedLeadChat.name || linkedLeadChat.fullName || linkedLeadChat.full_name || selectedCustomer?.name || 'Cliente'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsLinkedChatOpen(false)}
-                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold px-2"
-                    title="Recolher conversa (você pode reabrir a qualquer momento)"
-                  >
-                    <X size={13} />
-                    <span>Recolher</span>
-                  </button>
-                </div>
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                  <ChatPanel
-                    conversation={{
-                      ...linkedLeadChat,
-                      name: (linkedLeadChat.contactName || (!isPhoneLike(linkedLeadChat.fullName) ? linkedLeadChat.fullName : '') || linkedLeadChat.whatsappName || linkedLeadChat.name || linkedLeadChat.full_name || linkedLeadChat.phone || selectedCustomer?.name || 'Cliente').trim(),
-                      channel: 'WhatsApp'
-                    }}
-                    currentCompany={currentCompany}
-                    user={user}
-                    onClose={() => setIsLinkedChatOpen(false)}
-                    onLeadPatched={(leadId, patch) => {
-                      setLinkedLeadChat((prev: any) => prev && prev.id === leadId ? { ...prev, ...patch } : prev);
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
+            {/* 3ª COLUNA: Lista de Produtos */}
             <div className={cn(
-              "flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative",
-              isLinkedChatOpen && linkedLeadChat ? "hidden xl:flex xl:w-[320px] 2xl:w-[400px]" : ""
+              "order-3 md:order-none flex-1 min-h-0 md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative",
+              isLinkedChatOpen && linkedLeadChat
+                ? "md:w-[280px] lg:w-[320px] xl:w-[360px] 2xl:w-[400px]"
+                : "md:w-[380px] lg:w-[420px] xl:w-[450px]"
             )}>
                {/* Search & Action Bar */}
                <div className="p-2 sm:p-4 bg-slate-50 space-y-1.5 sm:space-y-3 shrink-0">
@@ -17341,31 +17604,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="shrink-0 p-1.5 sm:p-6 bg-slate-50 border-t border-slate-200 space-y-4 sticky bottom-0 z-10">
-                  <div className="flex gap-2 sm:gap-4 h-11 sm:h-24">
+               <div className="shrink-0 p-2 sm:p-3 bg-slate-50 border-t border-slate-200 space-y-2 sticky bottom-0 z-10">
+                  <div className="flex gap-2 h-11 sm:h-14">
                      {orcamentoItemsEditMode ? (
                        <button
                          onClick={handleReturnItemsToOrcamento}
-                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-primary-500/20 hover:bg-primary-400 transition-all active:scale-95"
+                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-md shadow-primary-500/20 hover:bg-primary-400 transition-all active:scale-95 cursor-pointer"
                        >
-                          <div className="flex items-center gap-1.5 sm:gap-3">
-                             <FileSpreadsheet size={16} className="sm:hidden" />
-                             <FileSpreadsheet size={24} className="hidden sm:block" />
-                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">VOLTAR AO ORÇAMENTO ({cart.length})</span>
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                             <FileSpreadsheet size={16} className="shrink-0" />
+                             <span className="text-xs sm:text-sm font-black uppercase tracking-tight">VOLTAR AO ORÇAMENTO ({cart.length})</span>
                           </div>
-                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
+                          <span className="hidden sm:block text-[8px] font-black opacity-50 uppercase tracking-widest">Salva os itens escolhidos e retorna</span>
                        </button>
                      ) : contratoItemsEditMode ? (
                        <button
                          onClick={handleReturnItemsToContrato}
-                         className="flex-1 h-full bg-purple-500 border-2 border-purple-600 text-white rounded-2xl sm:rounded-[28px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-xl shadow-purple-500/20 hover:bg-purple-400 transition-all active:scale-95"
+                         className="flex-1 h-full bg-purple-500 border-2 border-purple-600 text-white rounded-xl sm:rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-md shadow-purple-500/20 hover:bg-purple-400 transition-all active:scale-95 cursor-pointer"
                        >
-                          <div className="flex items-center gap-1.5 sm:gap-3">
-                             <FileSignature size={16} className="sm:hidden" />
-                             <FileSignature size={24} className="hidden sm:block" />
-                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">VOLTAR AO CONTRATO ({cart.length})</span>
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                             <FileSignature size={16} className="shrink-0" />
+                             <span className="text-xs sm:text-sm font-black uppercase tracking-tight">VOLTAR AO CONTRATO ({cart.length})</span>
                           </div>
-                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Salva os itens escolhidos e retorna</span>
+                          <span className="hidden sm:block text-[8px] font-black opacity-50 uppercase tracking-widest">Salva os itens escolhidos e retorna</span>
                        </button>
                      ) : (
                        <button 
@@ -17379,14 +17640,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setIsCustomerModalOpen(true);
                             }
                          }}
-                         className="flex-1 h-full bg-primary-500 hover:bg-primary-400 border border-primary-400/60 text-slate-900 rounded-2xl sm:rounded-[24px] flex flex-col items-center justify-center gap-0.5 sm:gap-1 shadow-md shadow-primary-500/15 transition-all disabled:opacity-50 disabled:grayscale cursor-pointer active:scale-98"
+                         className="flex-1 h-full bg-primary-500 hover:bg-primary-400 border border-primary-400/60 text-slate-900 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-md shadow-primary-500/15 transition-all disabled:opacity-50 disabled:grayscale cursor-pointer active:scale-98"
                        >
-                          <div className="flex items-center gap-1.5 sm:gap-3">
-                             <ShoppingBag size={16} className="sm:hidden" />
-                             <ShoppingBag size={24} className="hidden sm:block" />
-                             <span className="text-xs sm:text-lg font-black uppercase tracking-tighter">FINALIZAR VENDA</span>
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                             <ShoppingBag size={16} className="shrink-0" />
+                             <span className="text-xs sm:text-sm lg:text-base font-black uppercase tracking-tight">FINALIZAR VENDA</span>
                           </div>
-                          <span className="hidden sm:block text-[10px] font-black opacity-40 uppercase tracking-[4px]">Ir para pagamento e fechamento</span>
+                          <span className="hidden sm:block text-[8.5px] font-black opacity-50 uppercase tracking-widest">Ir para pagamento e fechamento</span>
                        </button>
                      )}
                   </div>
