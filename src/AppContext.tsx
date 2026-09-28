@@ -29,8 +29,8 @@ export interface AppContextType {
   addPendingOrder: (order: SaleOrder) => void;
   isRegisterOpen: boolean;
   setIsRegisterOpen: (open: boolean) => void;
-  prefilledCustomer: { id?: string; name: string; phone: string } | null;
-  setPrefilledCustomer: (customer: { id?: string; name: string; phone: string } | null) => void;
+  prefilledCustomer: { id?: string; name: string; phone: string; leadId?: string; leadData?: any } | null;
+  setPrefilledCustomer: (customer: { id?: string; name: string; phone: string; leadId?: string; leadData?: any } | null) => void;
   pendingWhatsAppShare: { leadId: string; prefillMessage: string } | null;
   setPendingWhatsAppShare: (v: { leadId: string; prefillMessage: string } | null) => void;
   openWhatsAppChat: (phone: string, name: string, prefillMessage?: string) => Promise<void>;

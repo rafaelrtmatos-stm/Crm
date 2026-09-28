@@ -715,7 +715,7 @@ export default function App() {
   const sincronizacaoEmAndamentoRef = React.useRef(false);
   const sincronizacaoExecutadaRef = React.useRef(false);
   const notifAudioRef = React.useRef<HTMLAudioElement | null>(null);
-  const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string } | null>(null);
+  const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string, leadId?: string, leadData?: any } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
 
   // Ponto único pra abrir uma conversa no WhatsApp Interno (aba Mensagens/Funil de Atendimento)

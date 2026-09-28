@@ -206,6 +206,7 @@ export interface Lead extends BaseEntity {
   photoUrl?: string;
   estimatedValue?: number;
   orderSummary?: string;
+  serviceName?: string;
   tags?: string[];
   tracking?: {
     orderSummary?: string;

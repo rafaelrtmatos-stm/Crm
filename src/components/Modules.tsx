@@ -610,7 +610,8 @@ const mapLeadRow = (row: any): Lead => ({
   lastClientMessageAt: row.last_client_message_at || undefined,
   waitingSince: row.waiting_since || undefined,
   estimatedValue: row.estimated_value !== null ? Number(row.estimated_value) : undefined,
-  orderSummary: row.order_summary || row.tracking?.orderSummary || undefined,
+  orderSummary: row.order_summary || row.service_name || row.tracking?.orderSummary || undefined,
+  serviceName: row.service_name || row.order_summary || row.tracking?.orderSummary || undefined,
   tags: row.tags || undefined,
   tracking: row.tracking || undefined,
   status: row.status || undefined,
@@ -4727,6 +4728,8 @@ export const ChatPanel = ({
           id: cliente.id,
           name: nomeNota,
           phone: cliente.phone || conversation.phone || '',
+          leadId: conversation.id,
+          leadData: conversation,
         });
 
         // Completa os nomes do WhatsApp/contato no cadastro se estiverem em branco
@@ -4750,6 +4753,8 @@ export const ChatPanel = ({
         setPrefilledCustomer({
           name: nomeNota,
           phone: conversation.phone || '',
+          leadId: conversation.id,
+          leadData: conversation,
         });
       }
 
@@ -4761,6 +4766,8 @@ export const ChatPanel = ({
         id: clienteVinculado?.id,
         name: fallbackName,
         phone: clienteVinculado?.phone || conversation.phone || '',
+        leadId: conversation.id,
+        leadData: conversation,
       });
       setRootActiveTab?.('pos');
     } finally {
@@ -4788,20 +4795,22 @@ export const ChatPanel = ({
       const trackingAtual = conversation.tracking || {};
       const patchData: any = {
         orderSummary: orderSummaryDraft.trim() || undefined,
+        serviceName: orderSummaryDraft.trim() || undefined,
         estimatedValue: numVal !== null && !isNaN(numVal) ? numVal : undefined,
       };
 
       await supabase.from('leads').update({
+        order_summary: orderSummaryDraft.trim() || null,
         tracking: { ...trackingAtual, orderSummary: orderSummaryDraft.trim() },
         estimated_value: numVal,
         updated_at: new Date().toISOString()
       }).eq('id', conversation.id);
 
       onLeadPatched?.(conversation.id, patchData);
-      showAlert('Informações do pedido salvas com sucesso!');
+      showAlert('Serviço do lead salvo com sucesso!');
     } catch (err) {
       console.error('Erro ao salvar info do pedido:', err);
-      showAlert('Não foi possível salvar as informações do pedido.');
+      showAlert('Não foi possível salvar o serviço do lead.');
     } finally {
       setIsSavingOrderInfo(false);
     }
@@ -7419,6 +7428,12 @@ export const ChatPanel = ({
                 taskInputRef={taskInputRef}
                 clienteVendas={clienteVendas}
                 isLoadingVendas={isLoadingVendas}
+                orderSummaryDraft={orderSummaryDraft}
+                setOrderSummaryDraft={setOrderSummaryDraft}
+                estimatedValueDraft={estimatedValueDraft}
+                setEstimatedValueDraft={setEstimatedValueDraft}
+                onSaveOrderInfo={handleSaveOrderInfo}
+                isSavingOrderInfo={isSavingOrderInfo}
                 onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
                 onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
@@ -7475,6 +7490,12 @@ export const ChatPanel = ({
               taskInputRef={taskInputRef}
               clienteVendas={clienteVendas}
               isLoadingVendas={isLoadingVendas}
+              orderSummaryDraft={orderSummaryDraft}
+              setOrderSummaryDraft={setOrderSummaryDraft}
+              estimatedValueDraft={estimatedValueDraft}
+              setEstimatedValueDraft={setEstimatedValueDraft}
+              onSaveOrderInfo={handleSaveOrderInfo}
+              isSavingOrderInfo={isSavingOrderInfo}
               onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
               onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
               onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
@@ -7551,6 +7572,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const name = await showPrompt("Nome do novo lead:");
     if (!name || !name.trim() || !selectedFunnelId) return;
     const phone = await showPrompt("Telefone / WhatsApp (opcional):", "");
+    const servico = await showPrompt("Qual é o serviço / pedido? (Ex: Banner, Fachada, Adesivos... opcional):", "");
     try {
       const targetStage = stages.find(s => s.id === (displayedStageId || effectiveSelectedStageId)) || stages.find(s => s.isInitial) || stages[0];
       await supabase.from("leads").insert({
@@ -7559,6 +7581,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         funnel_stage_id: targetStage?.id || null,
         full_name: name.trim(),
         phone: phone?.trim() || null,
+        order_summary: servico?.trim() || null,
+        tracking: servico?.trim() ? { orderSummary: servico.trim() } : undefined,
         source_type: "Manual",
       });
       showAlert(`Lead "${name.trim()}" criado com sucesso!`);
@@ -9680,6 +9704,21 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
           </div>
         </div>
 
+        {/* Badge do Serviço do Lead (Opção 1: Logo abaixo do Nome) */}
+        {Boolean(lead.serviceName || lead.orderSummary) && (
+          <div className="mb-1 flex items-center gap-1">
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-[9px] tracking-tight truncate max-w-full shadow-xs">
+              <Tag size={9} className="shrink-0 text-amber-400" />
+              <span className="truncate">{lead.serviceName || lead.orderSummary}</span>
+              {Number(lead.estimatedValue) > 0 && (
+                <span className="font-mono text-[8px] opacity-80 shrink-0">
+                  • R$ {Number(lead.estimatedValue).toFixed(2).replace('.', ',')}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+
         {/* Linha 2: Última mensagem + Botão Venda */}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[10px] text-white/50 truncate flex-1 leading-snug font-normal">
@@ -9705,10 +9744,10 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
                 }
                 if (clienteCadastro) {
                   const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
-                  setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
+                  setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '', leadId: lead.id, leadData: lead });
                 } else {
                   const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
-                  setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
+                  setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '', leadId: lead.id, leadData: lead });
                 }
                 setActiveTab?.('pos');
               }}
@@ -9719,21 +9758,6 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
             </button>
           </div>
         </div>
-
-        {/* Linha 3: Resumo do Pedido no Lead (Audit Item 2) */}
-        {Boolean(lead.orderSummary || (Number(lead.estimatedValue) > 0)) && (
-          <div className="mt-1.5 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[9.5px]">
-            <div className="flex items-center gap-1 min-w-0 flex-1 truncate text-amber-300">
-              <Package size={10} className="text-amber-400 shrink-0" />
-              <span className="truncate font-semibold">{lead.orderSummary || 'Pedido em andamento'}</span>
-            </div>
-            {Number(lead.estimatedValue) > 0 && (
-              <span className="font-mono font-bold text-amber-200 shrink-0 text-[9px]">
-                R$ {Number(lead.estimatedValue).toFixed(2).replace('.', ',')}
-              </span>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -9964,6 +9988,21 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
               </div>
             </div>
 
+            {/* Badge do Serviço do Lead (Opção 1: Logo abaixo do Nome) */}
+            {Boolean(lead.serviceName || lead.orderSummary) && (
+              <div className="mb-1 flex items-center gap-1">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-[9px] tracking-tight truncate max-w-full shadow-xs">
+                  <Tag size={9} className="shrink-0 text-amber-400" />
+                  <span className="truncate">{lead.serviceName || lead.orderSummary}</span>
+                  {Number(lead.estimatedValue) > 0 && (
+                    <span className="font-mono text-[8px] opacity-80 shrink-0">
+                      • R$ {Number(lead.estimatedValue).toFixed(2).replace('.', ',')}
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+
             {/* Linha 2: Última mensagem + Botão Venda / Excluir */}
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10.5px] text-white/50 truncate flex-1 leading-snug font-normal">
@@ -9989,10 +10028,10 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
                     }
                     if (clienteCadastro) {
                       const nomeReal = (clienteCadastro.full_name || '').trim() || lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || 'Cliente';
-                      setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '' });
+                      setPrefilledCustomer({ id: clienteCadastro.id, name: nomeReal, phone: clienteCadastro.phone || lead.phone || '', leadId: lead.id, leadData: lead });
                     } else {
                       const nomeLead = (lead.contactName || (!isPhoneLike(lead.fullName) ? lead.fullName : '') || lead.whatsappName || lead.fullName || 'Cliente').trim();
-                      setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '' });
+                      setPrefilledCustomer({ name: nomeLead, phone: lead.phone || '', leadId: lead.id, leadData: lead });
                     }
                     setActiveTab?.('pos');
                   }}
@@ -10012,21 +10051,6 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
                 )}
               </div>
             </div>
-
-            {/* Linha 3: Resumo do Pedido no Lead (Audit Item 2) */}
-            {Boolean(lead.orderSummary || (Number(lead.estimatedValue) > 0)) && (
-              <div className="mt-1.5 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[9.5px]">
-                <div className="flex items-center gap-1 min-w-0 flex-1 truncate text-amber-300">
-                  <Package size={10} className="text-amber-400 shrink-0" />
-                  <span className="truncate font-semibold">{lead.orderSummary || 'Pedido em andamento'}</span>
-                </div>
-                {Number(lead.estimatedValue) > 0 && (
-                  <span className="font-mono font-bold text-amber-200 shrink-0 text-[9px]">
-                    R$ {Number(lead.estimatedValue).toFixed(2).replace('.', ',')}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -11594,6 +11618,50 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Cliente selecionado na busca que tem nota pendente — bloqueia o fluxo ate o caixa confirmar
   // com o cliente se ja foi paga, pra nao deixar pendencia esquecida no sistema.
   const [pendingDebtCustomer, setPendingDebtCustomer] = useState<{ customer: any; pendingBalance: number } | null>(null);
+
+  // Conversa do cliente vinculada à venda no PDV (mesma tela, aberta/fechada sob demanda)
+  const [linkedLeadChat, setLinkedLeadChat] = useState<any | null>(null);
+  const [isLinkedChatOpen, setIsLinkedChatOpen] = useState(false);
+
+  const handleToggleLinkedChat = async () => {
+    if (isLinkedChatOpen) {
+      setIsLinkedChatOpen(false);
+      return;
+    }
+    if (linkedLeadChat) {
+      setIsLinkedChatOpen(true);
+      return;
+    }
+    const phone = selectedCustomer?.phone;
+    if (phone) {
+      const cleanPhone = phone.replace(/\D/g, '');
+      const ultimos8 = cleanPhone.length >= 8 ? cleanPhone.slice(-8) : cleanPhone;
+      try {
+        const { data } = await supabase.from('leads').select('*').or(`phone.eq.${cleanPhone},phone.eq.+${cleanPhone},phone.ilike.%${ultimos8}%`).order('created_at', { ascending: false }).limit(1);
+        if (data && data[0]) {
+          const l = data[0];
+          setLinkedLeadChat({
+            id: l.id,
+            name: l.contact_name || l.full_name || selectedCustomer?.name,
+            phone: l.phone || selectedCustomer?.phone,
+            channel: 'WhatsApp',
+            ...l
+          });
+          setIsLinkedChatOpen(true);
+          return;
+        }
+      } catch (_) {}
+      if (selectedCustomer) {
+        setLinkedLeadChat({
+          id: selectedCustomer.id || `lead-${cleanPhone}`,
+          name: selectedCustomer.name,
+          phone: selectedCustomer.phone,
+          channel: 'WhatsApp'
+        });
+        setIsLinkedChatOpen(true);
+      }
+    }
+  };
 
   // --- Cadastro (rápido + mais opções) ---
   const emptyCustomerForm = {
@@ -13643,36 +13711,67 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [materiasPrimasAtuaisMap, setMateriasPrimasAtuaisMap] = useState<Record<string, any>>({});
   useEffect(() => {
     const loadCosts = async () => {
-      const { data, error } = await supabase.from('produtos').select('id, cost_price, category, largura_rolo, materias_primas');
-      if (error) console.error('Erro ao carregar custos de produtos:', error);
-      const map: Record<string, number> = {};
-      const produtoMap: Record<string, any> = {};
-      (data || []).forEach((p: any) => {
-        map[p.id] = Number(p.cost_price) || 0;
-        produtoMap[p.id] = {
-          id: p.id,
-          categoria: p.category || '',
-          larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
-          materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : []
-        };
-      });
-      setProdutosCostMap(map);
-      setProdutoPorIdMap(produtoMap);
+      try {
+        const { data, error } = await supabase.from('produtos').select('id, cost_price, category, largura_rolo, materias_primas');
+        if (error) {
+          console.warn('Aviso ao carregar custos de produtos:', error.message || error);
+        } else if (data) {
+          const map: Record<string, number> = {};
+          const produtoMap: Record<string, any> = {};
+          data.forEach((p: any) => {
+            map[p.id] = Number(p.cost_price) || 0;
+            produtoMap[p.id] = {
+              id: p.id,
+              categoria: p.category || '',
+              larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+              materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : []
+            };
+          });
+          setProdutosCostMap(map);
+          setProdutoPorIdMap(produtoMap);
+          try {
+            localStorage.setItem('rpro_cache_produtos_cost_map', JSON.stringify(map));
+            localStorage.setItem('rpro_cache_produto_por_id_map', JSON.stringify(produtoMap));
+          } catch (_) {}
+        }
+      } catch (err: any) {
+        console.warn('Falha de conexão ao carregar custos de produtos (usando cache local):', err?.message || err);
+        try {
+          const cachedMap = localStorage.getItem('rpro_cache_produtos_cost_map');
+          const cachedProdMap = localStorage.getItem('rpro_cache_produto_por_id_map');
+          if (cachedMap) setProdutosCostMap(JSON.parse(cachedMap));
+          if (cachedProdMap) setProdutoPorIdMap(JSON.parse(cachedProdMap));
+        } catch (_) {}
+      }
 
-      const { data: mpData, error: mpError } = await supabase.from('materias_primas').select('id, name, unit, cost_price, largura_material, tipo_calculo_custo');
-      if (mpError) console.error('Erro ao carregar matérias-primas:', mpError);
-      const mpMap: Record<string, any> = {};
-      (mpData || []).forEach((m: any) => {
-        mpMap[m.id] = {
-          id: m.id,
-          name: m.name,
-          unit: m.unit,
-          costPrice: Number(m.cost_price) || 0,
-          larguraMaterial: m.largura_material ? Number(m.largura_material) : undefined,
-          tipoCalculoCusto: m.tipo_calculo_custo
-        };
-      });
-      setMateriasPrimasAtuaisMap(mpMap);
+      try {
+        const { data: mpData, error: mpError } = await supabase.from('materias_primas').select('id, name, unit, cost_price, largura_material, tipo_calculo_custo');
+        if (mpError) {
+          console.warn('Aviso ao carregar matérias-primas:', mpError.message || mpError);
+        } else if (mpData) {
+          const mpMap: Record<string, any> = {};
+          mpData.forEach((m: any) => {
+            mpMap[m.id] = {
+              id: m.id,
+              name: m.name,
+              unit: m.unit,
+              costPrice: Number(m.cost_price) || 0,
+              larguraMaterial: m.largura_material ? Number(m.largura_material) : undefined,
+              tipoCalculoCusto: m.tipo_calculo_custo
+            };
+          });
+          setMateriasPrimasAtuaisMap(mpMap);
+          try {
+            localStorage.setItem('rpro_cache_materias_primas_map', JSON.stringify(mpMap));
+          } catch (_) {}
+        }
+      } catch (err: any) {
+        console.warn('Falha de conexão ao carregar matérias-primas (usando cache local):', err?.message || err);
+        try {
+          const cachedMp = localStorage.getItem('rpro_cache_materias_primas_map');
+          if (cachedMp) setMateriasPrimasAtuaisMap(JSON.parse(cachedMp));
+        } catch (_) {}
+      }
     };
     loadCosts();
   }, []);
@@ -13735,8 +13834,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setConsumoTintaMlM2PorCategoria(mapConsumoMl);
       setMaquinasPorIdMap(mapPorId);
       setMaquinasPorCategoriaMap(mapPorCategoria);
-    } catch (e) {
-      console.error('Erro ao carregar custos de máquinas:', e);
+    } catch (e: any) {
+      console.warn('Aviso ao carregar custos de máquinas:', e?.message || e);
     }
   }, [currentCompany?.id]);
 
@@ -14231,6 +14330,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (!prefilledCustomer) return;
     const customerToSet = { id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone };
+    if (prefilledCustomer.leadData || prefilledCustomer.leadId) {
+      setLinkedLeadChat(prefilledCustomer.leadData || {
+        id: prefilledCustomer.leadId,
+        name: prefilledCustomer.name,
+        phone: prefilledCustomer.phone,
+        channel: 'WhatsApp'
+      });
+      setIsLinkedChatOpen(true);
+    }
     setPrefilledCustomer(null);
     setActiveTab('venda');
 
@@ -16728,7 +16836,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <ShoppingBag size={16} className="hidden sm:block text-slate-900" />
                      <p className="text-[6px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[3px]">Rafa Arts POS Terminal</p>
                   </div>
-                  <div className="flex items-center gap-1 sm:gap-3">
+                  <div className="flex items-center gap-1 sm:gap-2">
+                     {(Boolean(selectedCustomer?.phone || linkedLeadChat)) && (
+                        <button
+                           type="button"
+                           onClick={handleToggleLinkedChat}
+                           className={cn(
+                              "px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[7px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95",
+                              isLinkedChatOpen
+                                 ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                                 : "bg-emerald-500/20 border border-emerald-600/30 text-emerald-950 hover:bg-emerald-500/30"
+                           )}
+                           title={isLinkedChatOpen ? "Recolher conversa do cliente" : "Ver conversa deste cliente vinculada a esta venda (WhatsApp)"}
+                        >
+                           <MessageSquare size={11} className={isLinkedChatOpen ? "text-white" : "text-emerald-800"} />
+                           <span>{isLinkedChatOpen ? "Recolher Chat" : "Ver Chat"}</span>
+                        </button>
+                     )}
                      <p className="hidden sm:block text-[10px] font-black uppercase tracking-[3px]">#001-ALPHA</p>
                      {cart.length > 0 && (
                         <button
@@ -16795,6 +16919,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <div className="flex items-center gap-1 shrink-0">
                      {selectedCustomer ? (
                         <>
+                           {(Boolean(selectedCustomer.phone || linkedLeadChat)) && (
+                              <button
+                                 type="button"
+                                 onClick={handleToggleLinkedChat}
+                                 className={cn(
+                                    "px-2 py-1 rounded-md text-[8px] sm:text-[10px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95",
+                                    isLinkedChatOpen
+                                       ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                                       : "bg-emerald-600/20 text-emerald-950 border border-emerald-600/30 hover:bg-emerald-600/30"
+                                 )}
+                                 title={isLinkedChatOpen ? "Recolher conversa do cliente" : "Abrir conversa deste cliente no WhatsApp"}
+                              >
+                                 <MessageSquare size={11} className={isLinkedChatOpen ? "text-white" : "text-emerald-800"} />
+                                 <span className="hidden xs:inline">{isLinkedChatOpen ? "Ocultar Chat" : "Conversa"}</span>
+                              </button>
+                           )}
                            <button
                               onClick={() => {
                                  setCustomerModalIntent('preselect');
@@ -17084,8 +17224,54 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
             </div>
 
+            {/* Painel da Conversa do Cliente Vinculado (Mesma Tela do PDV) */}
+            {isLinkedChatOpen && linkedLeadChat && (
+              <div className="w-full md:w-[380px] lg:w-[430px] xl:w-[470px] md:flex-none border-t md:border-t-0 md:border-l border-slate-700 bg-slate-950 flex flex-col min-h-0 relative shadow-2xl z-20">
+                <div className="bg-slate-900 px-3 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[9.5px] font-black uppercase tracking-wider text-emerald-400 truncate">
+                        Conversa Vinculada à Venda
+                      </p>
+                      <p className="text-xs font-bold text-white truncate">
+                        {linkedLeadChat.contactName || linkedLeadChat.name || linkedLeadChat.fullName || linkedLeadChat.full_name || selectedCustomer?.name || 'Cliente'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLinkedChatOpen(false)}
+                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold px-2"
+                    title="Recolher conversa (você pode reabrir a qualquer momento)"
+                  >
+                    <X size={13} />
+                    <span>Recolher</span>
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <ChatPanel
+                    conversation={{
+                      ...linkedLeadChat,
+                      name: (linkedLeadChat.contactName || (!isPhoneLike(linkedLeadChat.fullName) ? linkedLeadChat.fullName : '') || linkedLeadChat.whatsappName || linkedLeadChat.name || linkedLeadChat.full_name || linkedLeadChat.phone || selectedCustomer?.name || 'Cliente').trim(),
+                      channel: 'WhatsApp'
+                    }}
+                    currentCompany={currentCompany}
+                    user={user}
+                    onClose={() => setIsLinkedChatOpen(false)}
+                    onLeadPatched={(leadId, patch) => {
+                      setLinkedLeadChat((prev: any) => prev && prev.id === leadId ? { ...prev, ...patch } : prev);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Embaixo no mobile / Direita no desktop: Lista de Produtos */}
-            <div className="flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative">
+            <div className={cn(
+              "flex-1 min-h-0 md:w-[450px] md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative",
+              isLinkedChatOpen && linkedLeadChat ? "hidden xl:flex xl:w-[320px] 2xl:w-[400px]" : ""
+            )}>
                {/* Search & Action Bar */}
                <div className="p-2 sm:p-4 bg-slate-50 space-y-1.5 sm:space-y-3 shrink-0">
                   <div className="flex gap-1.5 sm:gap-2 h-9 sm:h-12">
