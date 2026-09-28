@@ -608,10 +608,10 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
       });
       return;
     }
-    // Zera o status de não lido / waiting_since imediatamente ao abrir a conversa
-    if (lead.waitingSince || lead.unread) {
-      supabase.from('leads').update({ waiting_since: null, unread: false }).eq('id', lead.id).then();
-      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, waitingSince: undefined, unread: false } : l));
+    // Marca apenas como lido ao abrir a conversa (o tempo de espera/waiting_since permanece ativo enquanto a mensagem não for respondida ou resolvida)
+    if (lead.unread) {
+      supabase.from('leads').update({ unread: false }).eq('id', lead.id).then();
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unread: false } : l));
     }
     setPendingOpenLeadId(lead.id);
     setActiveTab('crm');

@@ -3651,15 +3651,37 @@ export const ChatPanel = ({
 
   // Ticker de tempo ao vivo para mensagem aguardando resposta (atualiza a cada 5s)
   const [liveChatNow, setLiveChatNow] = useState(() => Date.now());
+  const [isLocallyResolved, setIsLocallyResolved] = useState(false);
+
+  // Reseta estado local de resolvido se trocar de conversa
   useEffect(() => {
-    if (!conversation?.waitingSince) return;
+    setIsLocallyResolved(false);
+  }, [conversation?.id]);
+
+  // Identifica se a conversa está aguardando resposta:
+  // 1) Tem waitingSince explícito
+  // 2) OU a última mensagem registrada foi do cliente (incoming/inbound) e ainda não foi respondida
+  const effectiveWaitingSince = useMemo(() => {
+    if (isLocallyResolved) return null;
+    if (conversation?.waitingSince) return conversation.waitingSince;
+    if (
+      conversation?.lastMessageDirection === 'incoming' &&
+      (conversation?.lastClientMessageAt || conversation?.lastMessageAt || conversation?.updatedAt)
+    ) {
+      return conversation.lastClientMessageAt || conversation.lastMessageAt || conversation.updatedAt;
+    }
+    return null;
+  }, [conversation?.waitingSince, conversation?.lastMessageDirection, conversation?.lastClientMessageAt, conversation?.lastMessageAt, conversation?.updatedAt, isLocallyResolved]);
+
+  useEffect(() => {
+    if (!effectiveWaitingSince) return;
     const interval = setInterval(() => setLiveChatNow(Date.now()), 5000);
     return () => clearInterval(interval);
-  }, [conversation?.waitingSince]);
+  }, [effectiveWaitingSince]);
 
   const liveWaitingTime = useMemo(() => {
-    return formatLiveWaitingTime(conversation?.waitingSince);
-  }, [conversation?.waitingSince, liveChatNow]);
+    return formatLiveWaitingTime(effectiveWaitingSince);
+  }, [effectiveWaitingSince, liveChatNow]);
 
   const handleSendImageWithCaption = async (imageUrl: string, captionText: string) => {
     if (!imageUrl || !conversation?.phone) return;
@@ -4125,14 +4147,15 @@ export const ChatPanel = ({
   // cliente mandar outra mensagem depois, o vacuo volta sozinho (ver processIncomingMessage).
   const handleResolveWaiting = async () => {
     if (!conversation?.id) return;
+    setIsLocallyResolved(true);
     try {
-      const { error } = await supabase.from('leads').update({ waiting_since: null }).eq('id', conversation.id);
+      const { error } = await supabase.from('leads').update({ waiting_since: null, last_message_direction: 'resolved' }).eq('id', conversation.id);
       if (error) {
         console.error('Erro ao marcar conversa como resolvida:', error);
         showAlert('Não foi possível marcar como resolvido.');
         return;
       }
-      onLeadPatched?.(conversation.id, { waitingSince: undefined });
+      onLeadPatched?.(conversation.id, { waitingSince: undefined, lastMessageDirection: 'resolved' as any });
       if (conversation.phone) {
         const { data: notifs } = await supabase.from('crm_notifications').select('id').eq('company_id', currentCompany?.id || 'rafa-arts').eq('phone', conversation.phone).eq('status', 'pending');
         if (notifs?.length) {
@@ -5102,9 +5125,10 @@ export const ChatPanel = ({
         const { data, error } = await supabase.from('crm_messages').select('*')
           .eq('company_id', 'rafa-arts')
           .eq('phone', conversation.phone)
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: false })
+          .limit(50);
         if (error) throw error;
-        let mapped: any[] = (data || []).map((r: any) => ({ ...mapCrmMessageRow(r), whatsappMessageId: r.whatsapp_message_id || undefined }));
+        let mapped: any[] = (data || []).reverse().map((r: any) => ({ ...mapCrmMessageRow(r), whatsappMessageId: r.whatsapp_message_id || undefined }));
 
         const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
           .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
@@ -5171,8 +5195,9 @@ export const ChatPanel = ({
       const { data } = await supabase.from('crm_messages').select('*')
         .eq('company_id', 'rafa-arts')
         .eq('phone', conversation.phone)
-        .order('created_at', { ascending: true });
-      setMessages((data || []).map(mapCrmMessageRow));
+        .order('created_at', { ascending: false })
+        .limit(50);
+      setMessages((data || []).reverse().map(mapCrmMessageRow));
     };
 
     // Leitura ao vivo na Evolution SO com a flag ligada; desligada, WhatsApp le crm_messages (como antes).
@@ -6136,16 +6161,16 @@ export const ChatPanel = ({
                         disabled={isChangingStage}
                         className={cn(
                           "flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xs",
-                          conversation.waitingSince
+                          effectiveWaitingSince
                             ? "bg-amber-500/20 border-amber-500/60 text-amber-300 ring-2 ring-amber-500/40 animate-pulse"
                             : "bg-white/10 hover:bg-white/15 border-white/15"
                         )}
-                        style={{ color: conversation.waitingSince ? undefined : stageColor }}
-                        title={conversation.waitingSince ? `Aguardando resposta há ${liveWaitingTime}! Clique para alterar a etapa` : "Clique para alterar a etapa do atendimento"}
+                        style={{ color: effectiveWaitingSince ? undefined : stageColor }}
+                        title={effectiveWaitingSince ? `Aguardando resposta há ${liveWaitingTime}! Clique para alterar a etapa` : "Clique para alterar a etapa do atendimento"}
                       >
-                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", conversation.waitingSince ? "bg-amber-400 animate-ping" : "animate-pulse")} style={{ backgroundColor: conversation.waitingSince ? undefined : stageColor }} />
+                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", effectiveWaitingSince ? "bg-amber-400 animate-ping" : "animate-pulse")} style={{ backgroundColor: effectiveWaitingSince ? undefined : stageColor }} />
                         <span className="truncate max-w-[85px] sm:max-w-[120px]">{stageName}</span>
-                        {conversation.waitingSince && (
+                        {effectiveWaitingSince && (
                           <span className="font-mono text-[8px] px-1 py-0.2 rounded bg-amber-500/40 text-amber-100 font-bold shrink-0">
                             ⏱️ {liveWaitingTime}
                           </span>
@@ -6225,7 +6250,7 @@ export const ChatPanel = ({
                     ) : (
                       <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
                     )}
-                    {conversation.waitingSince && (
+                    {effectiveWaitingSince && (
                       <>
                         <span className="text-white/30 shrink-0">·</span>
                         <span className="inline-flex items-center gap-1 text-amber-300 font-bold bg-amber-500/20 border border-amber-500/35 px-1.5 py-0.5 rounded text-[9.5px] animate-pulse shrink-0" title={`Cliente aguardando resposta há ${liveWaitingTime}`}>
@@ -6541,7 +6566,7 @@ export const ChatPanel = ({
       </div>
 
       {/* Banner de Mensagem Não Respondida com Tempo de Espera ao Vivo */}
-      {conversation.waitingSince && (
+      {effectiveWaitingSince && (
         <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/20 border-b border-amber-500/30 px-3.5 py-1.5 sm:py-2 flex items-center justify-between gap-2 text-xs text-amber-200 shrink-0 backdrop-blur-md shadow-inner animate-in fade-in duration-200">
           <div className="flex items-center gap-2 min-w-0">
             <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -9927,7 +9952,7 @@ const KanbanColumnLegacy = ({
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
   const filteredStageLeads = leads;
-  const stageWaitingCount = leads.filter(l => Boolean(l.waitingSince)).length;
+  const stageWaitingCount = leads.filter(l => Boolean(l.waitingSince) || (l.lastMessageDirection === 'incoming' && Boolean(l.lastClientMessageAt || l.lastMessageAt))).length;
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
@@ -10000,8 +10025,8 @@ const KanbanColumnLegacy = ({
             {leads.length}
           </span>
           {stageWaitingCount > 0 && (
-            <span className="flex items-center gap-1 text-[9px] font-black text-amber-300 bg-amber-500/25 border border-amber-500/40 px-1.5 py-0.5 rounded-full animate-pulse shrink-0" title={`${stageWaitingCount} lead(s) aguardando resposta nesta etapa`}>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+            <span className="flex items-center gap-1 text-[9px] font-black text-red-300 bg-red-500/25 border border-red-500/40 px-1.5 py-0.5 rounded-full animate-pulse shrink-0" title={`${stageWaitingCount} lead(s) aguardando resposta nesta etapa`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping" />
               <span>{stageWaitingCount}</span>
             </span>
           )}
@@ -10071,14 +10096,19 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
   const channelName = (lead.sourceType || 'WhatsApp');
   const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
   const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
-  const isWaiting = Boolean(lead.waitingSince);
+  const effectiveWaitingSince = lead.waitingSince || (
+    lead.lastMessageDirection === 'incoming'
+      ? (lead.lastClientMessageAt || lead.lastMessageAt || lead.updatedAt)
+      : undefined
+  );
+  const isWaiting = Boolean(effectiveWaitingSince);
   const [cardClock, setCardClock] = useState(() => Date.now());
   useEffect(() => {
     if (!isWaiting) return;
     const interval = setInterval(() => setCardClock(Date.now()), 10000);
     return () => clearInterval(interval);
   }, [isWaiting]);
-  const waitingTimeStr = useMemo(() => formatLiveWaitingTime(lead.waitingSince), [lead.waitingSince, cardClock]);
+  const waitingTimeStr = useMemo(() => formatLiveWaitingTime(effectiveWaitingSince), [effectiveWaitingSince, cardClock]);
 
   const timeStr = lead.lastMessageAt || (lead.createdAt as any)?.toDate?.()
     ? format(parseMsgDate(lead.lastMessageAt || lead.createdAt) || new Date(), 'HH:mm')
@@ -10099,7 +10129,7 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
           isSelected 
             ? "bg-red-950/30 border-red-500/60 shadow-md shadow-red-950/40 ring-1 ring-red-500/40" 
             : isWaiting
-              ? "bg-amber-950/30 hover:bg-amber-950/40 border-amber-500/70 hover:border-amber-400 ring-2 ring-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.35)] animate-pulse"
+              ? "bg-red-950/40 hover:bg-red-950/50 border-red-500 hover:border-red-400 ring-2 ring-red-500/80 shadow-[0_0_22px_rgba(239,68,68,0.45)] animate-pulse"
               : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
           isChecked ? "bg-rose-950/40 border-rose-500/50 ring-1 ring-rose-500/30" : "",
           isDragging ? "shadow-2xl ring-2 ring-red-500 scale-105" : ""
@@ -10145,17 +10175,17 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
 
         {/* Alerta de Mensagem Não Respondida com Tempo de Espera ao Vivo */}
         {isWaiting && (
-          <div className="mb-1 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-500/50 text-amber-200 shadow-xs">
+          <div className="mb-1 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-lg bg-red-500/25 border border-red-500/60 text-red-200 shadow-xs animate-pulse">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-90"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
               </span>
-              <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 truncate">
+              <span className="text-[9px] font-black uppercase tracking-wider text-red-300 truncate">
                 Aguardando Resposta
               </span>
             </div>
-            <span className="font-mono text-[8.5px] font-black text-amber-100 bg-amber-500/40 px-1.5 py-0.2 rounded border border-amber-500/40 shrink-0">
+            <span className="font-mono text-[8.5px] font-black text-red-100 bg-red-500/40 px-1.5 py-0.2 rounded border border-red-500/40 shrink-0">
               ⏱️ {waitingTimeStr}
             </span>
           </div>
@@ -10325,11 +10355,11 @@ const KanbanColumn = ({
             {leads.length}
           </span>
           {(() => {
-            const waitingCount = leads.filter(l => Boolean(l.waitingSince)).length;
+            const waitingCount = leads.filter(l => Boolean(l.waitingSince) || (l.lastMessageDirection === 'incoming' && Boolean(l.lastClientMessageAt || l.lastMessageAt))).length;
             if (waitingCount === 0) return null;
             return (
-              <span className="flex items-center gap-1 text-[9px] font-black text-amber-300 bg-amber-500/25 border border-amber-500/40 px-1.5 py-0.5 rounded-full animate-pulse shrink-0" title={`${waitingCount} lead(s) aguardando resposta nesta etapa`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+              <span className="flex items-center gap-1 text-[9px] font-black text-red-300 bg-red-500/25 border border-red-500/40 px-1.5 py-0.5 rounded-full animate-pulse shrink-0" title={`${waitingCount} lead(s) aguardando resposta nesta etapa`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping" />
                 <span>{waitingCount}</span>
               </span>
             );
@@ -10401,14 +10431,19 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
   const channelName = (lead.sourceType || 'WhatsApp');
   const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
   const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
-  const isWaiting = Boolean(lead.waitingSince);
+  const effectiveWaitingSince = lead.waitingSince || (
+    lead.lastMessageDirection === 'incoming'
+      ? (lead.lastClientMessageAt || lead.lastMessageAt || lead.updatedAt)
+      : undefined
+  );
+  const isWaiting = Boolean(effectiveWaitingSince);
   const [cardClock, setCardClock] = useState(() => Date.now());
   useEffect(() => {
     if (!isWaiting) return;
     const interval = setInterval(() => setCardClock(Date.now()), 10000);
     return () => clearInterval(interval);
   }, [isWaiting]);
-  const waitingTimeStr = useMemo(() => formatLiveWaitingTime(lead.waitingSince), [lead.waitingSince, cardClock]);
+  const waitingTimeStr = useMemo(() => formatLiveWaitingTime(effectiveWaitingSince), [effectiveWaitingSince, cardClock]);
 
   const timeStr = lead.lastMessageAt || (lead.createdAt as any)?.toDate?.()
     ? format(parseMsgDate(lead.lastMessageAt || lead.createdAt) || new Date(), 'HH:mm')
@@ -10429,7 +10464,7 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
           isSelected 
             ? "bg-red-950/30 border-red-500/60 shadow-md shadow-red-950/40 ring-1 ring-red-500/40" 
             : isWaiting
-              ? "bg-amber-950/30 hover:bg-amber-950/40 border-amber-500/70 hover:border-amber-400 ring-2 ring-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.35)] animate-pulse"
+              ? "bg-red-950/40 hover:bg-red-950/50 border-red-500 hover:border-red-400 ring-2 ring-red-500/80 shadow-[0_0_22px_rgba(239,68,68,0.45)] animate-pulse"
               : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
           isChecked ? "bg-rose-950/40 border-rose-500/50 ring-1 ring-rose-500/30" : "",
           isDragging ? "shadow-2xl ring-2 ring-red-500 scale-105" : ""
@@ -10468,17 +10503,17 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
 
             {/* Alerta de Mensagem Não Respondida com Tempo de Espera ao Vivo */}
             {isWaiting && (
-              <div className="mb-1.5 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-500/50 text-amber-200 shadow-xs">
+              <div className="mb-1.5 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-lg bg-red-500/25 border border-red-500/60 text-red-200 shadow-xs animate-pulse">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="relative flex h-2 w-2 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-90"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                   </span>
-                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 truncate">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-red-300 truncate">
                     Aguardando Resposta
                   </span>
                 </div>
-                <span className="font-mono text-[8.5px] font-black text-amber-100 bg-amber-500/40 px-1.5 py-0.2 rounded border border-amber-500/40 shrink-0">
+                <span className="font-mono text-[8.5px] font-black text-red-100 bg-red-500/40 px-1.5 py-0.2 rounded border border-red-500/40 shrink-0">
                   ⏱️ {waitingTimeStr}
                 </span>
               </div>
@@ -15916,7 +15951,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   }, [activeTab]);
 
   const loadSalesHistory = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null);
+    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(100);
     const allSales = (data || []).map(mapVendaRow);
     // Ordena pela atividade mais recente — criacao OU ultima edicao, o que for mais novo. Assim
     // uma nota antiga que acabou de ser editada (ex: pagamento lancado) sobe pro topo da lista.
@@ -22115,15 +22150,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <button
                        type="button"
                        onClick={() => {
-                         if (!lastFinalizedOrder || enviandoReciboWhatsApp) return;
-                         handleShareViaWhatsApp(lastFinalizedOrder, clienteNome, clienteTel);
+                         setIsSuccessModalOpen(false);
+                         openWhatsAppChat(clienteTel, clienteNome);
                        }}
-                       disabled={enviandoReciboWhatsApp}
-                       className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 font-mono font-black text-xs transition-all cursor-pointer group active:scale-95 shadow-sm shrink-0 disabled:opacity-50"
-                       title="Enviar recibo completo com imagem para o WhatsApp do cliente"
+                       className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 font-mono font-black text-xs transition-all cursor-pointer group active:scale-95 shadow-sm shrink-0"
+                       title="Clique no número para abrir apenas a conversa com o cliente"
                      >
-                       {enviandoReciboWhatsApp ? <Loader2 size={14} className="animate-spin text-emerald-400 shrink-0" /> : <MessageSquare size={14} className="text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />}
-                       <span className="underline decoration-dotted underline-offset-2">{enviandoReciboWhatsApp ? 'Enviando...' : clienteTel}</span>
+                       <MessageSquare size={14} className="text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                       <span className="underline decoration-dotted underline-offset-2">{clienteTel}</span>
                      </button>
                    ) : (
                      <button
@@ -24523,10 +24557,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    <p className="text-sm font-black text-white truncate">{(sale.customerName || 'Cliente de Balcão').toUpperCase()}</p>
                    {sale.customerPhone ? (
                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
-                       <span className="text-xs font-bold text-white/70 flex items-center gap-1.5">
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setViewingReceiptSale(null);
+                           openWhatsAppChat(sale.customerPhone!, sale.customerName || 'Cliente');
+                         }}
+                         className="text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1.5 transition-colors cursor-pointer bg-transparent border-0 p-0"
+                         title="Clique no número para abrir apenas a conversa com o cliente"
+                       >
                          <Phone size={11} className="text-emerald-400" />
-                         {sale.customerPhone}
-                       </span>
+                         <span>{sale.customerPhone}</span>
+                       </button>
                        <button
                          type="button"
                          onClick={() => handleOpenChatFromReceipt(sale)}
@@ -24687,7 +24729,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  onClick={() => handleOpenChatFromReceipt(sale)}
                  title="Enviar recibo completo com imagem para o WhatsApp do cliente"
                >
-                 {enviandoReciboWhatsApp ? 'Enviando...' : 'WhatsApp'}
+                 {enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}
                </Button>
                {sale.serviceStatus === 'produto_entregue' && (
                  <Button
