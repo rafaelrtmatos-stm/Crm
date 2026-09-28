@@ -5924,7 +5924,7 @@ export const ChatPanel = ({
   const chatContent = (
     <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
       {/* Header - FIXO */}
-      <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[56px] w-full overflow-hidden">
+      <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[56px] w-full relative z-30">
         {/* ESQUERDA: Botão voltar estilo iOS (< 295) conforme IMG_7567 */}
         <div className="flex items-center shrink-0">
           {onClose && (
@@ -6181,7 +6181,7 @@ export const ChatPanel = ({
                       {isStageMenuOpen && (
                         <>
                           <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[99]" onClick={() => setIsStageMenuOpen(false)} />
-                          <div className="fixed z-[100] inset-x-3 bottom-4 sm:bottom-auto sm:top-14 sm:left-24 sm:right-auto sm:w-80 bg-slate-900 border border-white/15 rounded-2xl shadow-2xl p-2.5 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                          <div className="fixed inset-x-3 bottom-4 sm:bottom-auto sm:absolute sm:top-full sm:mt-1.5 sm:left-0 sm:right-auto sm:w-80 z-[100] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
                             <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 border-b border-white/10 mb-1.5">
                               <span>Mudar Etapa do Lead</span>
                               <button type="button" onClick={() => setIsStageMenuOpen(false)} className="text-white/40 hover:text-white p-0.5">
@@ -6380,15 +6380,67 @@ export const ChatPanel = ({
             {showQuickActions && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowQuickActions(false)} />
-                <div className="absolute top-full mt-1.5 right-0 bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 min-w-[210px] space-y-0.5">
+                <div className="absolute top-full mt-1.5 right-0 bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 min-w-[230px] max-h-[85vh] overflow-y-auto custom-scrollbar space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
                   <div className="px-3 py-1.5 border-b border-white/10 mb-1 flex items-center justify-between">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Opções do Contato</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Opções do Contato</p>
                     {activeTab !== 'chat' && (
                       <span className="text-[8px] font-bold text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
                         {activeTab.toUpperCase()}
                       </span>
                     )}
                   </div>
+
+                  {/* Ação Rápida de Concluir / Finalizar Atendimento */}
+                  {effectiveFunnelId && funnelStages.length > 0 && (() => {
+                    const concludedStage = funnelStages.find(s => {
+                      const n = (s.name || '').toLowerCase();
+                      return n.includes('conclu') || n.includes('finaliz') || n.includes('ganho') || n.includes('fechado');
+                    }) || funnelStages[funnelStages.length - 1];
+                    const isAlreadyConcluded = (currentStageId || conversation.funnelStageId) === concludedStage?.id;
+                    return (
+                      <div className="border-b border-white/10 pb-1 mb-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (concludedStage) {
+                              handleChangeStageFromChat(concludedStage.id);
+                            }
+                            if (effectiveWaitingSince || conversation.waitingSince) {
+                              handleResolveWaiting();
+                            }
+                            setShowQuickActions(false);
+                            showAlert(`Atendimento marcado como ${concludedStage?.name || 'Concluído'}!`);
+                          }}
+                          disabled={isAlreadyConcluded}
+                          className={cn(
+                            "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-all cursor-pointer",
+                            isAlreadyConcluded
+                              ? "bg-emerald-500/10 text-emerald-400/60 border border-emerald-500/20 cursor-default"
+                              : "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-xs active:scale-95"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                            <span>{isAlreadyConcluded ? `Atendimento ${concludedStage?.name || 'Concluído'}` : `Finalizar / ${concludedStage?.name || 'Concluir'}`}</span>
+                          </div>
+                          {isAlreadyConcluded && <span className="text-[9px] font-black uppercase text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Atual</span>}
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Marcar como Resolvido / Tirar Vácuo (visível se tiver mensagem aguardando) */}
+                  {(effectiveWaitingSince || conversation.waitingSince) && !notificacaoPendente && (
+                    <button
+                      type="button"
+                      onClick={() => { handleResolveWaiting(); setShowQuickActions(false); }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-amber-300 hover:bg-amber-500/15 border border-amber-500/30 flex items-center gap-2.5 transition-colors cursor-pointer mb-1"
+                    >
+                      <CheckCircle2 size={14} className="text-amber-400 shrink-0" />
+                      <span>Marcar como Resolvido (Tirar Vácuo)</span>
+                    </button>
+                  )}
+
                   {activeTab !== 'chat' && (
                     <button
                       type="button"
@@ -6420,23 +6472,13 @@ export const ChatPanel = ({
                         <span>Iniciar Venda PDV</span>
                       </button>
                     )}
-                    {conversation.waitingSince && !notificacaoPendente && (
-                      <button
-                        type="button"
-                        onClick={() => { handleResolveWaiting(); setShowQuickActions(false); }}
-                        className="w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold text-emerald-400 hover:bg-white/10 flex items-center gap-2.5 transition-colors cursor-pointer"
-                      >
-                        <CheckCircle2 size={14} className="text-emerald-400" />
-                        <span>Marcar como Resolvido</span>
-                      </button>
-                    )}
                   </div>
 
-                  {/* Status do Atendimento no Mobile */}
+                  {/* Status do Atendimento em Todas as Telas */}
                   {effectiveFunnelId && funnelStages.length > 0 && (
-                    <div className="lg:hidden border-b border-white/10 pb-1 mb-1">
+                    <div className="border-b border-white/10 pb-1 mb-1">
                       <div className="px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/40">Status do Atendimento</div>
-                      <div className="grid grid-cols-1 gap-0.5 px-1 max-h-36 overflow-y-auto custom-scrollbar">
+                      <div className="grid grid-cols-1 gap-0.5 px-1 max-h-40 overflow-y-auto custom-scrollbar">
                         {funnelStages.map(stage => {
                           const isActive = stage.id === (currentStageId || conversation.funnelStageId);
                           const c = stage.color || '#ef4444';
@@ -6446,7 +6488,7 @@ export const ChatPanel = ({
                               type="button"
                               onClick={() => { handleChangeStageFromChat(stage.id); setShowQuickActions(false); }}
                               className={cn(
-                                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all text-left",
+                                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all text-left cursor-pointer",
                                 isActive ? "bg-white/[0.08]" : "hover:bg-white/5"
                               )}
                             >
