@@ -40,3 +40,26 @@ export function formatListTime(d: Date | null): string {
   if (!d) return '';
   return d.toDateString() === new Date().toDateString() ? format(d, 'HH:mm') : format(d, 'dd/MM HH:mm');
 }
+
+// Formatação idêntica ao WhatsApp iOS: hoje (HH:mm), ontem (Ontem), últimos 6 dias (dia da semana), mais antigo (dd/MM/yyyy)
+export function formatWhatsAppDate(d: Date | null): string {
+  if (!d) return '';
+  const now = new Date();
+  const dateStr = d.toDateString();
+  const nowStr = now.toDateString();
+  if (dateStr === nowStr) {
+    return format(d, 'HH:mm');
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (dateStr === yesterday.toDateString()) {
+    return 'Ontem';
+  }
+  const diffTime = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays >= 1 && diffDays < 7) {
+    const days = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+    return days[d.getDay()];
+  }
+  return format(d, 'dd/MM/yyyy');
+}

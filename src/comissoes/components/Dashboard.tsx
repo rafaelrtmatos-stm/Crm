@@ -9,6 +9,7 @@ import {
   Sparkles,
   CheckCircle2,
   Filter,
+  Target,
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
 import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';

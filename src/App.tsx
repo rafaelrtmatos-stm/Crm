@@ -2520,7 +2520,7 @@ export default function App() {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'crm', label: 'Funil CRM', icon: Target },
-    { id: 'messages', label: 'Mensagens', icon: MessageSquare },
+    { id: 'messages', label: 'Conversas', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'inventory', label: 'Estoque & Materiais', icon: Package },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },

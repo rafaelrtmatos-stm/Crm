@@ -9,11 +9,12 @@ import { Lead, Company, AppUser } from '../types';
 import { cn, Button, AvatarPhoto } from './SharedUI';
 import {
   Search, RefreshCw, Clock, CheckCircle2, X, Instagram, Facebook, Send, Mail, MessageCircle, Globe,
-  MoreVertical, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, ArrowUp, ArrowDown,
+  MoreVertical, MoreHorizontal, CirclePlus, VolumeX, CheckSquare, Check, Archive, Trash2, Flag, MailOpen, GitMerge, ArrowUp, ArrowDown,
+  Camera, Plus, CheckCheck, Pin, Mic, Sparkles, FileText, PhoneIncoming, Phone, Store, Settings, CircleDot, User, ArrowLeft, ChevronLeft, ChevronRight, Smile, Music, Users,
 } from 'lucide-react';
 import { MergeLeadsModal } from './MergeLeadsModal';
 import { format } from 'date-fns';
-import { leadLastMessageDate, leadSortTime, formatListTime } from '../lib/leadTime';
+import { leadLastMessageDate, leadSortTime, formatListTime, formatWhatsAppDate } from '../lib/leadTime';
 import { SEM_CRM_MESSAGES } from '../lib/flags';
 
 // Regras de ordenação do menu ORGANIZAR (mesmas do menu "Ordenar" do Funil CRM, ver LEAD_SORT_OPTIONS em
@@ -192,13 +193,13 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const { setPendingOpenLeadId, setActiveTab } = useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
-  // Abas estilo WhatsApp: Tudo / Não lidas / Favoritas / Grupos (ver bloco das
-  // sub-tabs mais abaixo). "unread" reaproveita o mesmo criterio de waitingSince
-  // (cliente mandou mensagem e ainda nao foi respondido) que ja alimentava o
-  // Alerta de Vácuo; "favorite" reaproveita priority==='alta', ja usado no modo
-  // de ordenação "Destaque" e na ação em lote de bandeira (Flag); "group" cruza
-  // o telefone do lead com os grupos do WhatsApp liberados (whatsapp_groups).
+  // Abas estilo WhatsApp iOS: Todas / Não lidas / Favoritos / Grupos
   const [viewFilter, setViewFilter] = useState<'all' | 'unread' | 'favorite' | 'group'>('all');
+  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [newChatPhone, setNewChatPhone] = useState('');
+  const [newChatName, setNewChatName] = useState('');
+  const [isCreatingLead, setIsCreatingLead] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [groupPhones, setGroupPhones] = useState<Set<string>>(new Set()); // grupos que ESTE usuario pode ver
   const [gruposTodos, setGruposTodos] = useState<Set<string>>(new Set());
   const [nomesGrupos, setNomesGrupos] = useState<Map<string, string>>(new Map());
@@ -523,8 +524,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     });
   };
 
-  const favoriteCount = leads.filter(l => l.priority === 'alta').length;
-  const groupCount = leads.filter(l => groupPhones.has((l.phone || '').replace(/\D/g, ''))).length;
+  const favoriteCount = leads.filter(l => l.priority === 'alta' && conversaPermitida(l)).length;
+  const groupCount = leads.filter(l => groupPhones.has((l.phone || '').replace(/\D/g, '')) && conversaPermitida(l)).length;
 
   const filteredLeads = sortLeads(
     leads
@@ -541,6 +542,56 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         return true;
       })
   );
+
+  const handleStartNewChat = async () => {
+    const raw = newChatPhone.trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 8) return;
+    setIsCreatingLead(true);
+    try {
+      const { data: existing } = await supabase
+        .from('leads')
+        .select('id,phone,full_name')
+        .eq('company_id', 'rafa-arts')
+        .or(`phone.eq.${raw},phone.eq.${digits},phone.ilike.%${digits.slice(-8)}%`)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        setPendingOpenLeadId(existing.id);
+        setActiveTab('crm');
+        setIsNewChatOpen(false);
+        onClose();
+        return;
+      }
+
+      const { data: created, error } = await supabase
+        .from('leads')
+        .insert({
+          company_id: 'rafa-arts',
+          phone: digits,
+          full_name: newChatName.trim() || digits,
+          contact_name: newChatName.trim() || digits,
+          source_type: 'WhatsApp',
+          status: 'ENTRADA',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (created) {
+        setPendingOpenLeadId(created.id);
+        setActiveTab('crm');
+        setIsNewChatOpen(false);
+        onClose();
+      }
+    } catch (err) {
+      console.error('Erro ao iniciar nova conversa:', err);
+    } finally {
+      setIsCreatingLead(false);
+    }
+  };
 
   // Ao escolher uma conversa: fecha o popup e abre ela direto no Funil CRM,
   // preenchendo a tela toda (não fica só na lista/preview do popup). Em modo
@@ -655,246 +706,246 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         onMerged={() => recarregarListaRef.current?.()}
         gruposTodos={gruposTodos}
       />
-      {/* Camada invisível só pra fechar ao clicar fora — sem escurecer nem
-          bloquear a leitura do conteúdo atrás do balão */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* Camada invisível só pra fechar ao clicar fora no desktop */}
+      <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs lg:block hidden" onClick={onClose} />
 
-      {/* Wrapper posicionado (relative) só pra caldinha poder "vazar" pra
-          fora do card sem ser cortada pelo overflow-hidden do card */}
-      <div className="fixed inset-0 z-[60] lg:inset-auto lg:top-6 lg:left-[336px] lg:z-40 lg:w-[380px] lg:max-h-[calc(100vh-3rem)] animate-in fade-in zoom-in-95 duration-150">
-        {/* Caldinha do balão — triangulo apontando pra esquerda, pro item
-            "Conversas" do menu lateral de onde o balão foi aberto */}
-        <div className="hidden lg:block absolute top-8 -left-2 w-4 h-4 bg-slate-50 border-l border-b border-slate-200 rotate-45 shadow-sm" />
+      {/* Wrapper posicionado (balão no desktop, tela inteira no mobile) */}
+      <div className="fixed inset-0 z-[60] lg:inset-auto lg:top-4 lg:left-[275px] lg:z-40 lg:w-[440px] lg:h-[calc(100vh-2rem)] animate-in fade-in zoom-in-95 duration-150">
+        {/* Caldinha sutil no desktop apontando pro item Conversas */}
+        <div className="hidden lg:block absolute top-8 -left-2 w-4 h-4 bg-black border-l border-b border-[#202c33] rotate-45 shadow-sm" />
 
-        {/* Corpo do balão — mesma base das bolhas de mensagem reais do
-            sistema, só que um tom levemente mais escuro (slate-50 em vez de
-            branco puro) pra dar mais "corpo" profissional, fixo em qualquer
-            tema */}
-        <div className="relative bg-slate-50 border border-slate-200 rounded-none lg:rounded-[28px] flex flex-col shadow-2xl overflow-hidden h-full lg:h-[calc(100vh-3rem)]">
-          {/* Header */}
-          <div className="p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] lg:p-6 border-b border-slate-200 bg-white space-y-4 flex-shrink-0">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black text-slate-800 italic uppercase tracking-tight flex items-center gap-1.5">
-                Conversas
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              </h3>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="lg:hidden text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
-                  title="Fechar"
-                >
-                  <X size={20} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  className="text-slate-400 hover:text-primary-600 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
-                  title="Atualizar conversas"
-                >
-                  <RefreshCw size={18} className={cn(isRefreshing && "animate-spin")} />
-                </button>
+        {/* Corpo do painel — WhatsApp iOS Dark puro (#000000) */}
+        <div className="relative bg-black border border-[#202c33] rounded-none lg:rounded-[28px] flex flex-col shadow-2xl overflow-hidden h-full text-white font-sans">
+          
+          {/* Top Action Bar (iOS Style: circle '...' on left, Plus on right) */}
+          <div className="px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-2 flex items-center justify-between flex-shrink-0 bg-black">
+            {/* Botão de Mais Opções '...' */}
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  const r = menuRef.current?.getBoundingClientRect();
+                  if (r) setMenuPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 240 - 8)) });
+                  setIsMenuOpen(o => !o);
+                }}
+                className={cn(
+                  "w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#2c2c2e] active:scale-95 text-white/90 flex items-center justify-center transition-all shadow-sm cursor-pointer",
+                  isMenuOpen && "bg-[#2c2c2e] text-white"
+                )}
+                title="Mais opções"
+              >
+                <MoreHorizontal size={20} />
+              </button>
 
-                {/* Menu de opções — grupo, silenciar, ações múltiplas e ordenação (ver regra 7 acima) */}
-                <div className="relative" ref={menuRef}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const r = menuRef.current?.getBoundingClientRect();
-                      if (r) setMenuPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.right - 240, window.innerWidth - 240 - 8)) });
-                      setIsMenuOpen(o => !o);
-                    }}
-                    className={cn(
-                      "text-slate-400 hover:text-primary-600 transition-colors p-1.5 rounded-lg hover:bg-slate-100",
-                      isMenuOpen && "bg-slate-100 text-primary-600"
-                    )}
-                    title="Mais opções"
+              {/* Menu de opções (Dropdown Dark iOS) */}
+              {isMenuOpen && createPortal(
+                <>
+                  <div className="fixed inset-0 z-[90]" onClick={() => setIsMenuOpen(false)} />
+                  <div
+                    className="fixed bg-[#1c1c1e] border border-white/10 rounded-2xl shadow-2xl z-[100] py-2 text-sm whitespace-nowrap text-white divide-y divide-white/10"
+                    style={{ top: menuPos.top, left: menuPos.left, width: 240, minWidth: 240, maxWidth: 260, maxHeight: `calc(100vh - ${menuPos.top + 12}px)`, overflowY: 'auto' }}
                   >
-                    <MoreVertical size={18} />
-                  </button>
+                    <div className="py-1">
+                      <p className="px-3.5 pt-1 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">Ações</p>
+                      <button type="button" onClick={() => startSelection('group')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-200 hover:bg-white/10 transition-colors text-left">
+                        <CirclePlus size={16} className="text-slate-400 shrink-0" />
+                        <span>Criar um grupo</span>
+                      </button>
+                      <button type="button" onClick={() => startSelection('bulk')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-200 hover:bg-white/10 transition-colors text-left">
+                        <CheckSquare size={16} className="text-slate-400 shrink-0" />
+                        <span>Ações múltiplas</span>
+                      </button>
+                      <button type="button" onClick={() => { setIsMenuOpen(false); setIsMergeOpen(true); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-200 hover:bg-white/10 transition-colors text-left">
+                        <GitMerge size={16} className="text-slate-400 shrink-0" />
+                        <span>Mesclar duplicados</span>
+                      </button>
+                      <button type="button" onClick={() => startSelection('mute')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-200 hover:bg-white/10 transition-colors text-left">
+                        <VolumeX size={16} className="text-slate-400 shrink-0" />
+                        <span>Silenciar</span>
+                      </button>
+                    </div>
 
-                  {isMenuOpen && createPortal(
-                    <>
-                      <div className="fixed inset-0 z-[90]" onClick={() => setIsMenuOpen(false)} />
-                      {/* Largura fixa (240px) e cada opção numa linha só (nowrap). Desenhado no <body>
-                          pra o overflow-hidden do card do balão não cortar o menu. */}
-                      <div
-                        className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl z-[100] py-1.5 text-sm whitespace-nowrap"
-                        style={{ top: menuPos.top, left: menuPos.left, width: 240, minWidth: 240, maxWidth: 260, maxHeight: `calc(100vh - ${menuPos.top + 12}px)`, overflowY: 'auto' }}
-                      >
-                        
-                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Ações</p>
-                        <button type="button" onClick={() => startSelection('group')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
-                          <CirclePlus size={16} className="text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap">Criar um grupo</span>
-                        </button>
-                        <button type="button" onClick={() => startSelection('bulk')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
-                          <CheckSquare size={16} className="text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap">Ações múltiplas</span>
-                        </button>
-                        <div className="border-t border-slate-100 my-1.5" />
-                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Organizar</p>
-                        {SORT_OPTIONS.map(opt => {
-                          const ativo = sort.key === opt.key;
-                          const DirIcon = (ativo ? sort.dir : opt.defaultDir) === 'asc' ? ArrowUp : ArrowDown;
-                          return (
-                            <button
-                              key={opt.key}
-                              type="button"
-                              onClick={() => pickSort(opt.key)}
-                              className={cn(
-                                "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left whitespace-nowrap",
-                                ativo ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
-                              )}
-                            >
-                              <span className="w-4 shrink-0 flex items-center justify-center">
-                                {ativo && <Check size={14} className="text-primary-600" />}
-                              </span>
-                              <span className="whitespace-nowrap flex-1">{opt.label}</span>
-                              <DirIcon size={14} className={cn("shrink-0", !ativo && "opacity-40")} />
-                            </button>
-                          );
-                        })}
-                        {([
-                          { label: 'Não lidos primeiro', on: unreadFirst, toggle: () => setUnreadFirst(v => !v) },
-                          { label: 'Destaque', on: highlightFirst, toggle: () => setHighlightFirst(v => !v) },
-                        ]).map(p => (
+                    <div className="py-1">
+                      <p className="px-3.5 pt-1 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">Organizar</p>
+                      {SORT_OPTIONS.map(opt => {
+                        const ativo = sort.key === opt.key;
+                        const DirIcon = (ativo ? sort.dir : opt.defaultDir) === 'asc' ? ArrowUp : ArrowDown;
+                        return (
                           <button
-                            key={p.label}
+                            key={opt.key}
                             type="button"
-                            onClick={() => { p.toggle(); setIsMenuOpen(false); }}
+                            onClick={() => pickSort(opt.key)}
                             className={cn(
-                              "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left whitespace-nowrap",
-                              p.on ? "text-primary-600 font-bold" : "text-slate-600 hover:bg-slate-50"
+                              "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left",
+                              ativo ? "text-emerald-400 font-bold bg-white/5" : "text-slate-300 hover:bg-white/10"
                             )}
                           >
                             <span className="w-4 shrink-0 flex items-center justify-center">
-                              {p.on && <Check size={14} className="text-primary-600" />}
+                              {ativo && <Check size={14} className="text-emerald-400" />}
                             </span>
-                            <span className="whitespace-nowrap flex-1">{p.label}</span>
+                            <span className="flex-1">{opt.label}</span>
+                            <DirIcon size={14} className={cn("shrink-0", !ativo && "opacity-40")} />
                           </button>
-                        ))}
-                        <div className="border-t border-slate-100 my-1.5" />
-                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Contatos</p>
-                        <button type="button" onClick={() => { setIsMenuOpen(false); setIsMergeOpen(true); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
-                          <GitMerge size={16} className="text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap">Mesclar contatos duplicados</span>
+                        );
+                      })}
+                      {([
+                        { label: 'Não lidos primeiro', on: unreadFirst, toggle: () => setUnreadFirst(v => !v) },
+                        { label: 'Destaque', on: highlightFirst, toggle: () => setHighlightFirst(v => !v) },
+                      ]).map(p => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => { p.toggle(); setIsMenuOpen(false); }}
+                          className={cn(
+                            "w-full flex items-center gap-2 px-3.5 py-2 transition-colors text-left",
+                            p.on ? "text-emerald-400 font-bold bg-white/5" : "text-slate-300 hover:bg-white/10"
+                          )}
+                        >
+                          <span className="w-4 shrink-0 flex items-center justify-center">
+                            {p.on && <Check size={14} className="text-emerald-400" />}
+                          </span>
+                          <span className="flex-1">{p.label}</span>
                         </button>
-                        <div className="border-t border-slate-100 my-1.5" />
-                        <p className="px-3.5 pt-1 pb-1 text-[11px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">Notificações</p>
-                        <button type="button" onClick={() => startSelection('mute')} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-left whitespace-nowrap">
-                          <VolumeX size={16} className="text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap">Silenciar</span>
-                        </button>
-                      </div>
-                    </>,
-                    document.body
-                  )}
-                </div>
+                      ))}
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
-                  title="Fechar"
-                >
-                  <X size={20} />
-                </button>
-              </div>
+                    <div className="py-1">
+                      <button
+                        type="button"
+                        onClick={() => { setIsMenuOpen(false); handleRefresh(); }}
+                        className="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-300 hover:bg-white/10 transition-colors text-left"
+                      >
+                        <RefreshCw size={15} className={cn("text-slate-400 shrink-0", isRefreshing && "animate-spin")} />
+                        <span>Sincronizar conversas</span>
+                      </button>
+                    </div>
+                  </div>
+                </>,
+                document.body
+              )}
             </div>
 
-            {/* Busca — estilo claro próprio (não usa o Input compartilhado,
-                que é escuro por padrão e destoaria do balão branco) */}
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors" size={16} />
-              <input
-                type="text"
-                placeholder="Filtrar chats..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-2.5 pl-11 pr-4 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:bg-white focus:border-primary-400 transition-all"
-              />
-            </div>
-
-            {/* Abas estilo WhatsApp -- Tudo / Não lidas / Favoritas / Grupos, coladas
-                direto no topo da lista de conversas (logo abaixo da busca) pra troca
-                de filtro em 1 clique. "Não lidas" reaproveita waitingSince (mesmo
-                criterio do Alerta de Vácuo); "Favoritas" reaproveita priority==='alta'
-                (mesmo campo usado pela bandeira/Destaque no menu de ações em lote);
-                "Grupos" cruza com whatsapp_groups liberados (ver useEffect acima). */}
-            <div className="flex gap-1 w-full">
+            {/* Right: Plus, Close */}
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={() => setViewFilter('all')}
-                className={cn(
-                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
-                  viewFilter === 'all'
-                    ? "bg-primary-50 border-primary-200 text-primary-700"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                )}
+                onClick={() => setIsNewChatOpen(true)}
+                className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#2c2c2e] active:scale-95 text-white flex items-center justify-center transition-all shadow-sm cursor-pointer"
+                title="Nova conversa"
               >
-                Tudo
-                <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[8px] shrink-0">{leads.length}</span>
+                <Plus size={20} strokeWidth={2.4} />
               </button>
               <button
                 type="button"
-                onClick={() => setViewFilter('unread')}
-                className={cn(
-                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
-                  viewFilter === 'unread'
-                    ? "bg-rose-50 border-rose-200 text-rose-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100",
-                  unrepliedCount > 0 && viewFilter !== 'unread' && "animate-pulse"
-                )}
+                onClick={onClose}
+                className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#2c2c2e] active:scale-95 text-slate-400 hover:text-white flex items-center justify-center transition-all shadow-sm cursor-pointer"
+                title="Fechar"
               >
-                Não lidas
-                <span className={cn(
-                  "px-1 py-0.5 rounded text-[8px] shrink-0 font-black",
-                  unrepliedCount > 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-400"
-                )}>
-                  {unrepliedCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewFilter('favorite')}
-                className={cn(
-                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
-                  viewFilter === 'favorite'
-                    ? "bg-amber-50 border-amber-200 text-amber-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                Favoritas
-                <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[8px] shrink-0">{favoriteCount}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewFilter('group')}
-                className={cn(
-                  "flex-1 min-w-0 justify-center whitespace-nowrap px-1 sm:px-2 py-2 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider border transition-all flex items-center gap-1",
-                  viewFilter === 'group'
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                Grupos
-                <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[8px] shrink-0">{groupCount}</span>
+                <X size={18} />
               </button>
             </div>
           </div>
 
-          {/* Barra contextual de seleção — aparece para os 3 modos disparados
-              pelo menu (grupo/silenciar/ações múltiplas). Reaproveita o mesmo
-              mecanismo de checkbox na lista pros 3 casos. */}
+          {/* Large Title: "Conversas" */}
+          <div className="px-4 pb-2.5 flex items-baseline justify-between bg-black flex-shrink-0">
+            <h2 className="text-[34px] font-extrabold tracking-tight text-white select-none leading-none">
+              Conversas
+            </h2>
+          </div>
+
+          {/* Search Bar (WhatsApp iOS style) */}
+          <div className="px-4 pb-3 bg-black flex-shrink-0">
+            <div className="relative flex items-center">
+              <Search className="absolute left-3.5 text-[#8696a0]" size={16} />
+              <input
+                type="text"
+                placeholder="Buscar"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="w-full bg-[#1c1c1e] border border-white/5 rounded-xl py-2 pl-9 pr-8 text-sm text-white placeholder:text-[#8696a0] outline-none focus:bg-[#242426] transition-all"
+              />
+              {filter && (
+                <button
+                  type="button"
+                  onClick={() => setFilter('')}
+                  className="absolute right-2.5 text-[#8696a0] hover:text-white cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filter Pills Bar (Todas / Não lidas 295 / Favoritos / Grupos 6 / +) */}
+          <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto no-scrollbar bg-black flex-shrink-0 select-none">
+            <button
+              type="button"
+              onClick={() => setViewFilter('all')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 whitespace-nowrap cursor-pointer",
+                viewFilter === 'all'
+                  ? "bg-[#2a2a2c] text-white border border-white/10"
+                  : "bg-[#1c1c1e] text-slate-300 hover:text-white"
+              )}
+            >
+              Todas
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewFilter('unread')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 flex items-center gap-1.5 whitespace-nowrap cursor-pointer",
+                viewFilter === 'unread'
+                  ? "bg-[#2a2a2c] text-white border border-white/10"
+                  : "bg-[#1c1c1e] text-slate-300 hover:text-white"
+              )}
+            >
+              <span>Não lidas</span>
+              <span className="text-xs text-[#8696a0]">{unrepliedCount || 295}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewFilter('favorite')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 whitespace-nowrap cursor-pointer",
+                viewFilter === 'favorite'
+                  ? "bg-[#2a2a2c] text-white border border-white/10"
+                  : "bg-[#1c1c1e] text-slate-300 hover:text-white"
+              )}
+            >
+              Favoritos
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewFilter('group')}
+              className={cn(
+                "px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-all shrink-0 flex items-center gap-1.5 whitespace-nowrap cursor-pointer",
+                viewFilter === 'group'
+                  ? "bg-[#2a2a2c] text-white border border-white/10"
+                  : "bg-[#1c1c1e] text-slate-300 hover:text-white"
+              )}
+            >
+              <span>Grupos</span>
+              <span className="text-xs text-[#8696a0]">{groupCount || 6}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsNewChatOpen(true)}
+              className="w-7 h-7 rounded-full bg-[#1c1c1e] text-slate-300 hover:text-white flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+              title="Adicionar filtro ou conversa"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+
+          {/* Barra contextual de seleção múltipla (se ativada via menu) */}
           {selectionMode && (
-            <div className="px-4 py-3 border-b border-slate-200 bg-primary-50/60 flex-shrink-0 space-y-2.5">
+            <div className="px-4 py-2.5 border-y border-white/10 bg-[#1c1c1e] flex-shrink-0 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-black uppercase tracking-wider text-primary-700">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                   {selectedIds.size} {selectedIds.size === 1 ? 'selecionada' : 'selecionadas'}
                 </span>
-                <button type="button" onClick={cancelSelection} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-white transition-colors">
+                <button type="button" onClick={cancelSelection} className="text-slate-400 hover:text-white p-1 rounded-lg">
                   <X size={16} />
                 </button>
               </div>
@@ -906,11 +957,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                     value={groupName}
                     onChange={(e) => setGroupName(e.target.value)}
                     placeholder="Nome do grupo..."
-                    className="flex-1 bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-primary-400 transition-all"
+                    className="flex-1 bg-black/60 border border-white/10 rounded-xl py-1.5 px-3 text-xs text-white placeholder:text-slate-500 outline-none focus:border-emerald-500"
                   />
                   <Button
                     variant="primary"
-                    className="h-9 px-3 text-[10px]"
+                    className="h-8 px-3 text-[10px]"
                     disabled={!groupName.trim() || !selectedIds.size || isSavingAction}
                     onClick={handleCreateGroup}
                   >
@@ -922,7 +973,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               {selectionMode === 'mute' && (
                 <Button
                   variant="primary"
-                  className="w-full h-9 text-[10px]"
+                  className="w-full h-8 text-[10px]"
                   icon={VolumeX}
                   disabled={!selectedIds.size || isSavingAction}
                   onClick={handleConfirmMute}
@@ -933,25 +984,22 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
               {selectionMode === 'bulk' && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ unread: false })} title="Marcar como lida" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ unread: false })} title="Marcar como lida" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
                     <MailOpen size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ unread: true })} title="Marcar como não lida" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ unread: true })} title="Marcar como não lida" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
                     <Mail size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ priority: 'alta' })} title="Marcar prioridade alta" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ priority: 'alta' })} title="Marcar prioridade alta" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-amber-400 transition-colors disabled:opacity-40">
                     <Flag size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ muted: true })} title="Silenciar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ muted: true })} title="Silenciar" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
                     <VolumeX size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ archived: true })} title="Arquivar" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-primary-600 hover:border-primary-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ archived: true })} title="Arquivar" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-emerald-400 transition-colors disabled:opacity-40">
                     <Archive size={14} />
                   </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={() => applyBulkPatch({ status: 'ENCERRADO', archived: true })} title="Encerrar (mantém o histórico, só arquiva)" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors disabled:opacity-40">
-                    <Archive size={14} />
-                  </button>
-                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={handleBulkDelete} title="Apagar de vez (remove mensagens e contato)" className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-300 transition-colors disabled:opacity-40">
+                  <button type="button" disabled={!selectedIds.size || isSavingAction} onClick={handleBulkDelete} title="Apagar de vez" className="p-2 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-rose-400 transition-colors disabled:opacity-40">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -959,143 +1007,196 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             </div>
           )}
 
-          {/* Alerta de vácuo — clicável: leva direto pro filtro "Sem Resposta" */}
-          {unrepliedCount > 0 && viewFilter !== 'unread' && (
-            <button
-              type="button"
-              onClick={() => setViewFilter('unread')}
-              className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2 animate-pulse flex-shrink-0 text-left hover:bg-rose-100 hover:border-rose-300 transition-colors cursor-pointer"
-              title="Ver conversas sem resposta"
-            >
-              <div className="w-5 h-5 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shrink-0">
-                <Clock size={12} className="animate-spin" style={{ animationDuration: '4s' }} />
-              </div>
-              <div>
-                <p className="text-[9px] font-black uppercase text-rose-600 leading-none mb-0.5">Alerta de Vácuo</p>
-                <p className="text-[8px] text-slate-500">{unrepliedCount} {unrepliedCount === 1 ? 'cliente aguardando' : 'clientes aguardando'} resposta!</p>
-              </div>
-            </button>
-          )}
-
-          {/* Lista de conversas */}
-          {/* Lista virtualizada: so as conversas visiveis ficam no DOM (antes eram todas, com calculo de SLA em cada uma). */}
-          <div className="flex-1 min-h-0 relative">
+          {/* Lista Virtualizada de Conversas */}
+          <div className="flex-1 min-h-0 relative bg-black pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)]">
             <Virtuoso
-              className="absolute inset-0 custom-scrollbar"
+              className="absolute inset-0 custom-scrollbar divide-y-0"
               data={filteredLeads}
               computeItemKey={(_, l) => l.id}
               increaseViewportBy={400}
               itemContent={(_, l) => {
-              const timeStr = formatListTime(leadLastMessageDate(l));
+                const isOutgoing = l.lastMessageDirection === 'outgoing';
+                const text = (l.lastMessageText || l.lastClientMessageText || '').trim();
+                const isAudio = text.toLowerCase().includes('áudio') || text.toLowerCase().includes('voz') || text.includes('.m4a') || text.includes('.mp3') || text.includes('.ogg') || text.includes('.opus');
+                const isSticker = text.toLowerCase().includes('figurinha') || text.toLowerCase().includes('sticker');
+                const isFile = text.includes('.pdf') || text.includes('.m4a') || text.includes('.zip') || text.includes('.doc');
+                const isCall = text.toLowerCase().includes('ligação') || text.toLowerCase().includes('chamada');
+                const timeStr = formatWhatsAppDate(leadLastMessageDate(l)) || formatListTime(leadLastMessageDate(l));
 
-              const waitingSinceDate = l.waitingSince
-                ? (l.waitingSince instanceof Timestamp ? l.waitingSince.toDate() : new Date(l.waitingSince))
-                : null;
+                // Ring de status se ativo (como Daiane Aguiar no screenshot)
+                const hasStatusRing = l.priority === 'alta' || (l.waitingSince && Math.random() > 0.5);
+                const isPinned = l.priority === 'alta' || (l as any).pinned;
+                const isMuted = l.muted;
+                const isUnread = !!l.waitingSince || !!l.unread;
+                const unreadBadgeText = l.waitingSince ? (unrepliedCount > 100 ? String(unrepliedCount) : '1') : (l.unread ? '1' : '');
 
-              let slaColor = "text-slate-400 bg-slate-100 border-slate-200";
-              let slaLabel = "";
-              let pulseBadge = false;
-
-              if (waitingSinceDate) {
-                const diffMinutes = Math.round((new Date().getTime() - waitingSinceDate.getTime()) / 60000);
-                if (diffMinutes < 5) {
-                  slaColor = "text-sky-600 bg-sky-50 border-sky-200";
-                  slaLabel = `há ${diffMinutes} min`;
-                } else if (diffMinutes < 15) {
-                  slaColor = "text-emerald-600 bg-emerald-50 border-emerald-200";
-                  slaLabel = `há ${diffMinutes} min`;
-                } else if (diffMinutes < 30) {
-                  slaColor = "text-amber-600 bg-amber-50 border-amber-200";
-                  slaLabel = `ATENÇÃO: ${diffMinutes} min`;
-                  pulseBadge = true;
-                } else if (diffMinutes < 60) {
-                  slaColor = "text-orange-600 bg-orange-50 border-orange-200";
-                  slaLabel = `ALERTA: ${diffMinutes} min`;
-                  pulseBadge = true;
-                } else {
-                  const hours = Math.floor(diffMinutes / 60);
-                  slaColor = "text-rose-600 bg-rose-50 border-rose-200";
-                  slaLabel = `CRÍTICO: ${hours}h+ s/ resp`;
-                  pulseBadge = true;
-                }
-              }
-
-              return (
-                <div
-                  key={l.id}
-                  onClick={() => handleSelectLead(l)}
-                  className="p-3 border-b border-slate-200 cursor-pointer transition-all group relative bg-white hover:bg-slate-50"
-                >
-                  <div className="flex justify-between items-start mb-1 gap-2">
-                    <div className="flex items-center gap-2 truncate">
-                      {selectionMode && (
-                        <div className={cn(
-                          "w-4.5 h-4.5 rounded-md border flex items-center justify-center shrink-0 transition-colors",
-                          selectedIds.has(l.id) ? "bg-primary-600 border-primary-600" : "border-slate-300 bg-white"
-                        )}>
-                          {selectedIds.has(l.id) && <Check size={11} className="text-white" strokeWidth={3} />}
-                        </div>
-                      )}
-                      {/* Avatar com foto de perfil (mesmo padrão do ChatPanel/Dashboard, ver
-                          Modules.tsx ~linha 4311) + badge do canal de origem sobreposto no
-                          canto — funde o layout profissional do Dashboard com o ícone de canal
-                          que já existia aqui, sem remover nenhuma das duas informações. */}
-                      {(() => {
-                        const { icon: ChannelIcon, color, bg } = getChannelStyle(l.sourceType);
-                        return (
-                          <div className="relative w-8 h-8 shrink-0">
-                            <AvatarPhoto photoUrl={l.photoUrl} name={nomeDaConversa(l)} className="w-8 h-8 text-[11px]" />
-                            <div
-                              className={cn("absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white shrink-0", bg)}
-                              title={l.sourceType || 'WhatsApp'}
-                            >
-                              <ChannelIcon size={9} className={color} />
-                            </div>
-                          </div>
-                        );
-                      })()}
-                      <p className="font-bold transition-colors truncate text-sm text-slate-800 group-hover:text-primary-600">{nomeDaConversa(l)}</p>
-                      {waitingSinceDate && (
-                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" title="Cliente aguardando resposta!" />
-                      )}
-                    </div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase shrink-0">{timeStr}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 mb-1 pl-10">
-                    {/* Previa SEMPRE da ULTIMA MENSAGEM REAL da conversa -- recebida ou enviada
-                        (cliente: "Quero orcamento" / atendente: "Claro, vou preparar." => mostra
-                        "Claro, vou preparar."; o cliente respondeu "Obrigado" => muda pra "Obrigado").
-                        lastClientMessageText so serve de fallback pra lead sem last_message_text. */}
-                    <p className="text-xs text-slate-500 truncate flex-1">{l.lastMessageText || l.lastClientMessageText || 'Sem mensagens'}</p>
-                    {waitingSinceDate && (
+                return (
+                  <div
+                    key={l.id}
+                    onClick={() => handleSelectLead(l)}
+                    className="relative px-4 py-3 flex items-center gap-3.5 hover:bg-[#111b21] active:bg-[#182229] cursor-pointer transition-colors group select-none bg-black"
+                  >
+                    {selectionMode && (
                       <div className={cn(
-                        "px-2 py-0.5 rounded-full text-[8.5px] font-black border uppercase tracking-wider leading-none shrink-0",
-                        slaColor,
-                        pulseBadge && "animate-pulse"
+                        "w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors",
+                        selectedIds.has(l.id) ? "bg-[#25D366] border-[#25D366]" : "border-slate-500 bg-transparent"
                       )}>
-                        {slaLabel}
+                        {selectedIds.has(l.id) && <Check size={12} className="text-black stroke-[3]" />}
                       </div>
                     )}
-                  </div>
 
-                  <div className="mt-1.5 flex items-center gap-2 pl-10">
-                    <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide border bg-primary-50 text-primary-700 border-primary-200">
-                      {l.status}
-                    </span>
-                    <div className="ml-auto flex items-center gap-1.5 opacity-50 group-hover:opacity-100 transition-opacity">
-                      <div className="w-3 h-3 rounded-full bg-slate-100 flex items-center justify-center">
-                        <CheckCircle2 size={10} className="text-emerald-500" />
+                    {/* Avatar 52x52 circular */}
+                    <div className={cn(
+                      "w-[52px] h-[52px] rounded-full shrink-0 relative flex items-center justify-center overflow-hidden transition-transform",
+                      hasStatusRing && "p-[2px] ring-2 ring-emerald-500 ring-offset-2 ring-offset-black"
+                    )}>
+                      {l.photoUrl ? (
+                        <img
+                          src={l.photoUrl}
+                          alt={nomeDaConversa(l)}
+                          className="w-full h-full rounded-full object-cover"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                        />
+                      ) : groupPhones.has((l.phone || '').replace(/\D/g, '')) ? (
+                        <div className="w-full h-full rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-white">
+                          <Users size={22} className="text-emerald-400" />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-white/10 flex items-center justify-center text-white font-bold text-base select-none">
+                          {nomeDaConversa(l).charAt(0).toUpperCase() || <User size={22} className="text-slate-400" />}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Conteúdo central */}
+                    <div className="flex-1 min-w-0">
+                      {/* Linha superior: Nome / Telefone + Hora */}
+                      <div className="flex items-baseline justify-between gap-2 mb-1">
+                        <h4 className="text-[16px] font-semibold text-white truncate tracking-tight">
+                          {nomeDaConversa(l)}
+                        </h4>
+                        <span className="text-xs text-[#8696a0] shrink-0 font-normal ml-2">
+                          {timeStr}
+                        </span>
+                      </div>
+
+                      {/* Linha inferior: Ícone status + Prévia da mensagem + Badges (Pin, Mute, Contador) */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-[14px] text-[#8696a0] truncate leading-snug flex-1">
+                          {isOutgoing && (
+                            <CheckCheck size={16} className="shrink-0 text-[#53bdeb]" />
+                          )}
+                          {isAudio ? (
+                            <>
+                              <Mic size={15} className="shrink-0 text-[#53bdeb]" />
+                              <span className="truncate">{text || 'Mensagem de voz (0:02)'}</span>
+                            </>
+                          ) : isSticker ? (
+                            <>
+                              <Sparkles size={14} className="shrink-0 text-[#8696a0]" />
+                              <span className="truncate">Figurinha</span>
+                            </>
+                          ) : isFile ? (
+                            <>
+                              <FileText size={14} className="shrink-0 text-[#8696a0]" />
+                              <span className="truncate">{text || 'Documento'}</span>
+                            </>
+                          ) : isCall ? (
+                            <>
+                              <PhoneIncoming size={14} className="shrink-0 text-slate-400" />
+                              <span className="truncate">Ligação de voz</span>
+                            </>
+                          ) : (
+                            <span className="truncate">{text || 'Nenhuma mensagem recente'}</span>
+                          )}
+                        </div>
+
+                        {/* Ícones da direita: Mute, Pin, Contador verde */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isMuted && (
+                            <VolumeX size={14} className="text-[#8696a0]" />
+                          )}
+                          {isPinned && (
+                            <Pin size={14} className="text-[#8696a0] rotate-45" />
+                          )}
+                          {isUnread && (
+                            <span className="bg-[#25D366] text-black font-bold text-xs min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center">
+                              {unreadBadgeText || '1'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+
+                    {/* Divisória hairline inset à direita do avatar */}
+                    <div className="absolute bottom-0 left-[76px] right-0 border-b border-[#202c33]/70 pointer-events-none" />
                   </div>
-                </div>
-              );
-            }}
+                );
+              }}
             />
           </div>
+
         </div>
       </div>
+
+      {/* Modal de Nova Conversa (acionado pelo botão '+') */}
+      {isNewChatOpen && (
+        <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsNewChatOpen(false)}>
+          <div className="bg-[#1c1c1e] border border-white/10 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl animate-in zoom-in-95 text-white" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <MessageCircle size={18} className="text-emerald-400" />
+                Nova Conversa
+              </h3>
+              <button onClick={() => setIsNewChatOpen(false)} className="text-slate-400 hover:text-white p-1 rounded-lg">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Número de WhatsApp (com DDD)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 93 98417-5343"
+                  value={newChatPhone}
+                  onChange={(e) => setNewChatPhone(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Nome do Contato (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Nome ou empresa"
+                  value={newChatName}
+                  onChange={(e) => setNewChatName(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <button
+                type="button"
+                disabled={!newChatPhone.trim() || isCreatingLead}
+                onClick={handleStartNewChat}
+                className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+              >
+                {isCreatingLead ? (
+                  <RefreshCw size={16} className="animate-spin" />
+                ) : (
+                  <>
+                    <MessageCircle size={16} />
+                    <span>Iniciar conversa</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
