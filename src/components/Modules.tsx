@@ -3593,6 +3593,7 @@ export const ChatPanel = ({
   isColumnCollapsed,
   onToggleColumnCollapse,
   unreadTotalCount,
+  isEmbedded,
 }: { 
   conversation: any; 
   onClose?: () => void;
@@ -3605,6 +3606,7 @@ export const ChatPanel = ({
   isColumnCollapsed?: boolean;
   onToggleColumnCollapse?: () => void;
   unreadTotalCount?: number;
+  isEmbedded?: boolean;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -4142,14 +4144,8 @@ export const ChatPanel = ({
   }, [messages, optimisticMediaMessages]);
 
   // --- PC / Desktop Experiência Avançada (Melhorias de Atendimento) ---
-  // 1. Painel lateral de contexto na 3ª coluna (Desktop) - fechado por padrão
-  const [showDesktopSidebar, setShowDesktopSidebar] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('rpro_chat_desktop_sidebar');
-      if (saved !== null) return saved === 'true';
-    }
-    return false;
-  });
+  // 1. Painel lateral de contexto/perfil (Desktop) - SEMPRE inicia fechado por padrão
+  const [showDesktopSidebar, setShowDesktopSidebar] = useState<boolean>(false);
   const [sidebarActiveTab, setSidebarActiveTab] = useState<'data' | 'notes' | 'tasks' | 'sales' | 'participants' | 'media'>('sales');
 
   // Detecção se esta conversa aberta é um GRUPO de WhatsApp
@@ -6195,29 +6191,33 @@ export const ChatPanel = ({
         
         {/* DIREITA: Ações (flex-shrink: 0, não comprime o cliente) */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
-          {/* Ícones de Chamada Estilo WhatsApp: apenas quando o painel lateral estiver fechado para dar espaço total ao cliente */}
-          <button
-            type="button"
-            onClick={() => showAlert('Chamada de vídeo via WhatsApp')}
-            className={cn(
-              showDesktopSidebar ? "hidden 2xl:flex" : "flex",
-              "w-7 h-7 sm:w-8 sm:h-8 rounded-lg items-center justify-center text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
-            )}
-            title="Chamada de vídeo"
-          >
-            <Video size={17} strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            onClick={() => showAlert('Ligação de voz via WhatsApp')}
-            className={cn(
-              showDesktopSidebar ? "hidden 2xl:flex" : "flex",
-              "w-7 h-7 sm:w-8 sm:h-8 rounded-lg items-center justify-center text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
-            )}
-            title="Ligação de voz"
-          >
-            <Phone size={16} strokeWidth={1.75} />
-          </button>
+          {/* Ícones de Chamada Estilo WhatsApp: apenas fora do modo embedded e quando painel lateral fechado */}
+          {!isEmbedded && (
+            <>
+              <button
+                type="button"
+                onClick={() => showAlert('Chamada de vídeo via WhatsApp')}
+                className={cn(
+                  showDesktopSidebar ? "hidden 2xl:flex" : "flex",
+                  "w-7 h-7 sm:w-8 sm:h-8 rounded-lg items-center justify-center text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
+                )}
+                title="Chamada de vídeo"
+              >
+                <Video size={17} strokeWidth={1.75} />
+              </button>
+              <button
+                type="button"
+                onClick={() => showAlert('Ligação de voz via WhatsApp')}
+                className={cn(
+                  showDesktopSidebar ? "hidden 2xl:flex" : "flex",
+                  "w-7 h-7 sm:w-8 sm:h-8 rounded-lg items-center justify-center text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
+                )}
+                title="Ligação de voz"
+              >
+                <Phone size={16} strokeWidth={1.75} />
+              </button>
+            </>
+          )}
 
           {/* Botão Buscar - oculto se perfil lateral estiver aberto para dar espaço ao cliente */}
           <button
@@ -6264,8 +6264,8 @@ export const ChatPanel = ({
             </button>
           )}
 
-          {/* Botão Venda PDV - se perfil aberto fica como ícone compacto para nunca esmagar o nome do cliente */}
-          {permissions.canStartPosSale && (
+          {/* Botão Venda PDV - apenas fora do modo embedded (no PDV já está no terminal) */}
+          {!isEmbedded && permissions.canStartPosSale && (
             <button
               type="button"
               onClick={handleStartSale}
@@ -7712,61 +7712,119 @@ export const ChatPanel = ({
       {/* 3ª Coluna: CONTEXTO DO CLIENTE (coluna independente que vai até o topo, com altura total no Desktop) */}
       <AnimatePresence>
         {showDesktopSidebar && (
-          <motion.div
-            initial={{ opacity: 0, width: 0 }}
-            animate={{ opacity: 1, width: 'auto' }}
-            exit={{ opacity: 0, width: 0 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="hidden lg:flex h-full shrink-0"
-          >
-            <CustomerContextSidebar
-              isMobileDrawer={false}
-              isOpen={showDesktopSidebar}
-              onClose={() => setShowDesktopSidebar(false)}
-              activeTab={sidebarActiveTab}
-              setActiveTab={setSidebarActiveTab}
-              conversation={conversation}
-              clienteVinculado={clienteVinculado}
-              isLoadingCliente={isLoadingCliente}
-              nameFieldsDraft={nameFieldsDraft}
-              setNameFieldsDraft={setNameFieldsDraft}
-              nomesMudaram={nomesMudaram}
-              handleSaveNames={handleSaveNames}
-              isSavingNames={isSavingNames}
-              phoneDraft={phoneDraft}
-              setPhoneDraft={setPhoneDraft}
-              phoneMudou={phoneMudou}
-              handleSavePhone={handleSavePhone}
-              isSavingPhone={isSavingPhone}
-              handleCopyPhone={handleCopyPhone}
-              notes={notes}
-              newNoteText={newNoteText}
-              setNewNoteText={setNewNoteText}
-              handleAddNote={handleAddNote}
-              isSavingNote={isSavingNote}
-              handleDeleteNote={handleDeleteNote}
-              noteInputRef={noteInputRef}
-              tasks={tasks}
-              newTaskTitle={newTaskTitle}
-              setNewTaskTitle={setNewTaskTitle}
-              handleAddTask={handleAddTask}
-              isSavingTask={isSavingTask}
-              handleToggleTask={handleToggleTask}
-              handleDeleteTask={handleDeleteTask}
-              taskInputRef={taskInputRef}
-              clienteVendas={clienteVendas}
-              isLoadingVendas={isLoadingVendas}
-              orderSummaryDraft={orderSummaryDraft}
-              setOrderSummaryDraft={setOrderSummaryDraft}
-              estimatedValueDraft={estimatedValueDraft}
-              setEstimatedValueDraft={setEstimatedValueDraft}
-              onSaveOrderInfo={handleSaveOrderInfo}
-              isSavingOrderInfo={isSavingOrderInfo}
-              onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
-              onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
-              onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
-            />
-          </motion.div>
+          isEmbedded ? (
+            <motion.div
+              initial={{ opacity: 0, x: '100%' }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: '100%' }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 z-30 bg-slate-950 flex flex-col shadow-2xl"
+            >
+              <CustomerContextSidebar
+                isMobileDrawer={true}
+                isOpen={showDesktopSidebar}
+                onClose={() => setShowDesktopSidebar(false)}
+                activeTab={sidebarActiveTab}
+                setActiveTab={setSidebarActiveTab}
+                conversation={conversation}
+                clienteVinculado={clienteVinculado}
+                isLoadingCliente={isLoadingCliente}
+                nameFieldsDraft={nameFieldsDraft}
+                setNameFieldsDraft={setNameFieldsDraft}
+                nomesMudaram={nomesMudaram}
+                handleSaveNames={handleSaveNames}
+                isSavingNames={isSavingNames}
+                phoneDraft={phoneDraft}
+                setPhoneDraft={setPhoneDraft}
+                phoneMudou={phoneMudou}
+                handleSavePhone={handleSavePhone}
+                isSavingPhone={isSavingPhone}
+                handleCopyPhone={handleCopyPhone}
+                notes={notes}
+                newNoteText={newNoteText}
+                setNewNoteText={setNewNoteText}
+                handleAddNote={handleAddNote}
+                isSavingNote={isSavingNote}
+                handleDeleteNote={handleDeleteNote}
+                noteInputRef={noteInputRef}
+                tasks={tasks}
+                newTaskTitle={newTaskTitle}
+                setNewTaskTitle={setNewTaskTitle}
+                handleAddTask={handleAddTask}
+                isSavingTask={isSavingTask}
+                handleToggleTask={handleToggleTask}
+                handleDeleteTask={handleDeleteTask}
+                taskInputRef={taskInputRef}
+                clienteVendas={clienteVendas}
+                isLoadingVendas={isLoadingVendas}
+                orderSummaryDraft={orderSummaryDraft}
+                setOrderSummaryDraft={setOrderSummaryDraft}
+                estimatedValueDraft={estimatedValueDraft}
+                setEstimatedValueDraft={setEstimatedValueDraft}
+                onSaveOrderInfo={handleSaveOrderInfo}
+                isSavingOrderInfo={isSavingOrderInfo}
+                onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 'auto' }}
+              exit={{ opacity: 0, width: 0 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+              className="hidden lg:flex h-full shrink-0"
+            >
+              <CustomerContextSidebar
+                isMobileDrawer={false}
+                isOpen={showDesktopSidebar}
+                onClose={() => setShowDesktopSidebar(false)}
+                activeTab={sidebarActiveTab}
+                setActiveTab={setSidebarActiveTab}
+                conversation={conversation}
+                clienteVinculado={clienteVinculado}
+                isLoadingCliente={isLoadingCliente}
+                nameFieldsDraft={nameFieldsDraft}
+                setNameFieldsDraft={setNameFieldsDraft}
+                nomesMudaram={nomesMudaram}
+                handleSaveNames={handleSaveNames}
+                isSavingNames={isSavingNames}
+                phoneDraft={phoneDraft}
+                setPhoneDraft={setPhoneDraft}
+                phoneMudou={phoneMudou}
+                handleSavePhone={handleSavePhone}
+                isSavingPhone={isSavingPhone}
+                handleCopyPhone={handleCopyPhone}
+                notes={notes}
+                newNoteText={newNoteText}
+                setNewNoteText={setNewNoteText}
+                handleAddNote={handleAddNote}
+                isSavingNote={isSavingNote}
+                handleDeleteNote={handleDeleteNote}
+                noteInputRef={noteInputRef}
+                tasks={tasks}
+                newTaskTitle={newTaskTitle}
+                setNewTaskTitle={setNewTaskTitle}
+                handleAddTask={handleAddTask}
+                isSavingTask={isSavingTask}
+                handleToggleTask={handleToggleTask}
+                handleDeleteTask={handleDeleteTask}
+                taskInputRef={taskInputRef}
+                clienteVendas={clienteVendas}
+                isLoadingVendas={isLoadingVendas}
+                orderSummaryDraft={orderSummaryDraft}
+                setOrderSummaryDraft={setOrderSummaryDraft}
+                estimatedValueDraft={estimatedValueDraft}
+                setEstimatedValueDraft={setEstimatedValueDraft}
+                onSaveOrderInfo={handleSaveOrderInfo}
+                isSavingOrderInfo={isSavingOrderInfo}
+                onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+              />
+            </motion.div>
+          )
         )}
       </AnimatePresence>
     </div>
@@ -17090,12 +17148,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden md:overflow-x-auto">
         {activeTab === 'venda' && (
           <>
             {/* 1ª COLUNA (Esquerda no desktop): Painel da Conversa do Cliente Vinculado */}
             {isLinkedChatOpen && linkedLeadChat && (
-              <div className="order-2 md:order-none w-full md:w-[320px] lg:w-[350px] xl:w-[380px] md:flex-none border-t md:border-t-0 md:border-r border-slate-800 bg-slate-950 flex flex-col min-h-0 relative shadow-2xl z-20">
+              <div className="order-2 md:order-none w-full md:w-[330px] lg:w-[360px] xl:w-[380px] 2xl:w-[420px] md:shrink-0 md:flex-none border-t md:border-t-0 md:border-r border-slate-800 bg-slate-950 flex flex-col min-h-0 relative shadow-2xl z-20">
                 <div className="bg-slate-900 px-3 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
@@ -17118,7 +17176,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <span>Recolher</span>
                   </button>
                 </div>
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
                   <ChatPanel
                     conversation={{
                       ...linkedLeadChat,
@@ -17128,6 +17186,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     currentCompany={currentCompany}
                     user={user}
                     onClose={() => setIsLinkedChatOpen(false)}
+                    isEmbedded={true}
                     onLeadPatched={(leadId, patch) => {
                       setLinkedLeadChat((prev: any) => prev && prev.id === leadId ? { ...prev, ...patch } : prev);
                     }}
@@ -17137,14 +17196,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             )}
 
             {/* 2ª COLUNA (Direita da conversa no desktop): Terminal POS + Carrinho */}
-            <div className="order-1 md:order-none basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 md:shrink bg-[#fef9c3] flex flex-col pt-1 px-2 pb-2 sm:p-3 lg:p-4 relative overflow-hidden justify-between min-h-0 min-w-0">
+            <div className={cn(
+              "order-1 md:order-none basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 bg-[#fef9c3] flex flex-col pt-1.5 px-2.5 pb-2 sm:p-3 lg:p-3.5 relative overflow-hidden justify-between min-h-0",
+              isLinkedChatOpen && linkedLeadChat
+                ? "md:min-w-[420px] lg:min-w-[460px]"
+                : "min-w-0"
+            )}>
                {/* Top Bar */}
-               <div className="flex justify-between items-center text-slate-900/50 pb-1 sm:pb-2 border-b border-slate-900/10">
-                  <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+               <div className="flex justify-between items-center text-slate-900/60 pb-1.5 sm:pb-2 border-b border-slate-900/10 shrink-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                      <ShoppingBag size={13} className="text-slate-900 shrink-0" />
-                     <p className="text-[7px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[2px] truncate">Rafa Arts POS Terminal</p>
+                     <p className="text-[7.5px] sm:text-[10px] font-black uppercase tracking-[1px] sm:tracking-[2px] truncate">Rafa Arts POS Terminal</p>
                   </div>
-                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                      {(Boolean(selectedCustomer?.phone || linkedLeadChat)) && (
                         <button
                            type="button"
@@ -17176,21 +17240,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Barra de Identificação e Seleção de Cliente no Terminal */}
-               <div className="bg-slate-900/10 border border-slate-900/15 rounded-lg sm:rounded-xl px-2 sm:px-3 py-1.5 sm:py-2 my-1 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+               <div className="bg-slate-900/10 border border-slate-900/15 rounded-lg sm:rounded-xl px-2.5 sm:px-3 py-1.5 sm:py-2 my-1 shrink-0 flex items-center justify-between gap-2 min-h-[52px]">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                      <div className={cn(
-                        "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-black shadow-sm",
+                        "w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-black shadow-sm",
                         selectedCustomer ? "bg-emerald-600 text-white" : "bg-slate-900/15 text-slate-800"
                       )}>
                         {selectedCustomer ? <UserCheck size={14} /> : <User size={13} />}
                      </div>
                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                           <span className="text-[6.5px] sm:text-[8px] font-black uppercase tracking-wider text-slate-900/50">
+                           <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider text-slate-900/60 whitespace-nowrap">
                               {selectedCustomer ? 'Cliente Identificado' : 'Cliente da Venda'}
                            </span>
                            {selectedCustomer && (
-                              <span className="text-[6px] sm:text-[7.5px] font-black uppercase bg-emerald-600/20 text-emerald-800 border border-emerald-600/30 px-1 py-0.2 rounded">
+                              <span className="text-[6.5px] sm:text-[7.5px] font-black uppercase bg-emerald-600/20 text-emerald-800 border border-emerald-600/30 px-1 py-0.2 rounded whitespace-nowrap">
                                  Vinculado
                               </span>
                            )}
@@ -17198,7 +17262,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               const cDet = selectedCustomer.id ? allCustomers.find(c => c.id === selectedCustomer.id) : null;
                               const saldo = Number(cDet?.saldo_credito || 0);
                               return saldo > 0 ? (
-                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-blue-500/20 text-blue-900 border border-blue-500/30 px-1.5 py-0.2 rounded">
+                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-blue-500/20 text-blue-900 border border-blue-500/30 px-1.5 py-0.2 rounded whitespace-nowrap">
                                     Crédito: R$ {saldo.toFixed(2).replace('.', ',')}
                                  </span>
                               ) : null;
@@ -17206,40 +17270,35 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                            {selectedCustomer && (() => {
                               const st = selectedCustomer.id ? customerSalesStats[selectedCustomer.id] : null;
                               return st?.hasPending ? (
-                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-amber-500/20 text-amber-900 border border-amber-500/30 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-amber-500/20 text-amber-900 border border-amber-500/30 px-1.5 py-0.2 rounded flex items-center gap-0.5 whitespace-nowrap">
                                     <AlertCircle size={9} /> Débito: R$ {st.pendingBalance.toFixed(2).replace('.', ',')}
                                  </span>
                               ) : null;
                            })()}
                         </div>
-                        <p className="text-[10px] sm:text-xs font-black text-slate-900 truncate leading-tight mt-0.5">
+                        <p className="text-[11px] sm:text-xs font-black text-slate-900 truncate leading-tight mt-0.5" title={selectedCustomer?.name}>
                            {selectedCustomer ? (selectedCustomer.name || 'Cliente Sem Nome').toUpperCase() : 'Cliente de Balcão (Não Identificado)'}
                         </p>
                         {selectedCustomer?.phone && (
-                           <p className="text-[7.5px] sm:text-[9px] text-slate-900/60 font-medium truncate">
+                           <p className="text-[8px] sm:text-[9px] text-slate-900/70 font-medium truncate">
                               {selectedCustomer.phone}
                            </p>
                         )}
                      </div>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                      {selectedCustomer ? (
                         <>
-                           {(Boolean(selectedCustomer.phone || linkedLeadChat)) && (
+                           {!isLinkedChatOpen && (Boolean(selectedCustomer.phone || linkedLeadChat)) && (
                               <button
                                  type="button"
                                  onClick={handleToggleLinkedChat}
-                                 className={cn(
-                                    "px-2 py-1 rounded-md text-[7.5px] sm:text-[9.5px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0",
-                                    isLinkedChatOpen
-                                       ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                                       : "bg-emerald-600/20 text-emerald-950 border border-emerald-600/30 hover:bg-emerald-600/30"
-                                 )}
-                                 title={isLinkedChatOpen ? "Recolher conversa do cliente" : "Abrir conversa deste cliente no WhatsApp"}
+                                 className="px-2 py-1 rounded-md text-[7.5px] sm:text-[9px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0 bg-emerald-600/20 text-emerald-950 border border-emerald-600/30 hover:bg-emerald-600/30"
+                                 title="Abrir conversa deste cliente no WhatsApp"
                               >
-                                 <MessageSquare size={11} className={isLinkedChatOpen ? "text-white shrink-0" : "text-emerald-800 shrink-0"} />
-                                 <span className="inline">{isLinkedChatOpen ? "Ocultar Chat" : "Conversa"}</span>
+                                 <MessageSquare size={11} className="text-emerald-800 shrink-0" />
+                                 <span className="inline">Conversa</span>
                               </button>
                            )}
                            <button
@@ -17249,7 +17308,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                  setCustomerSearchTerm('');
                                  setIsCustomerModalOpen(true);
                               }}
-                              className="px-2 py-1 rounded-md bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[7.5px] sm:text-[9.5px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[8px] sm:text-[9.5px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shrink-0"
                               title="Alterar ou trocar cliente da venda"
                            >
                               <Search size={11} className="shrink-0" />
@@ -17259,7 +17318,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               onClick={() => {
                                  setSelectedCustomer(null);
                               }}
-                              className="p-1 rounded-md hover:bg-rose-500/20 text-rose-700 transition-all cursor-pointer shrink-0"
+                              className="p-1 sm:p-1.5 rounded-lg hover:bg-rose-500/20 text-rose-700 transition-all cursor-pointer shrink-0"
                               title="Desvincular cliente (voltar para Cliente de Balcão)"
                            >
                               <X size={12} />
@@ -17299,10 +17358,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Total Banner */}
-               <div className="py-1.5 sm:py-2.5 px-2 sm:px-3 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-0.5 sm:my-1.5 gap-1.5 flex-wrap sm:flex-nowrap">
+               <div className="py-2 sm:py-2.5 px-2.5 sm:px-3.5 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-1.5 gap-2 shrink-0 flex-nowrap">
                   <div className="min-w-0 flex-1">
-                     <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
-                        <p className="text-[6.5px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/40">Total da Nota</p>
+                     <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-[7px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/50">Total da Nota</p>
                         {saleDiscountValue > 0 && (
                            <span className="text-[6.5px] sm:text-[8px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded whitespace-nowrap">
                               Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
@@ -17341,34 +17400,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                            );
                         })()}
                      </div>
-                     <h1 className="text-lg sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate">
+                     <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate mt-0.5">
                         R$ {total.toFixed(2).replace('.', ',')}
                      </h1>
                   </div>
-                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                      <button
                         type="button"
                         onClick={() => setIsSaleDiscountModalOpen(true)}
                         className={cn(
-                           "px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-black uppercase text-[7px] sm:text-[8.5px] transition-all flex items-center gap-1 cursor-pointer border shrink-0",
+                           "px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-black uppercase text-[7.5px] sm:text-[9px] transition-all flex items-center gap-1 cursor-pointer border shrink-0 whitespace-nowrap",
                            saleDiscountValue > 0
                               ? "bg-emerald-600 border-emerald-700 text-white shadow-sm hover:bg-emerald-700 active:scale-95"
                               : "bg-white/90 hover:bg-white text-slate-800 border-slate-900/10 shadow-xs active:scale-95"
                         )}
                         title="Lançar desconto geral na nota"
                      >
-                        <Percent size={10} className={saleDiscountValue > 0 ? "text-white shrink-0" : "text-slate-600 shrink-0"} />
+                        <Percent size={11} className={saleDiscountValue > 0 ? "text-white shrink-0" : "text-slate-600 shrink-0"} />
                         <span>{saleDiscountValue > 0 ? `Desc R$ ${saleDiscountValue.toFixed(2).replace('.', ',')}` : 'Desconto'}</span>
                      </button>
-                     <Badge className="bg-slate-900 text-white border-none py-1 sm:py-1.5 px-2 sm:px-2.5 rounded-full font-black uppercase tracking-wider text-[7px] sm:text-[8.5px] shrink-0">
+                     <Badge className="bg-slate-900 text-white border-none py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-full font-black uppercase tracking-wider text-[7.5px] sm:text-[9px] shrink-0 whitespace-nowrap">
                         {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
                      </Badge>
                   </div>
                </div>
                {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
-               <div className="flex-1 min-h-0 my-1 sm:my-2 bg-white/70 backdrop-blur-xs rounded-xl sm:rounded-2xl border border-slate-900/10 p-1.5 sm:p-3 flex flex-col overflow-hidden shadow-inner">
-                  <div className="flex items-center justify-between pb-1 sm:pb-2 border-b border-slate-900/10 mb-1 sm:mb-2">
-                     <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-wider text-slate-700">Itens ({cart.length})</span>
+               <div className="flex-1 min-h-0 my-1 sm:my-1.5 bg-white/70 backdrop-blur-xs rounded-xl sm:rounded-2xl border border-slate-900/10 p-2 sm:p-3 flex flex-col overflow-hidden shadow-inner">
+                  <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-900/10 mb-1.5 sm:mb-2 shrink-0">
+                     <span className="text-[7.5px] sm:text-[9px] font-black uppercase tracking-wider text-slate-700">Itens ({cart.length})</span>
                      <span className="hidden sm:inline text-[8px] font-bold text-slate-400 uppercase">Lista de Lançamento</span>
                   </div>
 
@@ -17377,7 +17436,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <ShoppingBag size={20} className="sm:hidden text-slate-400/50 animate-bounce" />
                         <ShoppingBag size={28} className="hidden sm:block text-slate-400/50 animate-bounce" />
                         <p className="text-[9px] sm:text-[10px] font-black text-slate-700 uppercase tracking-wider">Carrinho Livre</p>
-                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista abaixo para adicionar ao pedido.</p>
+                        <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 max-w-[200px]">Selecione os produtos na lista ao lado para adicionar ao pedido.</p>
                      </div>
                   ) : (
                      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar divide-y divide-slate-200/60 pr-1">
@@ -17475,9 +17534,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
                {/* Bottom Automation Bar */}
-               <div className="pt-1.5 sm:pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900 gap-1.5 flex-wrap">
-                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                     <div className="flex items-center gap-1.5">
+               <div className="pt-1.5 sm:pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900 gap-1.5 shrink-0 flex-nowrap">
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                     <div className="flex items-center gap-1.5 shrink-0">
                         <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                         <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider opacity-70 whitespace-nowrap">PDV Conectado</span>
                      </div>
@@ -17486,7 +17545,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
                        title={soundAlertsEnabled ? 'Alerta sonoro de horário ativado — clique pra desativar' : 'Alerta sonoro de horário desativado — clique pra ativar'}
                        className={cn(
-                         "flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border-0 cursor-pointer transition-all shrink-0",
+                         "flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border-0 cursor-pointer transition-all shrink-0 whitespace-nowrap",
                          soundAlertsEnabled ? "bg-primary-500/20 text-primary-700" : "bg-slate-900/10 text-slate-400"
                        )}
                      >
@@ -17497,7 +17556,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        type="button"
                        onClick={() => { playAlertBeep(); setAlertToast({ message: '⏰ Teste de alerta — se você ouviu o bipe e viu esse aviso, está tudo funcionando!' }); setTimeout(() => setAlertToast(null), 6000); }}
                        title="Testar o som e o aviso agora, sem precisar esperar um horário real"
-                       className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-slate-900/10 text-slate-700 hover:text-slate-950 border-0 cursor-pointer text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider shrink-0"
+                       className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-slate-900/10 text-slate-700 hover:text-slate-950 border-0 cursor-pointer text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap"
                      >
                         Testar
                      </button>
@@ -17513,16 +17572,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             }
                          }}
                          title="Ativa notificação do navegador, que aparece mesmo com a aba minimizada"
-                         className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-amber-500/20 text-amber-700 hover:bg-amber-500/30 border-0 cursor-pointer text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider shrink-0"
+                         className="hidden lg:flex px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-amber-500/20 text-amber-700 hover:bg-amber-500/30 border-0 cursor-pointer text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap"
                        >
                           Ativar Notificação
                        </button>
                      )}
                   </div>
                   {user?.isAdmin && (
-                    <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 whitespace-nowrap pl-2">
                        <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest opacity-50 block leading-none">Faturamento Hoje</span>
-                       <span className="text-[9px] sm:text-[10px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                       <span className="text-[9.5px] sm:text-[10.5px] font-black italic">R$ {faturamentoHoje.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                </div>
@@ -17532,20 +17591,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className={cn(
               "order-3 md:order-none flex-1 min-h-0 md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative",
               isLinkedChatOpen && linkedLeadChat
-                ? "md:w-[280px] lg:w-[320px] xl:w-[360px] 2xl:w-[400px]"
+                ? "md:w-[290px] lg:w-[310px] xl:w-[340px] 2xl:w-[370px] md:shrink-0"
                 : "md:w-[380px] lg:w-[420px] xl:w-[450px]"
             )}>
                {/* Search & Action Bar */}
-               <div className="p-2 sm:p-4 bg-slate-50 space-y-1.5 sm:space-y-3 shrink-0">
-                  <div className="flex gap-1.5 sm:gap-2 h-9 sm:h-12">
+               <div className="p-2 sm:p-3.5 bg-slate-50 space-y-1.5 sm:space-y-2 shrink-0 border-b border-slate-100">
+                  <div className="flex gap-1.5 sm:gap-2 h-9 sm:h-11">
                      {(user?.isAdmin || user?.allowedActions?.includes('canAddProduct')) && (
                        <button 
                           onClick={() => setIsQuickProductOpen(true)}
                           title="Cadastrar Produto"
-                          className="w-9 sm:w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-lg sm:rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center"
+                          className="w-9 sm:w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-lg sm:rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center cursor-pointer"
                        >
-                          <PlusSquare size={15} className="sm:hidden" />
-                          <PlusSquare size={18} className="hidden sm:block" />
+                          <PlusSquare size={16} />
                        </button>
                      )}
                      <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl p-1 overflow-x-auto no-scrollbar">
@@ -17554,7 +17612,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             key={q} 
                             onClick={() => setSelectedQty(q)}
                             className={cn(
-                              "flex-1 rounded-md sm:rounded-lg text-xs sm:text-sm font-black transition-all",
+                              "flex-1 rounded-md sm:rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer",
                               selectedQty === q ? "bg-primary-500 text-slate-900" : "text-slate-400 hover:text-slate-600"
                             )}
                           >
@@ -17568,35 +17626,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <input 
                        value={search}
                        onChange={(e) => setSearch(e.target.value.toUpperCase())}
-                       className="w-full h-8 sm:h-11 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all uppercase"
+                       className="w-full h-8 sm:h-10 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all uppercase"
                        placeholder="BUSCAR OU BIPAR..."
                      />
                   </div>
-                  <p className="text-[9px] font-bold text-slate-400 px-1">
+                  <p className="text-[9px] font-bold text-slate-400 px-1 truncate">
                      {filteredTerminalProducts.length} de {products.length} produto(s) — role a lista pra ver todos
                   </p>
                </div>
 
                 {/* COMPACT PRODUCT LIST */}
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
-                   <div className="divide-y divide-slate-50">
+                   <div className="divide-y divide-slate-100">
                       {filteredTerminalProducts.slice(0, 80).map(product => (
                         <div 
                           key={product.id} 
                           onClick={() => addToCart(product)}
-                          className="flex items-center px-3 sm:px-4 py-1.5 sm:py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-50 last:border-0"
+                          className="flex items-center justify-between gap-2 px-3 sm:px-3.5 py-1.5 sm:py-2 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-100 last:border-0"
                         >
                            <div className="flex-1 min-w-0">
-                              <p className="text-[9px] font-black text-slate-800 truncate leading-none uppercase tracking-tight">{product.name}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                 <span className="text-[7px] font-bold text-slate-300 tracking-[1px] uppercase bg-slate-100 px-1 rounded-sm">{product.code}</span>
-                                 <span className="text-[7px] font-bold text-slate-400 uppercase">Est: {product.stock}</span>
+                              <p className="text-[9px] sm:text-[9.5px] font-black text-slate-800 truncate leading-none uppercase tracking-tight" title={product.name}>
+                                 {product.name}
+                              </p>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                 <span className="text-[7px] font-bold text-slate-400 tracking-[1px] uppercase bg-slate-100 px-1 rounded-sm shrink-0">{product.code}</span>
+                                 <span className="text-[7px] font-bold text-slate-400 uppercase truncate">Est: {product.stock}</span>
                               </div>
                            </div>
-                           <div className="flex items-center gap-3">
-                              <p className="text-[10px] font-black text-emerald-600 tracking-tighter italic">R$ {product.price.toFixed(2).replace('.', ',')}</p>
-                              <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all">
-                                 <Plus size={12} />
+                           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+                              <p className="text-[10px] font-black text-emerald-600 tracking-tighter italic whitespace-nowrap">
+                                 R$ {product.price.toFixed(2).replace('.', ',')}
+                              </p>
+                              <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all shrink-0">
+                                 <Plus size={12} strokeWidth={2.5} />
                               </div>
                            </div>
                         </div>
@@ -17604,8 +17666,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="shrink-0 p-2 sm:p-3 bg-slate-50 border-t border-slate-200 space-y-2 sticky bottom-0 z-10">
-                  <div className="flex gap-2 h-11 sm:h-14">
+               <div className="shrink-0 p-2 sm:p-3 bg-slate-50 border-t border-slate-200 space-y-1.5 sticky bottom-0 z-10">
+                  <div className="flex gap-2 h-11 sm:h-13">
                      {orcamentoItemsEditMode ? (
                        <button
                          onClick={handleReturnItemsToOrcamento}
