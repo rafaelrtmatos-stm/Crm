@@ -17053,7 +17053,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   return (
-    <div className="h-full min-h-[500px] flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
+    <div className="h-full max-h-full flex-1 min-h-0 flex flex-col bg-slate-900/50 rounded-xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in slide-in-from-right-5 duration-500">
       {alertToast && (
         <div
           onClick={() => { if (alertToast.saleId) { openReceiptById(alertToast.saleId); setAlertToast(null); } }}
@@ -17148,12 +17148,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden md:overflow-x-auto">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden w-full max-w-full">
         {activeTab === 'venda' && (
           <>
             {/* 1ª COLUNA (Esquerda no desktop): Painel da Conversa do Cliente Vinculado */}
             {isLinkedChatOpen && linkedLeadChat && (
-              <div className="order-2 md:order-none w-full md:w-[330px] lg:w-[360px] xl:w-[380px] 2xl:w-[420px] md:shrink-0 md:flex-none border-t md:border-t-0 md:border-r border-slate-800 bg-slate-950 flex flex-col min-h-0 relative shadow-2xl z-20">
+              <div className="order-2 md:order-none w-full md:w-[280px] lg:w-[310px] xl:w-[340px] 2xl:w-[380px] shrink-0 md:flex-none border-t md:border-t-0 md:border-r border-slate-800 bg-slate-950 flex flex-col h-full max-h-full min-h-0 relative shadow-2xl z-20">
                 <div className="bg-slate-900 px-3 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
@@ -17197,9 +17197,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
             {/* 2ª COLUNA (Direita da conversa no desktop): Terminal POS + Carrinho */}
             <div className={cn(
-              "order-1 md:order-none basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 bg-[#fef9c3] flex flex-col pt-1.5 px-2.5 pb-2 sm:p-3 lg:p-3.5 relative overflow-hidden justify-between min-h-0",
+              "order-1 md:order-none basis-[50%] shrink-0 grow-0 md:basis-auto md:flex-1 bg-[#fef9c3] flex flex-col h-full max-h-full min-h-0 pt-1.5 px-2 pb-2 sm:px-2.5 relative overflow-hidden justify-between",
               isLinkedChatOpen && linkedLeadChat
-                ? "md:min-w-[420px] lg:min-w-[460px]"
+                ? "md:min-w-[340px] lg:min-w-[360px]"
                 : "min-w-0"
             )}>
                {/* Top Bar */}
@@ -17589,30 +17589,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
             {/* 3ª COLUNA: Lista de Produtos */}
             <div className={cn(
-              "order-3 md:order-none flex-1 min-h-0 md:flex-none bg-white flex flex-col min-h-0 border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative",
+              "order-3 md:order-none flex-1 min-h-0 md:flex-none h-full max-h-full bg-white flex flex-col min-h-0 overflow-hidden border-t md:border-t-0 md:border-l border-slate-200 shadow-2xl relative",
               isLinkedChatOpen && linkedLeadChat
-                ? "md:w-[290px] lg:w-[310px] xl:w-[340px] 2xl:w-[370px] md:shrink-0"
-                : "md:w-[380px] lg:w-[420px] xl:w-[450px]"
+                ? "md:w-[270px] lg:w-[290px] xl:w-[320px] 2xl:w-[350px] shrink-0"
+                : "md:w-[360px] lg:w-[400px] xl:w-[440px] shrink-0"
             )}>
                {/* Search & Action Bar */}
-               <div className="p-2 sm:p-3.5 bg-slate-50 space-y-1.5 sm:space-y-2 shrink-0 border-b border-slate-100">
-                  <div className="flex gap-1.5 sm:gap-2 h-9 sm:h-11">
+               <div className="p-2 sm:p-2.5 bg-slate-50 space-y-1.5 shrink-0 border-b border-slate-100">
+                  <div className="flex gap-1.5 h-8 sm:h-9">
                      {(user?.isAdmin || user?.allowedActions?.includes('canAddProduct')) && (
                        <button 
                           onClick={() => setIsQuickProductOpen(true)}
                           title="Cadastrar Produto"
-                          className="w-9 sm:w-11 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-lg sm:rounded-xl hover:bg-primary-50 transition-all shadow-sm active:scale-95 flex items-center justify-center cursor-pointer"
+                          className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 bg-white border-2 border-primary-400 text-primary-600 rounded-lg sm:rounded-xl hover:bg-primary-50 transition-all shadow-xs active:scale-95 flex items-center justify-center cursor-pointer"
                        >
-                          <PlusSquare size={16} />
+                          <PlusSquare size={15} />
                        </button>
                      )}
-                     <div className="flex-[2] flex gap-1 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl p-1 overflow-x-auto no-scrollbar">
+                     <div className="flex-1 flex gap-1 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl p-0.5 sm:p-1 overflow-x-auto no-scrollbar">
                         {[1, 2, 3, 4, 5].map(q => (
                           <button 
                             key={q} 
                             onClick={() => setSelectedQty(q)}
                             className={cn(
-                              "flex-1 rounded-md sm:rounded-lg text-xs sm:text-sm font-black transition-all cursor-pointer",
+                              "flex-1 min-w-[20px] py-0.5 rounded-md text-xs sm:text-sm font-black transition-all cursor-pointer text-center",
                               selectedQty === q ? "bg-primary-500 text-slate-900" : "text-slate-400 hover:text-slate-600"
                             )}
                           >
@@ -17622,16 +17622,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      </div>
                   </div>
                   <div className="relative">
-                     <Search className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
+                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" size={13} />
                      <input 
                        value={search}
                        onChange={(e) => setSearch(e.target.value.toUpperCase())}
-                       className="w-full h-8 sm:h-10 bg-white border-2 border-slate-200 rounded-lg sm:rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all uppercase"
+                       className="w-full h-8 sm:h-9 bg-white border-2 border-slate-200 rounded-lg pl-8 pr-3 text-[11px] sm:text-xs font-bold text-slate-700 placeholder:text-slate-300 outline-none focus:border-primary-500 transition-all uppercase"
                        placeholder="BUSCAR OU BIPAR..."
                      />
                   </div>
-                  <p className="text-[9px] font-bold text-slate-400 px-1 truncate">
-                     {filteredTerminalProducts.length} de {products.length} produto(s) — role a lista pra ver todos
+                  <p className="text-[8.5px] font-bold text-slate-400 px-0.5 truncate">
+                     {filteredTerminalProducts.length} de {products.length} produto(s)
                   </p>
                </div>
 
@@ -17642,23 +17642,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <div 
                           key={product.id} 
                           onClick={() => addToCart(product)}
-                          className="flex items-center justify-between gap-2 px-3 sm:px-3.5 py-1.5 sm:py-2 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-100 last:border-0"
+                          className="flex items-center justify-between gap-1.5 px-2.5 sm:px-3 py-1.5 hover:bg-primary-50 transition-colors group cursor-pointer border-b border-slate-100 last:border-0"
                         >
-                           <div className="flex-1 min-w-0">
-                              <p className="text-[9px] sm:text-[9.5px] font-black text-slate-800 truncate leading-none uppercase tracking-tight" title={product.name}>
+                           <div className="flex-1 min-w-0 pr-1">
+                              <p className="text-[9px] sm:text-[9.5px] font-black text-slate-800 truncate leading-tight uppercase tracking-tight" title={product.name}>
                                  {product.name}
                               </p>
-                              <div className="flex items-center gap-1.5 mt-1">
-                                 <span className="text-[7px] font-bold text-slate-400 tracking-[1px] uppercase bg-slate-100 px-1 rounded-sm shrink-0">{product.code}</span>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                 <span className="text-[7px] font-bold text-slate-400 tracking-[0.5px] uppercase bg-slate-100 px-1 rounded-xs shrink-0">{product.code}</span>
                                  <span className="text-[7px] font-bold text-slate-400 uppercase truncate">Est: {product.stock}</span>
                               </div>
                            </div>
-                           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-                              <p className="text-[10px] font-black text-emerald-600 tracking-tighter italic whitespace-nowrap">
+                           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                              <p className="text-[9.5px] sm:text-[10px] font-black text-emerald-600 tracking-tighter italic whitespace-nowrap">
                                  R$ {product.price.toFixed(2).replace('.', ',')}
                               </p>
-                              <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all shrink-0">
-                                 <Plus size={12} strokeWidth={2.5} />
+                              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-md bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-primary-500 group-hover:text-slate-900 transition-all shrink-0">
+                                 <Plus size={11} strokeWidth={2.5} />
                               </div>
                            </div>
                         </div>
@@ -17666,29 +17666,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    </div>
                 </div>
 
-               <div className="shrink-0 p-2 sm:p-3 bg-slate-50 border-t border-slate-200 space-y-1.5 sticky bottom-0 z-10">
-                  <div className="flex gap-2 h-11 sm:h-13">
+               <div className="shrink-0 p-2 sm:p-2.5 bg-slate-50 border-t border-slate-200 mt-auto z-10">
+                  <div className="flex gap-2 h-11 sm:h-12">
                      {orcamentoItemsEditMode ? (
                        <button
                          onClick={handleReturnItemsToOrcamento}
-                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-md shadow-primary-500/20 hover:bg-primary-400 transition-all active:scale-95 cursor-pointer"
+                         className="flex-1 h-full bg-primary-500 border-2 border-primary-600 text-slate-900 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-primary-500/20 hover:bg-primary-400 transition-all active:scale-95 cursor-pointer px-2"
                        >
-                          <div className="flex items-center gap-1.5 sm:gap-2">
-                             <FileSpreadsheet size={16} className="shrink-0" />
-                             <span className="text-xs sm:text-sm font-black uppercase tracking-tight">VOLTAR AO ORÇAMENTO ({cart.length})</span>
-                          </div>
-                          <span className="hidden sm:block text-[8px] font-black opacity-50 uppercase tracking-widest">Salva os itens escolhidos e retorna</span>
+                          <FileSpreadsheet size={16} className="shrink-0" />
+                          <span className="text-xs sm:text-sm font-black uppercase tracking-tight truncate">VOLTAR AO ORÇAMENTO ({cart.length})</span>
                        </button>
                      ) : contratoItemsEditMode ? (
                        <button
                          onClick={handleReturnItemsToContrato}
-                         className="flex-1 h-full bg-purple-500 border-2 border-purple-600 text-white rounded-xl sm:rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-md shadow-purple-500/20 hover:bg-purple-400 transition-all active:scale-95 cursor-pointer"
+                         className="flex-1 h-full bg-purple-500 border-2 border-purple-600 text-white rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-purple-500/20 hover:bg-purple-400 transition-all active:scale-95 cursor-pointer px-2"
                        >
-                          <div className="flex items-center gap-1.5 sm:gap-2">
-                             <FileSignature size={16} className="shrink-0" />
-                             <span className="text-xs sm:text-sm font-black uppercase tracking-tight">VOLTAR AO CONTRATO ({cart.length})</span>
-                          </div>
-                          <span className="hidden sm:block text-[8px] font-black opacity-50 uppercase tracking-widest">Salva os itens escolhidos e retorna</span>
+                          <FileSignature size={16} className="shrink-0" />
+                          <span className="text-xs sm:text-sm font-black uppercase tracking-tight truncate">VOLTAR AO CONTRATO ({cart.length})</span>
                        </button>
                      ) : (
                        <button 
@@ -17702,13 +17696,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                setIsCustomerModalOpen(true);
                             }
                          }}
-                         className="flex-1 h-full bg-primary-500 hover:bg-primary-400 border border-primary-400/60 text-slate-900 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-md shadow-primary-500/15 transition-all disabled:opacity-50 disabled:grayscale cursor-pointer active:scale-98"
+                         className="flex-1 h-full bg-primary-500 hover:bg-primary-400 border border-primary-400/60 text-slate-900 rounded-xl flex items-center justify-center gap-2 shadow-md shadow-primary-500/15 transition-all disabled:opacity-50 disabled:grayscale cursor-pointer active:scale-98 px-2"
                        >
-                          <div className="flex items-center gap-1.5 sm:gap-2">
-                             <ShoppingBag size={16} className="shrink-0" />
-                             <span className="text-xs sm:text-sm lg:text-base font-black uppercase tracking-tight">FINALIZAR VENDA</span>
-                          </div>
-                          <span className="hidden sm:block text-[8.5px] font-black opacity-50 uppercase tracking-widest">Ir para pagamento e fechamento</span>
+                          <ShoppingBag size={17} className="shrink-0" />
+                          <span className="text-xs sm:text-sm lg:text-base font-black uppercase tracking-tight whitespace-nowrap">FINALIZAR VENDA</span>
                        </button>
                      )}
                   </div>
