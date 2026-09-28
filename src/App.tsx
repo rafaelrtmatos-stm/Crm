@@ -1013,21 +1013,22 @@ export default function App() {
           return;
         }
 
-        // 2) Aguardando resposta: alem da ultima mensagem, atualiza espera, status e etapa.
+        // 2) Aguardando resposta: alem da ultima mensagem, atualiza espera e mensagens não lidas.
+        // NUNCA reseta etapa de lead que já existe (ex: quem está em Fornecedor, Orçamento, Concluído, etc. permanece na sua etapa!)
         await supabase.from('leads').update({
           ...patchUltimaMensagem,
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: quando,
           unread: true,
-          ...(ehGrupo ? {} : { status: 'ENTRADA' }),
+          ...(ehGrupo ? {} : (leadRow.status ? {} : { status: 'ENTRADA' })),
           ...(msgData.senderName && !ehGrupo ? { whatsapp_name: msgData.senderName } : {}),
-          ...(stageId && !ehGrupo ? { funnel_stage_id: stageId } : {}),
+          ...(stageId && !ehGrupo && !leadRow.funnel_stage_id ? { funnel_stage_id: stageId } : {}),
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
         }).eq('id', leadRow.id);
-        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] in ENTRADA stage.`);
+        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] preserving stage.`);
       }
     };
 

@@ -636,6 +636,23 @@ const parseMsgDate = (value: any): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
+// Formata o tempo de espera do cliente de forma dinâmica e legível (ex: "45s", "14 min", "2h 15m", "1d 4h")
+const formatLiveWaitingTime = (waitingSince: any): string => {
+  if (!waitingSince) return '';
+  const d = parseMsgDate(waitingSince);
+  if (!d || isNaN(d.getTime())) return '';
+  const diffSec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (diffSec < 60) return `${diffSec}s`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min`;
+  const diffHours = Math.floor(diffMin / 60);
+  const remMin = diffMin % 60;
+  if (diffHours < 24) return remMin > 0 ? `${diffHours}h ${remMin}m` : `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  const remHours = diffHours % 24;
+  return remHours > 0 ? `${diffDays}d ${remHours}h` : `${diffDays}d`;
+};
+
 // Mensagens antigas guardaram a URL da midia com o endereco de um deploy especifico da Vercel (que pode estar
 // protegido por login ou nem existir mais). Como o endpoint e sempre o mesmo, usa so o caminho relativo.
 const normalizarMediaUrl = (url?: string | null): string | undefined => {
@@ -644,10 +661,28 @@ const normalizarMediaUrl = (url?: string | null): string | undefined => {
   return m ? m[1] : url;
 };
 
-// Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue/recebida,
-// 2 azuis = lida. Sem delivery_status, assume "enviada" (nunca some) e o card mostra "Não disponível"
-// nos horários que ainda não temos.
-// Clicável: abre um pequeno balão compacto e legível mostrando apenas o necessário (Recebida / Lida com ícone e horário).
+// Formata a data/hora para os status da mensagem exatamente no padrão do WhatsApp ("hoje 14:34", "ontem 14:34" ou "dd/MM/yyyy 14:34")
+const formatWhatsAppStatusDate = (value: any): string => {
+  const d = parseMsgDate(value);
+  if (!d || isNaN(d.getTime())) return '';
+  const now = new Date();
+  const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear();
+
+  const timeStr = safeFormat(d, 'HH:mm');
+  if (isToday) {
+    return `hoje ${timeStr}`;
+  }
+  if (isYesterday) {
+    return `ontem ${timeStr}`;
+  }
+  return `${safeFormat(d, 'dd/MM/yyyy')} ${timeStr}`;
+};
+
+// Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue, 2 azuis = vista
+// Clicável: abre o card idêntico ao WhatsApp com "Vista" (tique azul) e "Entregue" (tique cinza) com seus respectivos horários.
 const MessageStatusTicks = ({
   status,
   m,
@@ -661,44 +696,51 @@ const MessageStatusTicks = ({
   onToggle?: () => void;
   onClose?: () => void;
 }) => {
-  // O botão "Ver histórico" NUNCA deve sumir por falta de dado: uma mensagem outgoing
-  // renderizada aqui necessariamente foi enviada, entao a ausencia de delivery_status
-  // (mensagem antiga, atraso do webhook, etc.) so significa que ainda nao sabemos se foi
-  // recebida/lida -- trata como 'sent' em vez de esconder o botao inteiro.
   const statusResolvido = (status === 'delivered' || status === 'read') ? status : 'sent';
   const isRead = statusResolvido === 'read';
   const isDelivered = statusResolvido === 'delivered';
-  const label = isRead ? 'Lido' : isDelivered ? 'Recebido' : 'Enviado';
-  const sentTime = m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : null;
-  const deliveredTime = m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : null;
-  const readTime = m?.readAt ? safeFormat(m.readAt, 'HH:mm') : null;
-  const activeTime = isRead ? readTime : isDelivered ? deliveredTime : sentTime;
+  const label = isRead ? 'Vista' : isDelivered ? 'Entregue' : 'Enviada';
+
+  // Horários e datas formatados exatamente como no WhatsApp ("hoje 14:34")
+  const readDateStr = m?.readAt 
+    ? formatWhatsAppStatusDate(m.readAt) 
+    : (isRead ? formatWhatsAppStatusDate(m?.deliveredAt || m?.createdAt) : '');
+
+  const deliveredDateStr = m?.deliveredAt 
+    ? formatWhatsAppStatusDate(m.deliveredAt) 
+    : ((isDelivered || isRead) ? formatWhatsAppStatusDate(m?.createdAt) : '');
+
+  const activeTime = isRead 
+    ? (m?.readAt ? safeFormat(m.readAt, 'HH:mm') : safeFormat(m?.createdAt, 'HH:mm'))
+    : isDelivered 
+      ? (m?.deliveredAt ? safeFormat(m.deliveredAt, 'HH:mm') : safeFormat(m?.createdAt, 'HH:mm'))
+      : (m?.createdAt ? safeFormat(m.createdAt, 'HH:mm') : null);
 
   return (
     <div className="relative inline-flex items-center shrink-0">
-      {/* Botão "Ver histórico" da mensagem: claramente visível, fácil de clicar e com texto legível */}
+      {/* Botão de status da mensagem no rodapé do balão */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onToggle?.();
         }}
-        title={`Status: ${label}${activeTime ? ` às ${activeTime}` : ''} — clique para ver o histórico detalhado`}
+        title={`Status: ${label}${activeTime ? ` às ${activeTime}` : ''} — clique para ver os dados da mensagem`}
         aria-label={`Ver histórico da mensagem: ${label}`}
         className={cn(
-          "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md cursor-pointer transition-all active:scale-95 text-[9.5px] font-bold border shrink-0 shadow-xs select-none",
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded-md cursor-pointer transition-all active:scale-95 text-[9.5px] font-bold border shrink-0 shadow-xs select-none",
           isRead 
             ? "bg-sky-500/15 text-sky-300 border-sky-500/35 hover:bg-sky-500/25" 
             : isDelivered 
-              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/35 hover:bg-emerald-500/25" 
+              ? "bg-slate-500/15 text-slate-300 border-slate-500/35 hover:bg-slate-500/25" 
               : "bg-white/10 text-white/80 border-white/15 hover:bg-white/20",
           isOpen && "ring-2 ring-white/40 shadow-md"
         )}
       >
         {statusResolvido === 'sent' ? (
-          <Check size={12} strokeWidth={2.5} className="shrink-0 text-slate-200" />
+          <Check size={12} strokeWidth={2.5} className="shrink-0 text-slate-300" />
         ) : (
-          <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-sky-300" : "text-emerald-300")} />
+          <CheckCheck size={13} strokeWidth={2.5} className={cn("shrink-0", isRead ? "text-[#34B7F1]" : "text-slate-400")} />
         )}
         <span className="leading-none">{label}</span>
         {activeTime && (
@@ -709,71 +751,42 @@ const MessageStatusTicks = ({
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40 bg-black/20 sm:bg-transparent" onClick={(e) => { e.stopPropagation(); onClose?.(); }} />
-          {/* Painel/modal compacto com o histórico completo (Enviado/Recebido/Lido), ícones e horários */}
+          {/* Card idêntico ao WhatsApp da imagem de referência */}
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-full mb-2 right-0 z-50 w-64 max-w-[calc(100vw-32px)] bg-[#1a2333]/98 border border-white/20 text-white rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl text-xs animate-in fade-in zoom-in-95 duration-150 select-none space-y-2.5"
+            className="absolute bottom-full mb-2.5 right-0 z-50 w-72 sm:w-80 max-w-[calc(100vw-32px)] bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden text-sm animate-in fade-in zoom-in-95 duration-150 select-none"
           >
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <p className="text-[9.5px] font-black uppercase tracking-wider text-white/50 flex items-center gap-1.5">
-                <Clock size={11} className="text-primary-300" /> Histórico da Mensagem
-              </p>
-              <button 
-                type="button" 
-                onClick={(e) => { e.stopPropagation(); onClose?.(); }}
-                className="text-white/40 hover:text-white p-0.5 rounded cursor-pointer"
-              >
-                <X size={12} />
-              </button>
+            {/* Linha 1: Vista */}
+            <div className="flex items-center justify-between px-4 py-3 sm:py-3.5 hover:bg-slate-50/60 transition-colors">
+              <div className="flex items-center gap-3 min-w-0">
+                <CheckCheck size={19} strokeWidth={2.5} className="text-[#34B7F1] shrink-0" />
+                <span className="text-[15px] sm:text-[16px] font-normal text-slate-900 tracking-tight">
+                  Vista
+                </span>
+              </div>
+              <span className="text-[13px] sm:text-[14px] font-normal text-[#667781] tracking-tight shrink-0 whitespace-nowrap pl-2">
+                {isRead ? (readDateStr || (activeTime ? `hoje ${activeTime}` : '—')) : '—'}
+              </span>
             </div>
 
-            <div className="space-y-2">
-              {/* Enviado */}
-              <div className="flex items-center gap-2.5 p-1.5 rounded-xl bg-white/5 border border-white/5">
-                <div className="w-6 h-6 rounded-lg bg-white/10 text-white flex items-center justify-center shrink-0">
-                  <Check size={13} strokeWidth={2.5} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-100 text-[11px] leading-tight">Enviado</p>
-                  <p className="text-[10px] text-white/50 font-medium truncate">{sentTime ? `Às ${sentTime}` : 'Registrado no sistema'}</p>
-                </div>
-                <span className="text-[9px] font-black text-slate-300 bg-white/10 px-1.5 py-0.5 rounded">✓</span>
-              </div>
+            {/* Linha divisória sutil idêntica à do WhatsApp */}
+            <div className="h-px bg-slate-200/80 w-full" />
 
-              {/* Recebido */}
-              <div className={cn("flex items-center gap-2.5 p-1.5 rounded-xl border transition-colors", (isDelivered || isRead) ? "bg-emerald-500/10 border-emerald-500/20" : "bg-white/[0.02] border-white/5 opacity-60")}>
-                <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", (isDelivered || isRead) ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/20")}>
-                  <CheckCheck size={13} strokeWidth={2.5} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={cn("font-bold text-[11px] leading-tight", (isDelivered || isRead) ? "text-emerald-300" : "text-white/40")}>Recebido</p>
-                  <p className={cn("text-[10px] font-medium truncate", (isDelivered || isRead) ? "text-white/60" : "text-white/30")}>
-                    {deliveredTime ? `Às ${deliveredTime}` : (isDelivered || isRead ? 'Entregue no aparelho' : 'Aguardando entrega')}
-                  </p>
-                </div>
-                {(isDelivered || isRead) && (
-                  <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">✓✓</span>
-                )}
+            {/* Linha 2: Entregue */}
+            <div className="flex items-center justify-between px-4 py-3 sm:py-3.5 hover:bg-slate-50/60 transition-colors">
+              <div className="flex items-center gap-3 min-w-0">
+                <CheckCheck size={19} strokeWidth={2.5} className="text-[#8696A0] shrink-0" />
+                <span className="text-[15px] sm:text-[16px] font-normal text-slate-900 tracking-tight">
+                  Entregue
+                </span>
               </div>
-
-              {/* Lido */}
-              <div className={cn("flex items-center gap-2.5 p-1.5 rounded-xl border transition-colors", isRead ? "bg-sky-500/10 border-sky-500/20" : "bg-white/[0.02] border-white/5 opacity-60")}>
-                <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0", isRead ? "bg-sky-500/20 text-sky-400" : "bg-white/5 text-white/20")}>
-                  <CheckCheck size={13} strokeWidth={2.5} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={cn("font-bold text-[11px] leading-tight", isRead ? "text-sky-300" : "text-white/40")}>Lido</p>
-                  <p className={cn("text-[10px] font-medium truncate", isRead ? (readTime ? `Às ${readTime}` : 'Visualizado pelo cliente') : 'Aguardando leitura')}>
-                    {isRead ? (readTime ? `Às ${readTime}` : 'Visualizado pelo cliente') : 'Aguardando leitura'}
-                  </p>
-                </div>
-                {isRead && (
-                  <span className="text-[9px] font-black text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded">Lido</span>
-                )}
-              </div>
+              <span className="text-[13px] sm:text-[14px] font-normal text-[#667781] tracking-tight shrink-0 whitespace-nowrap pl-2">
+                {(isDelivered || isRead) ? (deliveredDateStr || (activeTime ? `hoje ${activeTime}` : '—')) : '—'}
+              </span>
             </div>
 
-            <div className="absolute top-full right-3 -mt-px border-solid border-t-[#1a2333]/98 border-t-[5px] border-x-transparent border-x-[5px] border-b-0" />
+            {/* Ponteiro sutil na parte inferior */}
+            <div className="absolute top-full right-4 -mt-px border-solid border-t-white border-t-[6px] border-x-transparent border-x-[6px] border-b-0 drop-shadow-xs" />
           </div>
         </>
       )}
@@ -3636,6 +3649,18 @@ export const ChatPanel = ({
   const [forwardingMessage, setForwardingMessage] = useState<any | null>(null);
   const [enviandoNotaImagem, setEnviandoNotaImagem] = useState(false);
 
+  // Ticker de tempo ao vivo para mensagem aguardando resposta (atualiza a cada 5s)
+  const [liveChatNow, setLiveChatNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!conversation?.waitingSince) return;
+    const interval = setInterval(() => setLiveChatNow(Date.now()), 5000);
+    return () => clearInterval(interval);
+  }, [conversation?.waitingSince]);
+
+  const liveWaitingTime = useMemo(() => {
+    return formatLiveWaitingTime(conversation?.waitingSince);
+  }, [conversation?.waitingSince, liveChatNow]);
+
   const handleSendImageWithCaption = async (imageUrl: string, captionText: string) => {
     if (!imageUrl || !conversation?.phone) return;
     setEnviandoNotaImagem(true);
@@ -5684,6 +5709,12 @@ export const ChatPanel = ({
             updated_at: new Date().toISOString(),
           }).eq('id', conversation.id);
         }
+        onLeadPatched?.(conversation.id, {
+          waitingSince: undefined,
+          lastMessageText: textoEnviado,
+          lastMessageDirection: 'outgoing',
+          lastMessageAt: new Date().toISOString(),
+        });
         return;
       }
 
@@ -5707,6 +5738,12 @@ export const ChatPanel = ({
         waiting_since: null,
         updated_at: new Date().toISOString(),
       }).eq('id', conversation.id);
+      onLeadPatched?.(conversation.id, {
+        waitingSince: undefined,
+        lastMessageText: textoEnviado,
+        lastMessageDirection: 'outgoing',
+        lastMessageAt: new Date().toISOString(),
+      });
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
       setReenvioPendente(textoEnviado);
@@ -6097,12 +6134,22 @@ export const ChatPanel = ({
                         type="button"
                         onClick={() => setIsStageMenuOpen(o => !o)}
                         disabled={isChangingStage}
-                        className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 transition-all text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xs"
-                        style={{ color: stageColor }}
-                        title="Clique para alterar a etapa do atendimento"
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xs",
+                          conversation.waitingSince
+                            ? "bg-amber-500/20 border-amber-500/60 text-amber-300 ring-2 ring-amber-500/40 animate-pulse"
+                            : "bg-white/10 hover:bg-white/15 border-white/15"
+                        )}
+                        style={{ color: conversation.waitingSince ? undefined : stageColor }}
+                        title={conversation.waitingSince ? `Aguardando resposta há ${liveWaitingTime}! Clique para alterar a etapa` : "Clique para alterar a etapa do atendimento"}
                       >
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: stageColor }} />
+                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", conversation.waitingSince ? "bg-amber-400 animate-ping" : "animate-pulse")} style={{ backgroundColor: conversation.waitingSince ? undefined : stageColor }} />
                         <span className="truncate max-w-[85px] sm:max-w-[120px]">{stageName}</span>
+                        {conversation.waitingSince && (
+                          <span className="font-mono text-[8px] px-1 py-0.2 rounded bg-amber-500/40 text-amber-100 font-bold shrink-0">
+                            ⏱️ {liveWaitingTime}
+                          </span>
+                        )}
                         <ChevronDown size={9} className={cn("shrink-0 opacity-70 transition-transform duration-200", isStageMenuOpen && "rotate-180")} />
                       </button>
 
@@ -6177,6 +6224,15 @@ export const ChatPanel = ({
                       </span>
                     ) : (
                       <span className="text-emerald-400 font-semibold uppercase tracking-wider shrink-0">Online</span>
+                    )}
+                    {conversation.waitingSince && (
+                      <>
+                        <span className="text-white/30 shrink-0">·</span>
+                        <span className="inline-flex items-center gap-1 text-amber-300 font-bold bg-amber-500/20 border border-amber-500/35 px-1.5 py-0.5 rounded text-[9.5px] animate-pulse shrink-0" title={`Cliente aguardando resposta há ${liveWaitingTime}`}>
+                          <Clock size={10} className="text-amber-400" />
+                          <span>Espera: {liveWaitingTime}</span>
+                        </span>
+                      </>
                     )}
                   </div>
                 ) : (
@@ -6483,6 +6539,34 @@ export const ChatPanel = ({
           {onClose && <Button variant="ghost" icon={X} onClick={onClose} className="hidden md:flex p-1 min-w-0 h-7 w-7 sm:h-8 sm:w-8 text-white/50 hover:text-white shrink-0" title="Fechar" />}
         </div>
       </div>
+
+      {/* Banner de Mensagem Não Respondida com Tempo de Espera ao Vivo */}
+      {conversation.waitingSince && (
+        <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/20 border-b border-amber-500/30 px-3.5 py-1.5 sm:py-2 flex items-center justify-between gap-2 text-xs text-amber-200 shrink-0 backdrop-blur-md shadow-inner animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+            </span>
+            <span className="font-bold text-[11px] sm:text-xs text-amber-300 truncate">
+              Mensagem não respondida:
+            </span>
+            <span className="font-mono font-black text-amber-200 bg-amber-500/25 px-2 py-0.5 rounded-md border border-amber-500/40 text-[10.5px] sm:text-xs tracking-tight shrink-0 animate-pulse flex items-center gap-1.5">
+              <Clock size={12} className="text-amber-400" />
+              Tempo de espera: {liveWaitingTime}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleResolveWaiting}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[9.5px] sm:text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shrink-0 active:scale-95 shadow-xs"
+            title="Marcar como resolvido (remove o tempo de espera sem precisar enviar mensagem)"
+          >
+            <CheckCircle2 size={12} className="shrink-0" />
+            <span>Resolvido</span>
+          </button>
+        </div>
+      )}
 
       {/* Barra de Navegação Superior quando estiver em Notas, Tarefas, Dados ou Vendas */}
       {activeTab !== 'chat' && (
@@ -9419,6 +9503,19 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                 <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/90 shrink-0">
                   {filteredLeads.filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, ''))).filter(l => l.funnelStageId === displayedStageId || (!l.funnelStageId && (currentStageObj?.isInitial || currentStageObj?.order === 0))).length}
                 </span>
+                {(() => {
+                  const stageWaitingCount = filteredLeads
+                    .filter(l => !gruposDigitos.has((l.phone || '').replace(/\D/g, '')))
+                    .filter(l => l.funnelStageId === displayedStageId || (!l.funnelStageId && (currentStageObj?.isInitial || currentStageObj?.order === 0)))
+                    .filter(l => Boolean(l.waitingSince)).length;
+                  if (stageWaitingCount === 0) return null;
+                  return (
+                    <span className="flex items-center gap-1 text-[9.5px] font-black text-amber-300 bg-amber-500/25 border border-amber-500/40 px-2 py-0.5 rounded-full animate-pulse shrink-0" title={`${stageWaitingCount} contato(s) aguardando resposta nesta etapa`}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                      <span>{stageWaitingCount} aguardando</span>
+                    </span>
+                  );
+                })()}
               </div>
 
               <button
@@ -9830,6 +9927,7 @@ const KanbanColumnLegacy = ({
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
   const [showColorPicker, setShowColorPicker] = useState(false);
   const filteredStageLeads = leads;
+  const stageWaitingCount = leads.filter(l => Boolean(l.waitingSince)).length;
 
   return (
     <div className="flex-1 min-w-0 flex flex-col gap-1.5 min-h-0 h-full">
@@ -9901,6 +9999,12 @@ const KanbanColumnLegacy = ({
           <span className="text-[10px] font-bold text-white/50 px-1.5 py-0.5 rounded-md bg-white/5 shrink-0">
             {leads.length}
           </span>
+          {stageWaitingCount > 0 && (
+            <span className="flex items-center gap-1 text-[9px] font-black text-amber-300 bg-amber-500/25 border border-amber-500/40 px-1.5 py-0.5 rounded-full animate-pulse shrink-0" title={`${stageWaitingCount} lead(s) aguardando resposta nesta etapa`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+              <span>{stageWaitingCount}</span>
+            </span>
+          )}
         </div>
 
         {/* Botão de Encolher a coluna para expandir conversa */}
@@ -9967,6 +10071,15 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
   const channelName = (lead.sourceType || 'WhatsApp');
   const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
   const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
+  const isWaiting = Boolean(lead.waitingSince);
+  const [cardClock, setCardClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isWaiting) return;
+    const interval = setInterval(() => setCardClock(Date.now()), 10000);
+    return () => clearInterval(interval);
+  }, [isWaiting]);
+  const waitingTimeStr = useMemo(() => formatLiveWaitingTime(lead.waitingSince), [lead.waitingSince, cardClock]);
+
   const timeStr = lead.lastMessageAt || (lead.createdAt as any)?.toDate?.()
     ? format(parseMsgDate(lead.lastMessageAt || lead.createdAt) || new Date(), 'HH:mm')
     : '';
@@ -9985,7 +10098,9 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
           "p-2 rounded-xl border transition-all group relative overflow-hidden cursor-pointer select-none",
           isSelected 
             ? "bg-red-950/30 border-red-500/60 shadow-md shadow-red-950/40 ring-1 ring-red-500/40" 
-            : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
+            : isWaiting
+              ? "bg-amber-950/30 hover:bg-amber-950/40 border-amber-500/70 hover:border-amber-400 ring-2 ring-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.35)] animate-pulse"
+              : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
           isChecked ? "bg-rose-950/40 border-rose-500/50 ring-1 ring-rose-500/30" : "",
           isDragging ? "shadow-2xl ring-2 ring-red-500 scale-105" : ""
         )}
@@ -10027,6 +10142,24 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
             )}
           </div>
         </div>
+
+        {/* Alerta de Mensagem Não Respondida com Tempo de Espera ao Vivo */}
+        {isWaiting && (
+          <div className="mb-1 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-500/50 text-amber-200 shadow-xs">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 truncate">
+                Aguardando Resposta
+              </span>
+            </div>
+            <span className="font-mono text-[8.5px] font-black text-amber-100 bg-amber-500/40 px-1.5 py-0.2 rounded border border-amber-500/40 shrink-0">
+              ⏱️ {waitingTimeStr}
+            </span>
+          </div>
+        )}
 
         {/* Badge do Serviço do Lead (Opção 1: Logo abaixo do Nome) */}
         {Boolean(lead.serviceName || lead.orderSummary) && (
@@ -10191,6 +10324,16 @@ const KanbanColumn = ({
           <span className="text-[10px] font-bold text-white/50 px-1.5 py-0.5 rounded-md bg-white/5 shrink-0">
             {leads.length}
           </span>
+          {(() => {
+            const waitingCount = leads.filter(l => Boolean(l.waitingSince)).length;
+            if (waitingCount === 0) return null;
+            return (
+              <span className="flex items-center gap-1 text-[9px] font-black text-amber-300 bg-amber-500/25 border border-amber-500/40 px-1.5 py-0.5 rounded-full animate-pulse shrink-0" title={`${waitingCount} lead(s) aguardando resposta nesta etapa`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                <span>{waitingCount}</span>
+              </span>
+            );
+          })()}
         </div>
 
         {/* Botão de Encolher a coluna para expandir conversa */}
@@ -10258,6 +10401,15 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
   const channelName = (lead.sourceType || 'WhatsApp');
   const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
   const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
+  const isWaiting = Boolean(lead.waitingSince);
+  const [cardClock, setCardClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isWaiting) return;
+    const interval = setInterval(() => setCardClock(Date.now()), 10000);
+    return () => clearInterval(interval);
+  }, [isWaiting]);
+  const waitingTimeStr = useMemo(() => formatLiveWaitingTime(lead.waitingSince), [lead.waitingSince, cardClock]);
+
   const timeStr = lead.lastMessageAt || (lead.createdAt as any)?.toDate?.()
     ? format(parseMsgDate(lead.lastMessageAt || lead.createdAt) || new Date(), 'HH:mm')
     : '';
@@ -10276,7 +10428,9 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
           "p-2 rounded-xl border transition-all group relative overflow-hidden cursor-pointer select-none",
           isSelected 
             ? "bg-red-950/30 border-red-500/60 shadow-md shadow-red-950/40 ring-1 ring-red-500/40" 
-            : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
+            : isWaiting
+              ? "bg-amber-950/30 hover:bg-amber-950/40 border-amber-500/70 hover:border-amber-400 ring-2 ring-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.35)] animate-pulse"
+              : "bg-slate-900/60 hover:bg-slate-900/90 border-white/5 hover:border-white/15",
           isChecked ? "bg-rose-950/40 border-rose-500/50 ring-1 ring-rose-500/30" : "",
           isDragging ? "shadow-2xl ring-2 ring-red-500 scale-105" : ""
         )}
@@ -10311,6 +10465,24 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
                 )}
               </div>
             </div>
+
+            {/* Alerta de Mensagem Não Respondida com Tempo de Espera ao Vivo */}
+            {isWaiting && (
+              <div className="mb-1.5 flex items-center justify-between gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/25 border border-amber-500/50 text-amber-200 shadow-xs">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 truncate">
+                    Aguardando Resposta
+                  </span>
+                </div>
+                <span className="font-mono text-[8.5px] font-black text-amber-100 bg-amber-500/40 px-1.5 py-0.2 rounded border border-amber-500/40 shrink-0">
+                  ⏱️ {waitingTimeStr}
+                </span>
+              </div>
+            )}
 
             {/* Badge do Serviço do Lead (Opção 1: Logo abaixo do Nome) */}
             {Boolean(lead.serviceName || lead.orderSummary) && (
@@ -14752,26 +14924,36 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
   };
 
-  const handleSendReceiptWithImageAndCaption = async (sale: SaleOrder) => {
-    if (!sale.customerPhone) {
-      showAlert('Essa venda não tem telefone de WhatsApp cadastrado. Edite a venda para adicionar o telefone do cliente.');
+  const handleSendReceiptWithImageAndCaption = async (sale: SaleOrder, overridePhone?: string, overrideName?: string) => {
+    const rawPhone = (overridePhone || sale.customerPhone || selectedCustomer?.phone || '').trim();
+    if (!rawPhone) {
+      showAlert('Essa venda não tem telefone de WhatsApp cadastrado. Cadastre o telefone do cliente para enviar o recibo.');
       return;
     }
-    const cleanPhone = sale.customerPhone.replace(/\D/g, '');
+    const cleanPhone = rawPhone.replace(/\D/g, '');
     if (cleanPhone.length < 8) {
       showAlert('Telefone do cliente inválido para envio por WhatsApp.');
       return;
     }
-    const customerName = (sale.customerName || 'Cliente').trim();
+    const customerName = (overrideName || sale.customerName || selectedCustomer?.name || 'Cliente').trim();
+
+    // REGRA DE CONFIRMAÇÃO OBRIGATÓRIA: Só enviar se apertar OK!
+    const confirmou = await showConfirm(
+      `Deseja enviar o recibo do pedido #${sale.id.slice(-8).toUpperCase()} para ${customerName} no WhatsApp (${rawPhone})?`
+    );
+    if (!confirmou) {
+      return;
+    }
+
     const legenda = buildOrderShareMessage(sale, customerName);
 
     setEnviandoReciboWhatsApp(true);
     try {
       // 1. Renderiza o canvas de alta resolução do recibo
       const canvas = await renderReceiptCanvas({
-        order: sale,
+        order: { ...sale, customerPhone: rawPhone, customerName },
         companyName: currentCompany?.name || 'Rafa Arts Graphics',
-        customerPhone: sale.customerPhone,
+        customerPhone: rawPhone,
         logoDarkUrl,
         companyContact,
       });
@@ -14823,6 +15005,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
 
       setViewingReceiptSale(null);
+      setIsSuccessModalOpen(false);
 
       if (enviadoComSucesso) {
         showAlert('🧾 Imagem do recibo e legenda enviadas com sucesso no WhatsApp!');
@@ -14834,6 +15017,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     } catch (err: any) {
       console.error('Erro ao gerar/enviar recibo:', err);
       setViewingReceiptSale(null);
+      setIsSuccessModalOpen(false);
       await findOrCreateLeadAndOpenChat(cleanPhone, customerName, legenda);
     } finally {
       setEnviandoReciboWhatsApp(false);
@@ -15242,9 +15426,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleShareViaWhatsApp = async (order: SaleOrder, customerName: string, phone: string) => {
-    const digits = phone.replace(/\D/g, '');
-    const message = buildOrderShareMessage(order, customerName);
-    await findOrCreateLeadAndOpenChat(digits, customerName, message);
+    await handleSendReceiptWithImageAndCaption(order, phone, customerName);
   };
 
   const handleSaveWhatsAppCustomer = async () => {
@@ -15275,8 +15457,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setSelectedCustomer({ id: customerId || '', name: waFormName, phone: fullPhone });
       setIsWhatsAppFormOpen(false);
       if (lastFinalizedOrder) {
-        const message = buildOrderShareMessage(lastFinalizedOrder, waFormName);
-        await findOrCreateLeadAndOpenChat(`${waFormCountry.code.replace('+', '')}${digits}`, waFormName, message);
+        await handleSendReceiptWithImageAndCaption(lastFinalizedOrder, fullPhone, waFormName);
       }
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
@@ -15416,6 +15597,77 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     loadSalesHistory();
   };
 
+  const handleOfferPosVenda = async (sale: SaleOrder) => {
+    const rawPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim();
+    const customerName = (sale.customerName || selectedCustomer?.name || 'Cliente').trim();
+    const cleanPhone = rawPhone.replace(/\D/g, '');
+
+    // 1. Confirmação clara com o usuário ("só enviar se apertar OK")
+    const confirmou = await showConfirm(
+      `O pedido #${sale.id.slice(-8).toUpperCase()} foi marcado como ENTREGUE!\n\nDeseja enviar a mensagem de pós-venda/agradecimento para ${customerName}${rawPhone ? ` (${rawPhone})` : ''} via WhatsApp e mover o atendimento para a coluna "Concluído" no CRM?`
+    );
+    if (!confirmou) return;
+
+    // 2. Mover o lead para a coluna Concluído no CRM (se existir o lead)
+    try {
+      const { data: stages } = await supabase
+        .from('funnel_stages')
+        .select('id, name')
+        .or('name.ilike.%conclu%,name.ilike.%entreg%')
+        .order('order', { ascending: false })
+        .limit(1);
+      const stageConcluidoId = stages?.[0]?.id;
+
+      if (cleanPhone.length >= 8) {
+        const patch: Record<string, any> = {
+          status: 'CONCLUIDO',
+          updated_at: new Date().toISOString(),
+        };
+        if (stageConcluidoId) {
+          patch.funnel_stage_id = stageConcluidoId;
+        }
+        await supabase
+          .from('leads')
+          .update(patch)
+          .eq('company_id', currentCompany?.id || 'rafa-arts')
+          .ilike('phone', `%${cleanPhone.slice(-8)}%`);
+      }
+    } catch (leadErr) {
+      console.warn('Erro ao atualizar etapa do lead no CRM:', leadErr);
+    }
+
+    // 3. Enviar mensagem de agradecimento/pós-venda no WhatsApp
+    if (cleanPhone.length >= 8) {
+      const msgPosVenda = `Olá, *${customerName}*! Seu pedido *#${sale.id.slice(-8).toUpperCase()}* foi finalizado e entregue com sucesso pela *${currentCompany?.name || 'Rafa Arts'}*. 🎉\n\nMuito obrigado pela confiança e preferência! Se puder avaliar nosso atendimento ou nos marcar com o trabalho pronto, ficaremos muito felizes. Estamos sempre à disposição para seus próximos projetos! 🚀`;
+
+      try {
+        const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
+        const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+
+        const resp = await fetch('/api/whatsapp-send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+          body: JSON.stringify({
+            phone: cleanPhone,
+            text: msgPosVenda,
+            senderName: senderDisplay,
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (resp.ok && json.ok) {
+          showAlert('🎉 Mensagem de pós-venda enviada com sucesso no WhatsApp e lead movido para Concluído!');
+        } else {
+          await findOrCreateLeadAndOpenChat(cleanPhone, customerName, msgPosVenda);
+        }
+      } catch (err) {
+        console.error('Falha ao enviar mensagem de pós-venda:', err);
+        await findOrCreateLeadAndOpenChat(cleanPhone, customerName, msgPosVenda);
+      }
+    } else {
+      showAlert('Atendimento movido para Concluído no CRM!');
+    }
+  };
+
   const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
     await syncServiceStatus('venda', saleId, newStatus);
     // Atualizar estado local após sincronização
@@ -15423,6 +15675,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
     setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
     setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
+
+    if (newStatus === 'produto_entregue') {
+      const sale = allSalesHistory.find(s => s.id === saleId) || (lastFinalizedOrder?.id === saleId ? lastFinalizedOrder : null) || (viewingReceiptSale?.id === saleId ? viewingReceiptSale : null);
+      if (sale) {
+        await handleOfferPosVenda(sale);
+      }
+    }
   };
 
   // Botao unico de status (aba Servicos): em vez de duas setas (avancar/retroceder), um clique
@@ -16394,6 +16653,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     showAlert('Pedido marcado como entregue!');
+    await handleOfferPosVenda(atualizado);
   };
 
   const handleDeleteScheduleFromCard = async (sale: SaleOrder) => {
@@ -21855,14 +22115,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      <button
                        type="button"
                        onClick={() => {
-                         if (!lastFinalizedOrder) return;
+                         if (!lastFinalizedOrder || enviandoReciboWhatsApp) return;
                          handleShareViaWhatsApp(lastFinalizedOrder, clienteNome, clienteTel);
                        }}
-                       className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 font-mono font-black text-xs transition-all cursor-pointer group active:scale-95 shadow-sm shrink-0"
-                       title="Clique no número para enviar a nota pelo WhatsApp"
+                       disabled={enviandoReciboWhatsApp}
+                       className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 font-mono font-black text-xs transition-all cursor-pointer group active:scale-95 shadow-sm shrink-0 disabled:opacity-50"
+                       title="Enviar recibo completo com imagem para o WhatsApp do cliente"
                      >
-                       <MessageSquare size={14} className="text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
-                       <span className="underline decoration-dotted underline-offset-2">{clienteTel}</span>
+                       {enviandoReciboWhatsApp ? <Loader2 size={14} className="animate-spin text-emerald-400 shrink-0" /> : <MessageSquare size={14} className="text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />}
+                       <span className="underline decoration-dotted underline-offset-2">{enviandoReciboWhatsApp ? 'Enviando...' : clienteTel}</span>
                      </button>
                    ) : (
                      <button
@@ -21885,20 +22146,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           <div className="grid grid-cols-5 gap-1.5 sm:gap-3 shrink-0">
              <Button 
                variant="secondary" 
-               icon={Share2} 
-               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all"
+               icon={enviandoReciboWhatsApp ? Loader2 : MessageSquare} 
+               disabled={enviandoReciboWhatsApp}
+               className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all disabled:opacity-50"
                onClick={() => {
-                  if (!lastFinalizedOrder) return;
-                  if (selectedCustomer?.phone) {
-                    handleShareViaWhatsApp(lastFinalizedOrder, selectedCustomer.name, selectedCustomer.phone);
+                  if (!lastFinalizedOrder || enviandoReciboWhatsApp) return;
+                  const tel = selectedCustomer?.phone || lastFinalizedOrder.customerPhone;
+                  const nome = selectedCustomer?.name || lastFinalizedOrder.customerName || 'Cliente';
+                  if (tel) {
+                    handleShareViaWhatsApp(lastFinalizedOrder, nome, tel);
                   } else {
-                    setWaFormName(lastFinalizedOrder.customerName || '');
+                    setWaFormName(nome);
                     setWaFormPhone('');
                     setIsWhatsAppFormOpen(true);
                   }
                }}
              >
-                Compartilhar
+                {enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}
                 <span className="text-[8px] opacity-60 lowercase font-medium text-emerald-400">Via WhatsApp</span>
              </Button>
 
@@ -24412,6 +24676,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
                  >
                    Quitar
+                 </Button>
+               )}
+               <Button
+                 variant="secondary"
+                 size="sm"
+                 icon={enviandoReciboWhatsApp ? Loader2 : MessageSquare}
+                 disabled={enviandoReciboWhatsApp}
+                 className="flex-1 min-w-[90px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border-emerald-500/30 shadow-xs disabled:opacity-50"
+                 onClick={() => handleOpenChatFromReceipt(sale)}
+                 title="Enviar recibo completo com imagem para o WhatsApp do cliente"
+               >
+                 {enviandoReciboWhatsApp ? 'Enviando...' : 'WhatsApp'}
+               </Button>
+               {sale.serviceStatus === 'produto_entregue' && (
+                 <Button
+                   variant="secondary"
+                   size="sm"
+                   icon={Sparkles}
+                   className="flex-1 min-w-[95px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 border-purple-500/30 shadow-xs"
+                   onClick={() => handleOfferPosVenda(sale)}
+                   title="Enviar mensagem de agradecimento/pós-venda e mover para Concluído"
+                 >
+                   Pós-Venda
                  </Button>
                )}
                <Button variant="secondary" size="sm" icon={Printer} className="flex-1 min-w-[85px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10" onClick={() => handlePrintReceipt(sale)}>
