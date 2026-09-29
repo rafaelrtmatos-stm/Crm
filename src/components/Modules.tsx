@@ -5572,6 +5572,59 @@ export const ChatPanel = ({
 
   // Mesmos limites do WhatsApp: foto enviada como foto ate 16 MB; documento (qualquer arquivo) ate 100 MB.
   // Foto que nao e JPG/PNG/WEBP (ex: HEIC do iPhone) ou acima do limite de foto vai como documento, que mantem o original.
+  const handleSendQuickReplyImage = async (url: string) => {
+    if (!url) return;
+    try {
+      if (url.startsWith('data:')) {
+        const arr = url.split(',');
+        const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const file = new File([blob], `resposta_rapida_${Date.now()}.png`, { type: mime });
+        handleSendFile(file, 'image');
+        return;
+      }
+
+      try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const file = new File([blob], `resposta_rapida_${Date.now()}.png`, { type: blob.type || 'image/png' });
+        handleSendFile(file, 'image');
+        return;
+      } catch {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const file = new File([blob], `resposta_rapida_${Date.now()}.png`, { type: 'image/png' });
+              handleSendFile(file, 'image');
+            } else {
+              showAlert('Não foi possível carregar a imagem da resposta rápida.');
+            }
+          }, 'image/png');
+        };
+        img.onerror = () => {
+          showAlert('Não foi possível carregar a imagem da resposta rápida.');
+        };
+        img.src = url;
+      }
+    } catch (err) {
+      console.error('Erro ao enviar imagem da resposta rápida:', err);
+      showAlert('Não foi possível carregar a imagem da resposta rápida.');
+    }
+  };
+
   const LIMITE_FOTO_MB = 16;
   const LIMITE_DOCUMENTO_MB = 100;
   const handleSendFile = async (arquivo: File | null | undefined, escolhido: 'image' | 'document') => {
