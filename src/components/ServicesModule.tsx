@@ -111,6 +111,37 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, serviceStatus: newStatus as any } : null);
       }
+
+      // Quando o serviço for concluído (entregue), sai da lista de mensagens ativas
+      if (newStatus === 'produto_entregue') {
+        const order = orders.find(o => o.id === orderId);
+        const rawPhone = order?.customerPhone || '';
+        const cleanPhone = rawPhone.replace(/\D/g, '');
+        if (cleanPhone.length >= 8) {
+          try {
+            const { data: stages } = await supabase
+              .from('funnel_stages')
+              .select('id, name')
+              .order('order', { ascending: false })
+              .limit(1);
+            const stageConcluidoId = stages?.[0]?.id;
+
+            await supabase
+              .from('leads')
+              .update({
+                status: 'CONCLUIDO',
+                archived: true,
+                ...(stageConcluidoId ? { funnel_stage_id: stageConcluidoId } : {}),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('company_id', currentCompany?.id || 'rafa-arts')
+              .ilike('phone', `%${cleanPhone.slice(-8)}%`);
+          } catch (e) {
+            console.warn('Erro ao atualizar lead para concluído:', e);
+          }
+        }
+      }
+
       showAlert(`Status atualizado para: ${SERVICE_STATUS_MAP[newStatus]?.label || newStatus}`);
     } catch (err: any) {
       console.error('Erro ao atualizar status:', err);

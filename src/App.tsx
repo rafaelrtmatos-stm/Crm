@@ -752,7 +752,7 @@ export default function App() {
     }
     if (!currentCompany) return;
     try {
-      const { data: leadsRows } = await supabase.from('leads').select('id, phone').eq('company_id', 'rafa-arts');
+      const { data: leadsRows } = await supabase.from('leads').select('id, phone, archived').eq('company_id', 'rafa-arts');
       const existing = (leadsRows || []).find((r: any) => {
         const p = (r.phone || '').replace(/\D/g, '');
         return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
@@ -761,6 +761,9 @@ export default function App() {
       let leadId: string;
       if (existing) {
         leadId = existing.id;
+        if (existing.archived) {
+          await supabase.from('leads').update({ archived: false }).eq('id', existing.id);
+        }
       } else {
         // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
         let funnelId: string | null = null;
@@ -1022,33 +1025,52 @@ export default function App() {
           last_client_message_at: quando,
         };
 
+        const isConcluidoOuArquivado = !ehGrupo && (leadRow.archived || leadRow.status === 'CONCLUIDO');
+
         if (!aguardando) {
           // Mensagem que ja foi respondida por alguem da empresa: entra normalmente como ultima
-          // mensagem (passo 1) e registra que existiu (pra nao ser "recuperada" de novo), mas nao
-          // mexe em etapa, status nem espera.
+          // mensagem (passo 1) e registra que existiu (pra nao ser "recuperada" de novo).
+          // Se o lead estava concluido/arquivado e mandou mensagem, reativa na primeira etapa do funil.
           await supabase.from('leads').update({
             ...patchUltimaMensagem,
             ...patchUltimaMensagemDoCliente,
+            ...(isConcluidoOuArquivado ? {
+              archived: false,
+              status: 'ENTRADA',
+              ...(stageId ? { funnel_stage_id: stageId } : {}),
+              ...(funnelId ? { funnel_id: funnelId } : {}),
+            } : {}),
           }).eq('id', leadRow.id);
           return;
         }
 
         // 2) Aguardando resposta: alem da ultima mensagem, atualiza espera e mensagens não lidas.
-        // NUNCA reseta etapa de lead que já existe (ex: quem está em Fornecedor, Orçamento, Concluído, etc. permanece na sua etapa!)
+        // REGRA: Quando um cliente cujo serviço/atendimento foi concluído manda mensagem novamente,
+        // ele é reativado (sai de concluído/arquivado) e volta imediatamente para a PRIMEIRA ETAPA DO FUNIL ("ENTRADA").
+        const patchRetornoFunil = isConcluidoOuArquivado ? {
+          archived: false,
+          status: 'ENTRADA',
+          ...(stageId ? { funnel_stage_id: stageId } : {}),
+          ...(funnelId ? { funnel_id: funnelId } : {}),
+        } : {};
+
         await supabase.from('leads').update({
           ...patchUltimaMensagem,
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: leadRow.waiting_since || quando,
           unread: true,
-          ...(ehGrupo ? {} : (leadRow.status ? {} : { status: 'ENTRADA' })),
+          archived: false,
+          ...(isConcluidoOuArquivado
+            ? patchRetornoFunil
+            : (ehGrupo ? {} : (leadRow.status ? {} : { status: 'ENTRADA' }))),
           ...(msgData.senderName && !ehGrupo ? { whatsapp_name: msgData.senderName } : {}),
-          ...(stageId && !ehGrupo && !leadRow.funnel_stage_id ? { funnel_stage_id: stageId } : {}),
+          ...(stageId && !ehGrupo && (!leadRow.funnel_stage_id || isConcluidoOuArquivado) ? { funnel_stage_id: stageId } : {}),
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
         }).eq('id', leadRow.id);
-        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] preserving stage.`);
+        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] (concluído/arquivado reativado: ${isConcluidoOuArquivado}).`);
       }
     };
 

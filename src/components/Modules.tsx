@@ -4061,10 +4061,13 @@ export const ChatPanel = ({
 
     setIsChangingStage(true);
     try {
+      const targetStage = funnelStages.find(s => s.id === novaStageId);
+      const isTargetConcluido = targetStage?.name?.toLowerCase().includes('conclu');
       const updatePayload: Record<string, any> = {
         funnel_stage_id: novaStageId,
         company_id: 'rafa-arts',
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        ...(isTargetConcluido ? { status: 'CONCLUIDO', archived: true } : { archived: false }),
       };
       if (effectiveFunnelId) {
         updatePayload.funnel_id = effectiveFunnelId;
@@ -4077,7 +4080,6 @@ export const ChatPanel = ({
 
       if (error) throw error;
 
-      const targetStage = funnelStages.find(s => s.id === novaStageId);
       showAlert('Lead movido');
     } catch (err) {
       console.error('Erro ao mudar etapa:', err);
@@ -8654,10 +8656,13 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       setSelectedLead(prev => prev && prev.id === leadId ? { ...prev, funnelStageId: overStageId } : prev);
 
       try {
+        const targetStage = stages.find(s => s.id === overStageId);
+        const isTargetConcluido = targetStage?.name?.toLowerCase().includes('conclu');
         const { error } = await supabase.from('leads').update({
           funnel_stage_id: overStageId,
           company_id: 'rafa-arts',
           updated_at: new Date().toISOString(),
+          ...(isTargetConcluido ? { status: 'CONCLUIDO', archived: true } : { archived: false }),
         }).eq('id', leadId);
         if (error) throw error;
       } catch (err) {
@@ -14438,6 +14443,39 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         // Recarregar dados do Contrato
         loadContratos();
       }
+
+      // Se o serviço foi entregue/concluído, o atendimento sai da lista de mensagens ativas
+      if (newStatus === 'produto_entregue') {
+        try {
+          let customerPhone = '';
+          const targetVendaId = vendaId || (sourceType === 'venda' ? docId : null);
+          if (targetVendaId) {
+            const { data: v } = await supabase.from('vendas').select('customer_phone').eq('id', targetVendaId).single();
+            customerPhone = v?.customer_phone || '';
+          }
+          const clean = customerPhone.replace(/\D/g, '');
+          if (clean.length >= 8) {
+            const { data: stages } = await supabase
+              .from('funnel_stages')
+              .select('id, name')
+              .order('order', { ascending: false })
+              .limit(1);
+            const stageConcluidoId = stages?.[0]?.id;
+            await supabase
+              .from('leads')
+              .update({
+                status: 'CONCLUIDO',
+                archived: true,
+                ...(stageConcluidoId ? { funnel_stage_id: stageConcluidoId } : {}),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('company_id', currentCompany?.id || 'rafa-arts')
+              .ilike('phone', `%${clean.slice(-8)}%`);
+          }
+        } catch (syncLeadErr) {
+          console.warn('Erro ao concluir lead na sincronização:', syncLeadErr);
+        }
+      }
     } catch (err) {
       console.error('Erro ao sincronizar etapas:', err);
       showAlert('Não foi possível sincronizar as etapas entre os documentos.');
@@ -16124,6 +16162,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (cleanPhone.length >= 8) {
         const patch: Record<string, any> = {
           status: 'CONCLUIDO',
+          archived: true, // Sai da lista de mensagens ativas
           updated_at: new Date().toISOString(),
         };
         if (stageConcluidoId) {
