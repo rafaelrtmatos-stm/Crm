@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Pencil,
   Plus,
+  Upload,
 } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { useApp } from '../../AppContext';
@@ -34,6 +35,8 @@ import {
   ColaboradorOption,
 } from './PontoFuncionarios';
 import { PontoPerfil } from './PontoPerfil';
+import { PontoImportModal } from './PontoImportModal';
+import { rotuloOrigem } from '../../lib/pontoImport';
 import {
   NovoFuncModal,
   EditFuncModal,
@@ -89,6 +92,7 @@ export function PontoApp() {
   } | null>(null);
   const [jornadaModalFunc, setJornadaModalFunc] = useState<FuncionarioItem | null>(null);
   const [desativarFuncModal, setDesativarFuncModal] = useState<FuncionarioItem | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   // Filtros gerais para a aba Registros
   const [filtroDataRegistros, setFiltroDataRegistros] = useState(hojeStr());
@@ -292,6 +296,15 @@ export function PontoApp() {
   // ---------------- Ações de Banco de Dados ----------------
   const salvarRegistro = async (fid: string, data: string, h: Partial<PontoRegistro>) => {
     const n = (v?: string | null) => (v ? v : null);
+    // Dia que veio do relógio e foi corrigido continua "importacao" + editado_manual (o corte da importação
+    // depende disso); dia que não existia é criado à mão ("manual").
+    const { data: atual } = await supabase
+      .from('ponto_registros')
+      .select('origem')
+      .eq('funcionario_id', fid)
+      .eq('data', data)
+      .maybeSingle();
+    const origem = atual?.origem === 'importacao' ? 'importacao' : 'manual';
     const { error } = await supabase.from('ponto_registros').upsert(
       {
         funcionario_id: fid,
@@ -301,7 +314,7 @@ export function PontoApp() {
         fim_intervalo: n(h.fim_intervalo),
         saida: n(h.saida),
         observacao: n(h.observacao),
-        origem: 'manual',
+        origem,
         editado_manual: true,
         updated_at: new Date().toISOString(),
       },
@@ -547,6 +560,12 @@ export function PontoApp() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => setImportOpen(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer"
+                      >
+                        <Upload size={13} /> Importar arquivo do relógio
+                      </button>
                       <input
                         type="date"
                         value={filtroDataRegistros}
@@ -642,6 +661,9 @@ export function PontoApp() {
                                   >
                                     {a.status}
                                   </span>
+                                  {rotuloOrigem(r) && (
+                                    <span className="ml-1.5 text-[10px] text-white/40">{rotuloOrigem(r)}</span>
+                                  )}
                                 </td>
                                 <td className="py-3 text-right">
                                   <button
@@ -844,6 +866,19 @@ export function PontoApp() {
             await carregar();
           }}
           buscarFoto={buscarFoto}
+        />
+      )}
+
+      {importOpen && (
+        <PontoImportModal
+          funcs={funcs}
+          colabs={colabs}
+          onClose={() => setImportOpen(false)}
+          onFuncionarioCriado={carregar}
+          onImportado={async () => {
+            setImportOpen(false);
+            await carregar();
+          }}
         />
       )}
 
