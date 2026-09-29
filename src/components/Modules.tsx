@@ -3716,6 +3716,9 @@ export const ChatPanel = ({
   const [forwardingMessage, setForwardingMessage] = useState<any | null>(null);
   const [enviandoNotaImagem, setEnviandoNotaImagem] = useState(false);
 
+  const [messages, setMessages] = useState<any[]>([]);
+  const [erroHistorico, setErroHistorico] = useState<string | null>(null);
+
   // Ticker de tempo ao vivo para mensagem aguardando resposta (atualiza a cada 5s)
   const [liveChatNow, setLiveChatNow] = useState(() => Date.now());
   const [isLocallyResolved, setIsLocallyResolved] = useState(false);
@@ -3725,11 +3728,42 @@ export const ChatPanel = ({
     setIsLocallyResolved(false);
   }, [conversation?.id]);
 
-  // Identifica se a conversa está aguardando resposta:
-  // 1) Tem waitingSince explícito
-  // 2) OU a última mensagem registrada foi do cliente (incoming/inbound) e ainda não foi respondida
+  // Identifica se a conversa está aguardando resposta e calcula a partir da PRIMEIRA mensagem em espera:
+  // 1) Se mensagens já carregadas, localiza a PRIMEIRA mensagem do cliente deste bloco atual não respondido
+  // 2) Caso contrário, usa conversation.waitingSince ou a primeira indicação disponível
   const effectiveWaitingSince = useMemo(() => {
     if (isLocallyResolved) return null;
+
+    if (messages && messages.length > 0) {
+      const nonNoteMsgs = messages.filter(m => !m.isNote);
+      if (nonNoteMsgs.length > 0) {
+        const lastMsg = nonNoteMsgs[nonNoteMsgs.length - 1];
+        if (lastMsg.direction === 'incoming') {
+          // Percorre de trás para frente para achar a PRIMEIRA mensagem recebida deste bloco de espera
+          let firstUnansweredIdx = nonNoteMsgs.length - 1;
+          for (let i = nonNoteMsgs.length - 1; i >= 0; i--) {
+            if (nonNoteMsgs[i].direction === 'outgoing') {
+              break;
+            }
+            firstUnansweredIdx = i;
+          }
+          const firstUnansweredMsg = nonNoteMsgs[firstUnansweredIdx];
+          const firstTime = firstUnansweredMsg?.createdAt || firstUnansweredMsg?.timestamp;
+          if (firstTime) {
+            if (conversation?.waitingSince) {
+              const d1 = parseMsgDate(firstTime)?.getTime() || 0;
+              const d2 = parseMsgDate(conversation.waitingSince)?.getTime() || 0;
+              if (d2 > 0 && d2 < d1) return conversation.waitingSince;
+            }
+            return firstTime;
+          }
+        } else if (lastMsg.direction === 'outgoing') {
+          // Última mensagem foi da empresa/atendente: cliente não está aguardando
+          return null;
+        }
+      }
+    }
+
     if (conversation?.waitingSince) return conversation.waitingSince;
     if (
       conversation?.lastMessageDirection === 'incoming' &&
@@ -3738,7 +3772,7 @@ export const ChatPanel = ({
       return conversation.lastClientMessageAt || conversation.lastMessageAt || conversation.updatedAt;
     }
     return null;
-  }, [conversation?.waitingSince, conversation?.lastMessageDirection, conversation?.lastClientMessageAt, conversation?.lastMessageAt, conversation?.updatedAt, isLocallyResolved]);
+  }, [conversation?.waitingSince, conversation?.lastMessageDirection, conversation?.lastClientMessageAt, conversation?.lastMessageAt, conversation?.updatedAt, messages, isLocallyResolved]);
 
   useEffect(() => {
     if (!effectiveWaitingSince) return;
@@ -3806,8 +3840,6 @@ export const ChatPanel = ({
       setEnviandoNotaImagem(false);
     }
   };
-  const [messages, setMessages] = useState<any[]>([]);
-  const [erroHistorico, setErroHistorico] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audiosComErro, setAudiosComErro] = useState<Record<string, boolean>>({});
   const [showQuickReplies, setShowQuickReplies] = useState(false);
@@ -4209,6 +4241,10 @@ export const ChatPanel = ({
       setIsSavingPhone(false);
     }
   };
+  // Notificação pendente desta conversa
+  const { notificacao: notificacaoPendente, limpar: limparNotificacaoPendente } = useNotificacaoPendente(conversation?.phone, messages.length);
+  const [resolvendoNotificacao, setResolvendoNotificacao] = useState(false);
+
   // "Resolvido": tira a conversa do vacuo (limpa waiting_since) sem precisar responder -- ex.:
   // o cliente so mandou "ok"/"obrigado", ou o assunto foi resolvido por outro canal. Se o
   // cliente mandar outra mensagem depois, o vacuo volta sozinho (ver processIncomingMessage).
@@ -4229,6 +4265,7 @@ export const ChatPanel = ({
           await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
         }
       }
+      limparNotificacaoPendente();
       showAlert('Conversa marcada como resolvida.');
     } catch (err) {
       console.error('Erro ao marcar conversa como resolvida:', err);
@@ -5509,26 +5546,7 @@ export const ChatPanel = ({
     }
   }, [messages]);
 
-  // --- Notificacao pendente desta conversa (regras 6 e 7) ---
-  // Abrir a conversa / rolar ate a mensagem NAO resolve a notificacao: ela segue PENDENTE e o
-  // aviso continua aqui. So o botao "Marcar como resolvido" chama marcarNotificacoesResolvidas.
-  const { notificacao: notificacaoPendente, limpar: limparNotificacaoPendente } = useNotificacaoPendente(conversation?.phone, messages.length);
-  const [resolvendoNotificacao, setResolvendoNotificacao] = useState(false);
-  const handleResolverNotificacao = async () => {
-    if (!notificacaoPendente || resolvendoNotificacao) return;
-    setResolvendoNotificacao(true);
-    try {
-      const ok = await marcarNotificacoesResolvidas(notificacaoPendente.ids, user?.name);
-      if (conversation?.id) {
-        await supabase.from('leads').update({ waiting_since: null }).eq('id', conversation.id);
-        onLeadPatched?.(conversation.id, { waitingSince: undefined });
-      }
-      if (!ok) { showAlert('Não foi possível marcar a notificação como resolvida.'); return; }
-      limparNotificacaoPendente();
-    } finally {
-      setResolvendoNotificacao(false);
-    }
-  };
+  const handleResolverNotificacao = handleResolveWaiting;
 
   // Mesmos limites do WhatsApp: foto enviada como foto ate 16 MB; documento (qualquer arquivo) ate 100 MB.
   // Foto que nao e JPG/PNG/WEBP (ex: HEIC do iPhone) ou acima do limite de foto vai como documento, que mantem o original.
@@ -6747,14 +6765,6 @@ export const ChatPanel = ({
                   onNext={handleNextSearchMatch}
                   onPrev={handlePrevSearchMatch}
                 />
-                {notificacaoPendente && (
-                  <NotificacaoPendenteBanner
-                    notificacao={notificacaoPendente}
-                    resolvendo={resolvendoNotificacao}
-                    onVerMensagem={() => { if (notificacaoPendente.messageId) setPendingOpenMessageId(notificacaoPendente.messageId); }}
-                    onResolver={handleResolverNotificacao}
-                  />
-                )}
               <div ref={messagesScrollRef} className={cn("flex-1 min-h-0 relative", chatMessages.length === 0 && "p-4 overflow-y-auto space-y-4 custom-scrollbar")}>
                  {chatMessages.length === 0 && (
                    <div className="flex flex-col items-center justify-center h-full space-y-3 py-10">

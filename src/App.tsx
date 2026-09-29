@@ -1019,7 +1019,7 @@ export default function App() {
           ...patchUltimaMensagem,
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
-          waiting_since: quando,
+          waiting_since: leadRow.waiting_since || quando,
           unread: true,
           ...(ehGrupo ? {} : (leadRow.status ? {} : { status: 'ENTRADA' })),
           ...(msgData.senderName && !ehGrupo ? { whatsapp_name: msgData.senderName } : {}),
