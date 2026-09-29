@@ -14,6 +14,9 @@
 -- Foto do colaborador (usada na aba Financeiro/Comissoes no lugar das iniciais).
 -- Upload no bucket "profile-photos" que ja existe (create_bucket_profile_photos.sql).
 alter table colaboradores add column if not exists foto_url text;
+-- WhatsApp do funcionario (so digitos, com DDI+DDD, ex: 5593999999999): usado pra buscar a foto de perfil
+-- do WhatsApp pelo mesmo endpoint que o CRM ja usa nos leads (/api/whatsapp-foto-perfil).
+alter table colaboradores add column if not exists telefone_whatsapp text;
 
 -- Funcionarios do relogio de ponto, vinculados (opcional) a um colaborador do sistema.
 create table if not exists ponto_funcionarios (

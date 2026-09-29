@@ -126,7 +126,7 @@ import { ModuleErrorBoundary } from './components/SharedUI';
 import { PrecificacaoModule } from './components/PrecificacaoModule';
 import { MateriasPrimasModule } from './components/MateriasPrimasModule';
 import { MaquinasModule } from './components/MaquinasModule';
-import { PontoModule } from './components/PontoModule';
+import { PontoApp } from './components/ponto/PontoApp';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
 import { SEM_CRM_MESSAGES } from './lib/flags';
 
@@ -290,7 +290,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
         ) : subTab === 'ponto' ? (
           <ModuleErrorBoundary label="Controle de Ponto">
             <div className="overflow-y-auto custom-scrollbar h-full">
-              <PontoModule />
+              <PontoApp />
             </div>
           </ModuleErrorBoundary>
         ) : subTab === 'materias_primas' ? (
@@ -3038,7 +3038,7 @@ export default function App() {
                   )}
                   {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'inventory' && <ModuleErrorBoundary label="Estoque & Materiais"><InventoryModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
-                  {activeTab === 'ponto' && <ModuleErrorBoundary label="Controle de Ponto"><PontoModule /></ModuleErrorBoundary>}
+                  {activeTab === 'ponto' && <ModuleErrorBoundary label="Controle de Ponto"><PontoApp /></ModuleErrorBoundary>}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
                   {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
