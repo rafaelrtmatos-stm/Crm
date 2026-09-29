@@ -86,7 +86,6 @@ import {
   Smile,
   Image as ImageIcon,
   Video,
-  File,
   MapPin,
   Phone,
   StickyNote,
