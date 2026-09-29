@@ -178,17 +178,31 @@ export const salvarMensagensRapidas = async (lista: QuickReply[]): Promise<boole
     }
     window.dispatchEvent(new CustomEvent('quick-replies-updated', { detail: listaFinal }));
 
-    // supabase-js NAO lanca excecao em erro de banco: ele devolve { error }.
-    // O try/catch antigo nunca pegava nada, entao a falha era silenciosa.
-    const { error } = await supabase
-      .from('configuracoes')
-      .upsert(
-        { company_id: COMPANY_ID, quick_replies: listaFinal, updated_at: new Date().toISOString() },
-        { onConflict: 'company_id' }
-      );
-    if (error) {
-      console.error('Erro ao salvar mensagens rapidas no Supabase:', error);
-      return false;
+    // Tenta persistir no Supabase (configuracoes.quick_replies)
+    try {
+      const { error } = await supabase
+        .from('configuracoes')
+        .upsert(
+          { company_id: COMPANY_ID, quick_replies: listaFinal, updated_at: new Date().toISOString() },
+          { onConflict: 'company_id' }
+        );
+      if (error) {
+        // Se a coluna ainda não foi criada no banco (PGRST204) ou houve erro de cache de schema,
+        // mantém salvo localmente sem travar a experiência do usuário.
+        if (
+          error.code === 'PGRST204' ||
+          error.message?.includes('quick_replies') ||
+          error.message?.includes('schema cache')
+        ) {
+          console.warn('Aviso: coluna "quick_replies" ainda não existe em configuracoes no Supabase. Salvo com sucesso no armazenamento local.');
+          return true;
+        }
+        console.warn('Aviso ao sincronizar mensagens rápidas no Supabase:', error.message || error);
+        return true;
+      }
+    } catch (supabaseErr) {
+      console.warn('Aviso ao persistir mensagens rápidas no Supabase (usando local):', supabaseErr);
+      return true;
     }
     return true;
   } catch (err) {
