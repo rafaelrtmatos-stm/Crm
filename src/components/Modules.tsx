@@ -21224,9 +21224,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 </div>
              </div>
            ) : (
-             <div className="space-y-4">
-                <Input ref={customerNameInputRef} label="Nome *" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value.toUpperCase() })} />
-                <div className="grid grid-cols-2 gap-3">
+             <div className="space-y-3.5">
+                <Input ref={customerNameInputRef} label="Nome Completo / Razão Social *" value={newCustomerForm.full_name} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, full_name: e.target.value.toUpperCase() })} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                   <PhoneInputBR label="WhatsApp (Telefone) *" value={newCustomerForm.phone} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, phone: v })} />
+                   <Input label="E-mail" type="email" value={newCustomerForm.email} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                    <div className="relative">
                       <Input
                         label="CEP"
@@ -21237,14 +21241,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       />
                       {isLookingUpCep && <RefreshCw size={14} className="animate-spin text-primary-400 absolute right-3 top-9" />}
                    </div>
+                   <Input label="Bairro" value={newCustomerForm.distrito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, distrito: e.target.value })} />
                    <Input label="Número" value={newCustomerForm.numero} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, numero: e.target.value })} />
                 </div>
-                <Input label="E-mail" type="email" value={newCustomerForm.email} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })} />
-                <Input label="Logradouro" value={newCustomerForm.logradouro} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, logradouro: e.target.value })} />
-                <div className="grid grid-cols-2 gap-3">
-                   <PhoneInputBR label="WhatsApp (Telefone)" value={newCustomerForm.phone} onChange={(v: string) => setNewCustomerForm({ ...newCustomerForm, phone: v })} />
-                   <Input label="Bairro" value={newCustomerForm.distrito} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, distrito: e.target.value })} />
-                </div>
+                <Input label="Logradouro / Rua" value={newCustomerForm.logradouro} onChange={(e: any) => setNewCustomerForm({ ...newCustomerForm, logradouro: e.target.value })} />
 
                 <AnimatePresence>
                   {isMoreOptionsOpen && (
@@ -21869,8 +21869,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         isOpen={isPaymentModalOpen} 
         onClose={handleClosePaymentModal} 
         title={settlingOrder ? `Quitar Débito — Pedido #${settlingOrder.id.slice(-8).toUpperCase()}` : editingFullOrder ? `Salvar Alterações — Pedido #${editingFullOrder.id.slice(-8).toUpperCase()}` : "Finalizar Venda / Fechar Nota"}
-        size="xl"
-        className="max-h-[96vh] my-auto"
+        size={settlingOrder ? "lg" : "xl"}
+        className={cn(
+          "max-h-[96vh] my-auto",
+          settlingOrder && "max-w-4xl w-full mx-auto"
+        )}
         contentClassName="min-h-0"
       >
         <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden gap-1.5 sm:gap-2.5">
@@ -25107,7 +25110,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          isOpen={isScheduleModalOpen}
          onClose={() => setIsScheduleModalOpen(false)}
          title="Agendar Entrega"
-         size="sm"
+         size="xs"
+         className="max-w-sm w-full mx-auto"
        >
          <div className="space-y-5 p-2">
            <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-4 space-y-2">
@@ -25273,7 +25277,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          isOpen={isBulkDeleteConfirmOpen}
          onClose={() => setIsBulkDeleteConfirmOpen(false)}
          title="Confirmar Exclusão"
-         size="sm"
+         size="xs"
+         className="max-w-sm w-full mx-auto"
        >
          <div className="space-y-5 p-4">
            <div className="flex items-center gap-4 p-4 bg-rose-500/10 rounded-2xl border border-rose-500/20">
@@ -26810,8 +26815,8 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
           />
 
           {/* Manual Service Creator Modal */}
-          <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="LANÇAR NOVO SERVIÇO / OS MANUAL">
-            <div className="p-6 space-y-6">
+          <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="LANÇAR NOVO SERVIÇO / OS MANUAL" size="sm" className="max-w-lg w-full mx-auto p-4 sm:p-5">
+            <div className="p-2 sm:p-3 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <Input label="NOME DO CLIENTE" value={formData.client} onChange={(e: any) => setFormData({...formData, client: e.target.value})} />

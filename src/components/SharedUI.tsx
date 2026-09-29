@@ -354,6 +354,10 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', className
     xl: "max-w-6xl",
   };
 
+  // Se className já especificar max-w, não aplica o sizes[size] padrão para não haver conflito de largura
+  const hasCustomMaxWidth = className && (className.includes('max-w-') || className.includes('max-w-['));
+  const sizeClass = hasCustomMaxWidth ? '' : (sizes[size] || sizes.md);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -371,7 +375,7 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', className
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
             className={cn(
               "relative w-full max-h-[98vh] h-auto bg-[#1a2333]/95 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-[32px] shadow-2xl flex flex-col p-3 sm:p-5 md:p-6 transition-all duration-300 overflow-hidden my-auto",
-              sizes[size] || sizes.md,
+              sizeClass,
               className
             )}
           >

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Smile, Zap } from 'lucide-react';
+import { Plug, Bot, MessageCircle, Facebook, Instagram, QrCode, RefreshCw, CheckCircle2, Smile, Zap, Upload, Clock, Users } from 'lucide-react';
 import { GlassCard, Badge, Modal, GoogleLogo, cn } from './SharedUI';
 import { RobozinhoRafaModule } from './RobozinhoRafaModule';
 import { FigurinhasManager } from './FigurinhasManager';
 import { QuickRepliesManager } from './QuickRepliesManager';
 import { GoogleContactsSyncModal } from './GoogleContactsSyncModal';
-import { getSavedGoogleAccount } from '../lib/googleContacts';
+import { getSavedGoogleAccount, getGoogleSyncConfig, exportContactsToGoogle } from '../lib/googleContacts';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showConfirm, showAlert } from '../lib/notify';
@@ -63,11 +63,31 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   const [canalSelecionado, setCanalSelecionado] = useState<CanalConexao | null>(null);
   const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
   const [googleAccount, setGoogleAccount] = useState(() => getSavedGoogleAccount());
+  const [googleSyncConfig, setGoogleSyncConfig] = useState(() => getGoogleSyncConfig());
+  const [salvandoGoogleDireto, setSalvandoGoogleDireto] = useState(false);
 
   // Atualiza dados da conta Google ao reabrir/focar
   useEffect(() => {
     setGoogleAccount(getSavedGoogleAccount());
+    setGoogleSyncConfig(getGoogleSyncConfig());
   }, [isGoogleSyncModalOpen]);
+
+  const handleSalvarNoGoogleDireto = async () => {
+    if (!googleAccount) {
+      setIsGoogleSyncModalOpen(true);
+      return;
+    }
+    setSalvandoGoogleDireto(true);
+    try {
+      const res = await exportContactsToGoogle(currentCompany?.id);
+      showAlert(`Concluído! ${res.exported} novo(s) contato(s) salvo(s) na sua conta Google.`);
+      setGoogleAccount(getSavedGoogleAccount());
+    } catch (err: any) {
+      showAlert(`Erro ao salvar no Google: ${err?.message || 'Falha de conexão'}`);
+    } finally {
+      setSalvandoGoogleDireto(false);
+    }
+  };
 
   // --- Status da conexao do WhatsApp (lido do Supabase, atualizado pelo webhook) ---
   const [whatsappStatus, setWhatsappStatus] = useState<string>('close');
@@ -256,6 +276,14 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
               ? (googleAccount ? 'Sincronizar / Gerenciar' : 'Conectar')
               : (conectado ? 'Ver Conexão' : 'Conectar');
 
+            const freqLabel = googleSyncConfig.frequency === 'daily'
+              ? 'Por Dia'
+              : googleSyncConfig.frequency === 'weekly'
+              ? 'Por Semana'
+              : googleSyncConfig.frequency === 'monthly'
+              ? 'Por Mês'
+              : 'Manual';
+
             return (
               <GlassCard key={canal.id} className="p-5 space-y-4 flex flex-col justify-between">
                 <div className="space-y-3">
@@ -265,33 +293,71 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-white truncate">{canal.nome}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                         <Badge variant="outline" className={conectado ? "border-emerald-500/30 text-emerald-400" : ""}>
                           {badgeText}
                         </Badge>
                         {isGoogle && googleAccount && (
-                          <span className="text-[10px] text-white/40 truncate max-w-[120px]" title={googleAccount.email}>
+                          <span className="text-[10px] text-white/40 truncate max-w-[130px]" title={googleAccount.email}>
                             {googleAccount.email}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
+
                   <p className="text-[11px] text-white/40 leading-relaxed">{canal.descricao}</p>
+
+                  {isGoogle && googleAccount && (
+                    <div className="p-2.5 rounded-xl bg-white/5 border border-white/5 space-y-1 text-[10px]">
+                      <div className="flex items-center justify-between text-white/70">
+                        <span className="flex items-center gap-1 font-medium">
+                          <Clock size={11} className="text-primary-400" /> Sincronização:
+                        </span>
+                        <span className="font-bold text-primary-300">{freqLabel}</span>
+                      </div>
+                      {googleAccount.lastSyncAt && (
+                        <p className="text-white/40 truncate">
+                          Última: {new Date(googleAccount.lastSyncAt).toLocaleString('pt-BR')}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                <button
-                  onClick={() => {
-                    if (isGoogle) {
-                      setIsGoogleSyncModalOpen(true);
-                    } else {
-                      setCanalSelecionado(canal);
-                    }
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
-                >
-                  {buttonText}
-                </button>
+                {isGoogle && googleAccount ? (
+                  <div className="space-y-2 pt-1">
+                    <button
+                      onClick={handleSalvarNoGoogleDireto}
+                      disabled={salvandoGoogleDireto}
+                      className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload size={13} className={salvandoGoogleDireto ? "animate-bounce" : ""} />
+                      <span>{salvandoGoogleDireto ? "Salvando no Google..." : "Salvar Contatos no Google"}</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsGoogleSyncModalOpen(true)}
+                      className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-white/5"
+                    >
+                      <RefreshCw size={11} />
+                      <span>Abrir Central de Sincronização</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (isGoogle) {
+                        setIsGoogleSyncModalOpen(true);
+                      } else {
+                        setCanalSelecionado(canal);
+                      }
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-primary-500 hover:text-slate-950 text-white/70 text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                  >
+                    {buttonText}
+                  </button>
+                )}
               </GlassCard>
             );
           })}
