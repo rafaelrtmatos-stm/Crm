@@ -2574,6 +2574,7 @@ export default function App() {
     { id: 'messages', label: 'Conversas', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'inventory', label: 'Estoque & Materiais', icon: Package },
+    { id: 'ponto', label: 'Controle de Ponto', icon: Clock },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
     { id: 'robozinho_rafa', label: 'Integrações', icon: Bot },
@@ -3037,6 +3038,7 @@ export default function App() {
                   )}
                   {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'inventory' && <ModuleErrorBoundary label="Estoque & Materiais"><InventoryModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {activeTab === 'ponto' && <ModuleErrorBoundary label="Controle de Ponto"><PontoModule /></ModuleErrorBoundary>}
                   {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
                   {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
                   {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}

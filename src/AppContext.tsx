@@ -14,7 +14,8 @@ export type MainTab =
   | 'comissoes' 
   | 'robozinho_rafa'
   | 'clientes_espera'
-  | 'inventory';
+  | 'inventory'
+  | 'ponto';
 
 export interface AppContextType {
   user: AppUser | null;

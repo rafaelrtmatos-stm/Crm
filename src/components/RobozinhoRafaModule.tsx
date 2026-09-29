@@ -41,7 +41,6 @@ import {
   generateSuggestion,
 } from '../lib/robozinhoRafa';
 import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
-import { useApp } from '../AppContext';
 
 // Robozinho Rafa — assistente de IA de atendimento da gráfica.
 //
@@ -100,7 +99,6 @@ const toMillis = (v: any): number => {
 
 export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [subTab, setSubTab] = useState<SubTab>('sugestoes');
-  const { setPendingOpenLeadId, setActiveTab } = useApp();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [interactions, setInteractions] = useState<RobozinhoInteraction[]>([]);
   const [produtos, setProdutos] = useState<KnowledgeProduct[]>([]);
@@ -131,11 +129,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         phone: r.phone, sourceType: r.source_type, lastMessageText: r.last_message_text,
         waitingSince: r.waiting_since,
       } as any as Lead));
-      // Conversa de GRUPO nunca entra nas sugestões (o robô só atende cliente individual):
-      // em grupo, `phone` são os dígitos do group_jid (whatsapp_groups).
-      const { data: gruposRows } = await supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts');
-      const digitosGrupos = new Set((gruposRows || []).map((g: any) => String(g.group_jid || '').replace(/\D/g, '')));
-      setLeads(all.filter(l => !!l.waitingSince && !digitosGrupos.has(String(l.phone || '').replace(/\D/g, ''))));
+      setLeads(all.filter(l => !!l.waitingSince));
     };
     loadLeads();
     const channel = supabase.channel('robozinho-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
@@ -204,7 +198,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         setConfig({
           companyId: COMPANY_ID, ...DEFAULT_ROBOZINHO_CONFIG,
           isActive: data.is_active, agentName: data.agent_name, tone: data.tone,
-          useKnowledgeBase: data.use_knowledge_base,
+          autoGenerateSuggestions: data.auto_generate_suggestions, useKnowledgeBase: data.use_knowledge_base,
           showFloatingWidget: data.show_floating_widget, whatsappQrIntegration: data.whatsapp_qr_integration,
         } as RobozinhoConfig);
       }
@@ -288,24 +282,21 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
     if (!currentCompany || !finalText.trim()) return;
     setBusyId(interaction.id);
     try {
-      // Envio REAL pelo WhatsApp (Evolution API) — o mesmo endpoint do chat. Ele já registra a
-      // mensagem em crm_messages e tira o lead de "aguardando resposta" depois da confirmação.
-      const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
-      const resp = await fetch('/api/whatsapp-send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-        body: JSON.stringify({
-          phone: interaction.phone,
-          text: finalText.trim(),
-          senderName: user?.name ? `${user.name} (${senderRole})` : senderRole,
-          leadId: interaction.leadId || null,
-        }),
+      await supabase.from('crm_messages').insert({
+        company_id: 'rafa-arts',
+        lead_id: interaction.leadId || null,
+        phone: interaction.phone,
+        text: finalText.trim(),
+        direction: 'outgoing',
+        sender_name: user?.name ? `${user.name} (${user?.isAdmin ? 'Adm' : 'Atendente'})` : (user?.isAdmin ? 'Adm' : 'Atendente'),
+        channel: interaction.channel || 'WhatsApp',
       });
-      const envio = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        showAlert(`Não foi possível enviar a resposta: ${envio.error || 'erro no envio'}.`);
-        return;
-      }
+      await supabase.from('leads').update({
+        last_message_text: finalText.trim(),
+        last_message_direction: 'outgoing',
+        waiting_since: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', interaction.leadId);
       await supabase.from('robozinho_interactions').update({
         status,
         final_text: finalText.trim(),
@@ -349,6 +340,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         is_active: next.isActive,
         agent_name: next.agentName,
         tone: next.tone,
+        auto_generate_suggestions: next.autoGenerateSuggestions,
         use_knowledge_base: next.useKnowledgeBase,
         show_floating_widget: next.showFloatingWidget,
         whatsapp_qr_integration: next.whatsappQrIntegration,
@@ -425,35 +417,11 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   // Sugestões já geradas (aguardando escolha do atendente) e leads aguardando
   // resposta que ainda não tiveram sugestão gerada (aguardando o clique em
   // "Gerar sugestões" — nunca preenchido sozinho).
-
-  // Fila de atendimento: uma lista só (com ou sem sugestão já gerada), de quem espera há MAIS tempo
-  // pra quem espera há menos. Só cliente individual (grupos já saem em `leads`).
-  const [agora, setAgora] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setAgora(Date.now()), 60000);
-    return () => clearInterval(t);
-  }, []);
-  const tempoEspera = (desde: any): string => {
-    const ms = toMillis(desde);
-    if (!ms) return '';
-    const min = Math.max(0, Math.floor((agora - ms) / 60000));
-    if (min < 1) return 'agora';
-    if (min < 60) return `${min} min`;
-    const h = Math.floor(min / 60);
-    if (h < 24) return `${h}h${String(min % 60).padStart(2, '0')}`;
-    return `${Math.floor(h / 24)} dia(s)`;
-  };
-  const fila = useMemo(
-    () => [...leads].sort((a, b) => (toMillis(a.waitingSince) || Infinity) - (toMillis(b.waitingSince) || Infinity)),
-    [leads]
-  );
-
-  // Abre a conversa do cliente direto no Funil CRM (mesmo caminho do painel de Mensagens),
-  // onde já existe o botão "Sugerir resposta" — a resposta é feita num lugar só.
-  const abrirConversa = (lead: Lead) => {
-    setPendingOpenLeadId(lead.id);
-    setActiveTab('crm');
-  };
+  const pendentes = useMemo(() => interactions.filter(i => i.status === 'pending'), [interactions]);
+  const leadsSemSugestao = useMemo(() => {
+    const comSugestao = new Set(pendentes.map(i => `${i.leadId}:${String(toMillis(i.clientMessageAt))}`));
+    return leads.filter(l => !comSugestao.has(`${l.id}:${String(toMillis(l.waitingSince))}`));
+  }, [leads, pendentes]);
 
   const produtosPorTipo = useMemo(() => {
     const grupos: Record<string, KnowledgeProduct[]> = { produto: [], material: [], servico: [], acabamento: [], composto: [] };
@@ -464,7 +432,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   if (!currentCompany) return null;
 
   const TABS: { id: SubTab; label: string; icon: any }[] = [
-    { id: 'sugestoes', label: 'Fila de atendimento', icon: Sparkles },
+    { id: 'sugestoes', label: 'Sugestões', icon: Sparkles },
     { id: 'memoria', label: 'Memória', icon: Brain },
     { id: 'historico', label: 'Histórico', icon: History },
     { id: 'configuracoes', label: 'Configurações', icon: Settings2 },
@@ -482,8 +450,8 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
             Assistente de IA de atendimento — sugere, nunca envia sozinho
           </p>
         </div>
-        {fila.length > 0 && (
-          <Badge variant="warning" className="animate-pulse">{fila.length} cliente(s) na fila</Badge>
+        {(pendentes.length + leadsSemSugestao.length) > 0 && (
+          <Badge variant="warning" className="animate-pulse">{pendentes.length + leadsSemSugestao.length} conversa(s) aguardando</Badge>
         )}
       </div>
 
@@ -513,14 +481,22 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         <>
           {subTab === 'sugestoes' && (
             <div className="space-y-4">
-              {fila.length === 0 && (
+              {!config.isActive && (
+                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-2 text-amber-300 text-xs font-bold">
+                  <AlertCircle size={16} className="shrink-0" />
+                  O Robozinho Rafa está pausado em Configurações — nenhuma sugestão nova será gerada.
+                </div>
+              )}
+              {pendentes.length === 0 && leadsSemSugestao.length === 0 && (
                 <GlassCard className="p-8 text-center">
                   <CheckCircle2 className="mx-auto text-emerald-400 mb-3" size={32} />
-                  <p className="text-sm font-bold text-white/60">Fila vazia — nenhum cliente aguardando resposta.</p>
+                  <p className="text-sm font-bold text-white/60">Nenhuma conversa aguardando resposta no momento.</p>
                 </GlassCard>
               )}
 
-              {fila.map(lead => {
+              {/* Conversas aguardando resposta que ainda não tiveram sugestão gerada
+                  — o Gemini só é chamado quando o atendente clica no botão abaixo. */}
+              {leadsSemSugestao.map(lead => {
                 const clientName = lead.fullName || lead.contactName || lead.whatsappName || 'Cliente';
                 return (
                   <GlassCard key={lead.id} className="p-5 space-y-4">
@@ -534,7 +510,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                           <p className="text-[10px] text-white/40 uppercase tracking-wider">{lead.sourceType || 'WhatsApp'}</p>
                         </div>
                       </div>
-                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando há {tempoEspera(lead.waitingSince)}</Badge>
+                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
                     </div>
 
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
@@ -542,9 +518,121 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                       <p className="text-sm text-white/80">{lead.lastMessageText || '(sem texto)'}</p>
                     </div>
 
-                    <Button icon={MessageCircle} onClick={() => abrirConversa(lead)}>
-                      Abrir conversa
+                    <Button
+                      icon={generatingLeadId === lead.id ? RefreshCw : Wand2}
+                      disabled={!config.isActive || generatingLeadId === lead.id}
+                      onClick={() => handleGerarSugestoes(lead)}
+                      className={generatingLeadId === lead.id ? '[&>svg]:animate-spin' : ''}
+                    >
+                      {generatingLeadId === lead.id ? 'Gerando sugestões…' : 'Gerar sugestões'}
                     </Button>
+                  </GlassCard>
+                );
+              })}
+
+              {/* Sugestões já geradas — sempre 3 opções (ou 1, no fallback local),
+                  o atendente escolhe/edita e só ele decide enviar. */}
+              {pendentes.map(interaction => {
+                const options = interaction.presentedOptions && interaction.presentedOptions.length > 0
+                  ? interaction.presentedOptions
+                  : [interaction.suggestedText];
+                const chosenIndex = selectedOption[interaction.id] ?? 0;
+                const chosenText = options[chosenIndex] ?? options[0];
+                return (
+                  <GlassCard key={interaction.id} className="p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center shrink-0">
+                          <MessageCircle size={14} className="text-primary-300" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{interaction.clientName}</p>
+                          <p className="text-[10px] text-white/40 uppercase tracking-wider">{interaction.channel}</p>
+                        </div>
+                      </div>
+                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
+                    </div>
+
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
+                      <p className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Mensagem do cliente</p>
+                      <p className="text-sm text-white/80">{interaction.clientMessageText || '(sem texto)'}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-[9px] font-black uppercase text-primary-300 tracking-widest flex items-center gap-1.5">
+                        <Sparkles size={11} /> Sugestões do Robozinho Rafa{options.length > 1 ? ` (${options.length})` : ''}
+                      </p>
+                      {editingId === interaction.id ? (
+                        <div className="bg-primary-500/10 border border-primary-500/20 rounded-2xl p-3">
+                          <textarea
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            rows={4}
+                            autoFocus
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-primary-400 transition-all resize-none"
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2">
+                          {options.map((opt, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setSelectedOption(prev => ({ ...prev, [interaction.id]: idx }))}
+                              className={cn(
+                                "text-left rounded-2xl p-3 border transition-all",
+                                idx === chosenIndex
+                                  ? "bg-primary-500/15 border-primary-500/40"
+                                  : "bg-white/5 border-white/10 hover:border-white/20"
+                              )}
+                            >
+                              <p className="text-sm text-white/90 whitespace-pre-wrap">{opt}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {editingId === interaction.id ? (
+                        <>
+                          <Button
+                            icon={Save}
+                            disabled={busyId === interaction.id}
+                            onClick={() => handleEnviar(interaction, editText, 'edited')}
+                          >
+                            Salvar e Enviar
+                          </Button>
+                          <Button variant="secondary" onClick={() => { setEditingId(null); setEditText(''); }}>Cancelar</Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            icon={CheckCircle2}
+                            disabled={busyId === interaction.id}
+                            onClick={() => handleEnviar(interaction, chosenText, 'used')}
+                          >
+                            Usar Resposta
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            icon={Pencil}
+                            disabled={busyId === interaction.id}
+                            onClick={() => { setEditingId(interaction.id); setEditText(chosenText); }}
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            icon={Ban}
+                            disabled={busyId === interaction.id}
+                            onClick={() => handleIgnorar(interaction)}
+                          >
+                            Ignorar
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </GlassCard>
                 );
               })}
@@ -779,7 +867,7 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-bold text-white">Robozinho Rafa ativo</p>
-                    <p className="text-[10px] text-white/40">A IA nunca gera nem envia nada sozinha — sempre no clique do atendente.</p>
+                    <p className="text-[10px] text-white/40">Libera o botão "Gerar sugestões" nas conversas aguardando resposta. A IA nunca gera nem envia nada sozinha — sempre no clique do atendente.</p>
                   </div>
                   <button
                     onClick={() => handleSaveConfig({ isActive: !config.isActive })}

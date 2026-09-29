@@ -49,6 +49,7 @@ export interface RobozinhoConfig {
   isActive: boolean;
   agentName: string;
   tone: 'formal' | 'amigavel' | 'direto';
+  autoGenerateSuggestions: boolean;
   useKnowledgeBase: boolean;
   // Mostra ou esconde a bolinha de chat flutuante (assistente interno pra quem esta logado
   // testar o robo) — independente do isActive, que controla as sugestoes automaticas pros clientes
@@ -66,6 +67,7 @@ export const DEFAULT_ROBOZINHO_CONFIG: Omit<RobozinhoConfig, 'companyId'> = {
   isActive: true,
   agentName: 'Robozinho Rafa',
   tone: 'amigavel',
+  autoGenerateSuggestions: true,
   useKnowledgeBase: true,
   showFloatingWidget: true,
   whatsappQrIntegration: { enabled: false, status: 'not_configured' },
