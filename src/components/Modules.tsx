@@ -15152,9 +15152,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setCopiedHistoryField({ id, field });
     setTimeout(() => setCopiedHistoryField(null), 1500);
   };
+  const WA_COUNTRIES = [
+    { code: '+55', flag: '🇧🇷', name: 'Brasil' },
+    { code: '+1', flag: '🇺🇸', name: 'Estados Unidos' },
+    { code: '+351', flag: '🇵🇹', name: 'Portugal' },
+    { code: '+54', flag: '🇦🇷', name: 'Argentina' },
+    { code: '+595', flag: '🇵🇾', name: 'Paraguai' },
+    { code: '+598', flag: '🇺🇾', name: 'Uruguai' },
+  ];
+  interface ReceiptRecipientModalState {
+    sale: SaleOrder;
+    phone: string;
+    recipientName: string;
+    registeredPhone: string;
+    registeredName: string;
+    country: { code: string; flag: string; name: string };
+    saveToCustomerProfile: boolean;
+  }
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
   const [enviandoReciboWhatsApp, setEnviandoReciboWhatsApp] = useState(false);
+  const [receiptRecipientModal, setReceiptRecipientModal] = useState<ReceiptRecipientModalState | null>(null);
   const handleDuplicateSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Duplicar pedido de ${sale.customerName || 'cliente'}?`))) return;
     // Carrega os mesmos itens e cliente no carrinho — nao copia pagamento/status, a nova nota comeca do zero.
@@ -15388,27 +15406,61 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
   };
 
-  const handleSendReceiptWithImageAndCaption = async (sale: SaleOrder, overridePhone?: string, overrideName?: string) => {
-    const rawPhone = (overridePhone || sale.customerPhone || selectedCustomer?.phone || '').trim();
-    if (!rawPhone) {
-      showAlert('Essa venda não tem telefone de WhatsApp cadastrado. Cadastre o telefone do cliente para enviar o recibo.');
-      return;
+  const buildOrderShareMessage = (order: SaleOrder, customerName: string) => {
+    const total = order.total;
+    const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
+    const balance = Math.max(0, total - down);
+    const isPending = balance > 0 || order.status === 'pending';
+    const itemsText = order.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('\n');
+    const deliveryStr = order.scheduledFor ? `\n📅 *Previsão de Entrega:* ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}` : '';
+    return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}\n✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
+  };
+
+  const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
+    await openWhatsAppChat(phoneDigits, name, prefillMessage);
+    setIsSuccessModalOpen(false);
+  };
+
+  // Abre modal interativo SEMPRE perguntando para qual número enviar o recibo
+  // (evita enviar para o número geral da empresa quando quem quer é um funcionário/encarregado)
+  const openSendReceiptModal = (sale: SaleOrder, defaultPhone?: string, defaultName?: string) => {
+    const regPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim();
+    const regName = (sale.customerName || selectedCustomer?.name || 'Cliente').trim();
+
+    let initialPhone = (defaultPhone || regPhone).trim();
+    let matchedCountry = WA_COUNTRIES[0];
+
+    for (const c of WA_COUNTRIES) {
+      if (initialPhone.startsWith(c.code)) {
+        matchedCountry = c;
+        initialPhone = initialPhone.slice(c.code.length).trim();
+        break;
+      }
     }
+
+    setReceiptRecipientModal({
+      sale,
+      phone: initialPhone,
+      recipientName: (defaultName || regName).trim(),
+      registeredPhone: regPhone,
+      registeredName: regName,
+      country: matchedCountry,
+      saveToCustomerProfile: false,
+    });
+  };
+
+  const executeSendReceipt = async (
+    sale: SaleOrder,
+    rawPhone: string,
+    recipientName: string,
+    saveToCustomerProfile?: boolean
+  ) => {
     const cleanPhone = rawPhone.replace(/\D/g, '');
     if (cleanPhone.length < 8) {
-      showAlert('Telefone do cliente inválido para envio por WhatsApp.');
+      showAlert('Por favor, informe um número de WhatsApp válido com DDD.');
       return;
     }
-    const customerName = (overrideName || sale.customerName || selectedCustomer?.name || 'Cliente').trim();
-
-    // REGRA DE CONFIRMAÇÃO OBRIGATÓRIA: Só enviar se apertar OK!
-    const confirmou = await showConfirm(
-      `Deseja enviar o recibo do pedido #${sale.id.slice(-8).toUpperCase()} para ${customerName} no WhatsApp (${rawPhone})?`
-    );
-    if (!confirmou) {
-      return;
-    }
-
+    const customerName = (recipientName || sale.customerName || selectedCustomer?.name || 'Cliente').trim();
     const legenda = buildOrderShareMessage(sale, customerName);
 
     setEnviandoReciboWhatsApp(true);
@@ -15468,11 +15520,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }
       }
 
+      // Se marcou para salvar este número na ficha do cliente no banco
+      if (saveToCustomerProfile && sale.customerId) {
+        try {
+          await supabase.from('clientes').update({ phone: rawPhone }).eq('id', sale.customerId);
+        } catch (e) {
+          console.warn('Erro ao atualizar telefone do cliente:', e);
+        }
+      }
+
+      setReceiptRecipientModal(null);
       setViewingReceiptSale(null);
       setIsSuccessModalOpen(false);
 
       if (enviadoComSucesso) {
-        showAlert('🧾 Imagem do recibo e legenda enviadas com sucesso no WhatsApp!');
+        showAlert(`🧾 Recibo enviado com sucesso para ${customerName} (${rawPhone}) no WhatsApp!`);
         await findOrCreateLeadAndOpenChat(cleanPhone, customerName, '');
       } else {
         // Fallback garantido: abre o chat com a legenda no rascunho
@@ -15480,6 +15542,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
     } catch (err: any) {
       console.error('Erro ao gerar/enviar recibo:', err);
+      setReceiptRecipientModal(null);
       setViewingReceiptSale(null);
       setIsSuccessModalOpen(false);
       await findOrCreateLeadAndOpenChat(cleanPhone, customerName, legenda);
@@ -15488,8 +15551,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }
   };
 
+  const handleSendReceiptWithImageAndCaption = async (sale: SaleOrder, overridePhone?: string, overrideName?: string) => {
+    openSendReceiptModal(sale, overridePhone, overrideName);
+  };
+
   const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
-    await handleSendReceiptWithImageAndCaption(sale);
+    openSendReceiptModal(sale);
   };
 
   const matchesOrderStatusFilter = (sale: SaleOrder, filter: OrderStatusFilterId): boolean => {
@@ -15857,40 +15924,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
   const [isWhatsAppFormOpen, setIsWhatsAppFormOpen] = useState(false);
   const [waFormName, setWaFormName] = useState('');
-  const [waFormCountry, setWaFormCountry] = useState({ code: '+55', flag: '🇧🇷', name: 'Brasil' });
+  const [waFormCountry, setWaFormCountry] = useState(WA_COUNTRIES[0]);
   const [waFormPhone, setWaFormPhone] = useState('');
   const [isWaSaving, setIsWaSaving] = useState(false);
-  const WA_COUNTRIES = [
-    { code: '+55', flag: '🇧🇷', name: 'Brasil' },
-    { code: '+1', flag: '🇺🇸', name: 'Estados Unidos' },
-    { code: '+351', flag: '🇵🇹', name: 'Portugal' },
-    { code: '+54', flag: '🇦🇷', name: 'Argentina' },
-    { code: '+595', flag: '🇵🇾', name: 'Paraguai' },
-    { code: '+598', flag: '🇺🇾', name: 'Uruguai' },
-  ];
-
-  const buildOrderShareMessage = (order: SaleOrder, customerName: string) => {
-    const total = order.total;
-    const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
-    const balance = Math.max(0, total - down);
-    const isPending = balance > 0 || order.status === 'pending';
-    const itemsText = order.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('\n');
-    const deliveryStr = order.scheduledFor ? `\n📅 *Previsão de Entrega:* ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}` : '';
-    return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}\n✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
-  };
-
-  // Acha (ou cria) o lead correspondente ao telefone no Funil de Atendimento,
-  // deixa a conversa selecionada com a mensagem pronta para enviar.
-  // Delega pra funcao central do AppContext (openWhatsAppChat) -- assim todo botao de
-  // WhatsApp do sistema (Contratos, Orcamentos, Contatos, Ficha do Cliente etc.) passa pelo
-  // mesmo ponto unico, pronto pra quando a integracao de envio real for plugada.
-  const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
-    await openWhatsAppChat(phoneDigits, name, prefillMessage);
-    setIsSuccessModalOpen(false);
-  };
 
   const handleShareViaWhatsApp = async (order: SaleOrder, customerName: string, phone: string) => {
-    await handleSendReceiptWithImageAndCaption(order, phone, customerName);
+    openSendReceiptModal(order, phone, customerName);
   };
 
   const handleSaveWhatsAppCustomer = async () => {
@@ -22614,15 +22653,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                className="flex-col h-16 sm:h-20 gap-1 py-2 px-1 text-[7.5px] sm:text-[9px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all disabled:opacity-50"
                onClick={() => {
                   if (!lastFinalizedOrder || enviandoReciboWhatsApp) return;
-                  const tel = selectedCustomer?.phone || lastFinalizedOrder.customerPhone;
+                  const tel = selectedCustomer?.phone || lastFinalizedOrder.customerPhone || '';
                   const nome = selectedCustomer?.name || lastFinalizedOrder.customerName || 'Cliente';
-                  if (tel) {
-                    handleShareViaWhatsApp(lastFinalizedOrder, nome, tel);
-                  } else {
-                    setWaFormName(nome);
-                    setWaFormPhone('');
-                    setIsWhatsAppFormOpen(true);
-                  }
+                  openSendReceiptModal(lastFinalizedOrder, tel, nome);
                }}
              >
                 {enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}
@@ -22936,6 +22969,198 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          </div>
        </Modal>
      )}
+
+     {receiptRecipientModal && (() => {
+       const modal = receiptRecipientModal;
+       const sale = modal.sale;
+       const hasRegisteredPhone = Boolean(modal.registeredPhone && modal.registeredPhone.trim());
+       const fullDestinationPhone = `${modal.country.code} ${modal.phone}`.trim();
+       const cleanDigits = modal.phone.replace(/\D/g, '');
+       const isValidPhone = cleanDigits.length >= 8;
+
+       return (
+         <Modal
+           isOpen={!!receiptRecipientModal}
+           onClose={() => { if (!enviandoReciboWhatsApp) setReceiptRecipientModal(null); }}
+           title="Enviar Recibo via WhatsApp"
+           size="md"
+           className="max-w-lg mx-auto rounded-2xl sm:rounded-3xl p-3 sm:p-5"
+         >
+           <div className="space-y-4 p-2 sm:p-3">
+             {/* Resumo do Pedido */}
+             <div className="bg-slate-900/80 border border-white/10 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3">
+               <div className="min-w-0">
+                 <span className="text-[10px] font-black uppercase tracking-widest text-primary-400">
+                   Pedido #{sale.id.slice(-8).toUpperCase()}
+                 </span>
+                 <p className="text-sm font-black text-white truncate">
+                   {modal.registeredName.toUpperCase()}
+                 </p>
+               </div>
+               <div className="text-right shrink-0">
+                 <span className="text-[10px] font-bold uppercase tracking-wider text-white/50 block">Total</span>
+                 <span className="text-sm font-black text-emerald-400 font-mono">
+                   R$ {sale.total.toFixed(2).replace('.', ',')}
+                 </span>
+               </div>
+             </div>
+
+             {/* Alerta Destinatário: Encarregado vs Empresa */}
+             <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3.5 space-y-1.5">
+               <div className="flex items-center gap-2 text-amber-300">
+                 <AlertCircle size={16} className="shrink-0" />
+                 <h4 className="text-xs font-black uppercase tracking-wider">Atenção ao Destinatário</h4>
+               </div>
+               <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                 Se a compra for em nome de uma <strong>empresa</strong>, verifique se quem quer o recibo é um <strong>funcionário ou encarregado</strong>. Digite o WhatsApp direto dele abaixo para não enviar para o telefone geral da empresa.
+               </p>
+             </div>
+
+             {/* Atalho se já houver telefone cadastrado na empresa/cliente */}
+             {hasRegisteredPhone && (
+               <div className="bg-slate-900/50 border border-white/5 rounded-xl p-2.5 space-y-1.5">
+                 <span className="text-[9.5px] font-black uppercase tracking-wider text-white/50 block">
+                   Telefone cadastrado na empresa / cliente:
+                 </span>
+                 <div className="flex items-center justify-between gap-2">
+                   <span className="text-xs font-mono font-bold text-white/80 truncate">
+                     {modal.registeredPhone}
+                   </span>
+                   <button
+                     type="button"
+                     onClick={() => {
+                       let num = modal.registeredPhone;
+                       let ctry = modal.country;
+                       for (const c of WA_COUNTRIES) {
+                         if (num.startsWith(c.code)) {
+                           ctry = c;
+                           num = num.slice(c.code.length).trim();
+                           break;
+                         }
+                       }
+                       setReceiptRecipientModal(prev => prev ? { ...prev, phone: num, country: ctry } : null);
+                     }}
+                     className="text-[10px] font-black uppercase px-2.5 py-1 rounded-lg bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 border border-primary-500/30 transition-all cursor-pointer shrink-0"
+                   >
+                     Usar número do cadastro
+                   </button>
+                 </div>
+               </div>
+             )}
+
+             {/* Campos do formulário */}
+             <div className="space-y-3">
+               <div>
+                 <label className="text-[10px] font-black uppercase text-white/70 tracking-wider block mb-1.5">
+                   WhatsApp de quem vai receber o recibo *
+                 </label>
+                 <div className="flex gap-2">
+                   <div className="relative shrink-0">
+                     <select
+                       value={modal.country.code}
+                       onChange={(e) => {
+                         const found = WA_COUNTRIES.find(c => c.code === e.target.value) || WA_COUNTRIES[0];
+                         setReceiptRecipientModal(prev => prev ? { ...prev, country: found } : null);
+                       }}
+                       className="h-11 bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
+                     >
+                       {WA_COUNTRIES.map(c => (
+                         <option key={c.code} value={c.code} className="bg-slate-900">
+                           {c.flag} {c.code}
+                         </option>
+                       ))}
+                     </select>
+                   </div>
+                   <input
+                     autoFocus
+                     type="tel"
+                     value={modal.phone}
+                     onChange={(e) => {
+                       const val = e.target.value;
+                       setReceiptRecipientModal(prev => prev ? { ...prev, phone: val } : null);
+                     }}
+                     placeholder="Ex: 93 99233-2012 (Encarregado)"
+                     className="flex-1 h-11 bg-white/5 border border-white/10 rounded-xl px-4 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary-500 font-mono"
+                   />
+                 </div>
+                 <p className="text-[10px] text-white/40 mt-1">
+                   Destino: <strong className="text-white font-mono">{modal.country.flag} {modal.country.code} {modal.phone || 'digite o número...'}</strong>
+                 </p>
+               </div>
+
+               <div>
+                 <label className="text-[10px] font-black uppercase text-white/70 tracking-wider block mb-1.5">
+                   Nome do Destinatário / Encarregado (opcional)
+                 </label>
+                 <input
+                   type="text"
+                   value={modal.recipientName}
+                   onChange={(e) => {
+                     const val = e.target.value;
+                     setReceiptRecipientModal(prev => prev ? { ...prev, recipientName: val } : null);
+                   }}
+                   placeholder="Ex: Encarregado Carlos, Comprador João, etc."
+                   className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-4 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary-500"
+                 />
+               </div>
+
+               <label className="flex items-start gap-2.5 pt-1 cursor-pointer select-none">
+                 <input
+                   type="checkbox"
+                   checked={modal.saveToCustomerProfile}
+                   onChange={(e) => {
+                     const checked = e.target.checked;
+                     setReceiptRecipientModal(prev => prev ? { ...prev, saveToCustomerProfile: checked } : null);
+                   }}
+                   className="mt-0.5 rounded border-white/20 bg-white/5 text-primary-500 focus:ring-0 cursor-pointer"
+                 />
+                 <span className="text-[11px] text-white/70 leading-snug">
+                   Salvar este número como contato na ficha do cliente
+                   <span className="block text-[9.5px] text-white/40">
+                     (Deixe desmarcado se for o telefone pessoal de um funcionário/encarregado da empresa)
+                   </span>
+                 </span>
+               </label>
+             </div>
+
+             {/* Botões */}
+             <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+               <Button
+                 variant="ghost"
+                 disabled={enviandoReciboWhatsApp}
+                 onClick={() => setReceiptRecipientModal(null)}
+               >
+                 Cancelar
+               </Button>
+               <Button
+                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
+                 disabled={!isValidPhone || enviandoReciboWhatsApp}
+                 onClick={() => {
+                   executeSendReceipt(
+                     modal.sale,
+                     fullDestinationPhone,
+                     modal.recipientName,
+                     modal.saveToCustomerProfile
+                   );
+                 }}
+               >
+                 {enviandoReciboWhatsApp ? (
+                   <>
+                     <Loader2 size={16} className="animate-spin" />
+                     <span>Enviando Recibo...</span>
+                   </>
+                 ) : (
+                   <>
+                     <MessageSquare size={16} />
+                     <span>Enviar Recibo Agora</span>
+                   </>
+                 )}
+               </Button>
+             </div>
+           </div>
+         </Modal>
+       );
+     })()}
 
      {isWhatsAppFormOpen && (
        <Modal
@@ -25000,10 +25225,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        </button>
                        <button
                          type="button"
-                         onClick={() => handleOpenChatFromReceipt(sale)}
+                         onClick={() => openSendReceiptModal(sale)}
                          disabled={enviandoReciboWhatsApp}
                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-xs active:scale-95"
-                         title="Enviar recibo completo com imagem para o WhatsApp do cliente"
+                         title="Enviar recibo via WhatsApp (escolher destinatário/encarregado)"
                        >
                          {enviandoReciboWhatsApp ? <Loader2 size={12} className="animate-spin" /> : <MessageSquare size={12} />}
                          <span>{enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}</span>
@@ -25012,13 +25237,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    ) : (
                      <div className="flex items-center justify-between text-xs text-amber-300/80 pt-1 border-t border-white/5">
                        <span className="text-[10.5px]">Sem telefone cadastrado</span>
-                       <button
-                         type="button"
-                         onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
-                         className="text-[10.5px] font-bold text-primary-300 underline hover:text-white cursor-pointer"
-                       >
-                         + Adicionar
-                       </button>
+                       <div className="flex items-center gap-2">
+                         <button
+                           type="button"
+                           onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
+                           className="text-[10.5px] font-bold text-primary-300 underline hover:text-white cursor-pointer"
+                         >
+                           + Adicionar
+                         </button>
+                         <button
+                           type="button"
+                           onClick={() => openSendReceiptModal(sale)}
+                           className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-xs active:scale-95"
+                           title="Enviar recibo informando o WhatsApp do cliente ou encarregado"
+                         >
+                           <MessageSquare size={11} />
+                           <span>Enviar Recibo</span>
+                         </button>
+                       </div>
                      </div>
                    )}
                  </div>
