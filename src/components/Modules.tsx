@@ -1560,6 +1560,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       const end = new Date(now); end.setHours(23, 59, 59, 999);
       return { start, end };
     }
+    if (period === 'Ano' || period === 'Este Ano') {
+      const start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      return { start, end };
+    }
     if (period === 'Personalizado' && customRange.start && customRange.end) {
       const start = new Date(customRange.start); start.setHours(0, 0, 0, 0);
       const end = new Date(customRange.end); end.setHours(23, 59, 59, 999);
@@ -1588,6 +1593,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         endOfWeek.setDate(startOfWeek.getDate() + 6); // domingo + 6 dias = sabado
         endOfWeek.setHours(23, 59, 59, 999);
         return orderDate >= startOfWeek && orderDate <= endOfWeek;
+      }
+      if (period === 'Ano' || period === 'Este Ano') {
+        const startOfYear = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        return orderDate >= startOfYear && orderDate <= endOfYear;
       }
       const days = period === '30 dias' ? 30 : 0;
       if (days > 0) {
@@ -1692,6 +1702,15 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         indexByKey[k] = points.length;
         points.push({ day: k, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
       }
+    } else if (period === 'Ano' || period === 'Este Ano') {
+      const MESES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      for (let m = 0; m < 12; m++) {
+        const curr = new Date(rangeStart.getFullYear(), m, 1);
+        const k = format(curr, 'MM/yyyy');
+        const label = `${MESES_NOMES[m]}/${String(rangeStart.getFullYear()).slice(-2)}`;
+        indexByKey[k] = points.length;
+        points.push({ day: label, key: k, total: 0, sales: 0, svcs: 0, entries: 0 });
+      }
     } else { // Personalizado
       const diffDays = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000));
       if (diffDays <= 60) {
@@ -1723,7 +1742,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         return `${String(clampedH).padStart(2, '0')}h`;
       }
       const diffDays = Math.max(1, Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000));
-      if (period === 'Personalizado' && diffDays > 60) {
+      if (period === 'Ano' || period === 'Este Ano' || (period === 'Personalizado' && diffDays > 60)) {
         return format(dateObj, 'MM/yyyy');
       }
       return format(dateObj, 'dd/MM');
@@ -2120,7 +2139,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
             <div className="flex flex-col gap-2 items-end">
               <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                {['Hoje', 'Ontem', '7 dias', '30 dias', 'Personalizado'].map(p => (
+                {['Hoje', 'Ontem', '7 dias', '30 dias', 'Ano', 'Personalizado'].map(p => (
                   <button 
                     key={p}
                     onClick={() => setPeriod(p)}
@@ -2268,7 +2287,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                 <div className="flex flex-wrap items-center gap-2">
                    {/* Filtros de Período integrados diretamente no Card */}
                    <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                      {['Hoje', 'Ontem', '7 dias', '30 dias', 'Personalizado'].map(p => (
+                      {['Hoje', 'Ontem', '7 dias', '30 dias', 'Ano', 'Personalizado'].map(p => (
                          <button 
                             key={p}
                             onClick={() => setPeriod(p)}

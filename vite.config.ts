@@ -132,6 +132,23 @@ export default defineConfig(({mode}) => {
         'firebase/firestore',
       ],
     },
+    build: {
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase')) return 'vendor-firebase';
+              if (id.includes('@supabase')) return 'vendor-supabase';
+              if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
+              if (id.includes('lucide-react')) return 'vendor-icons';
+              if (id.includes('motion') || id.includes('framer-motion')) return 'vendor-motion';
+              if (id.includes('react-virtuoso')) return 'vendor-virtuoso';
+            }
+          },
+        },
+      },
+    },
     server: {
       hmr: false,
       host: '0.0.0.0',
