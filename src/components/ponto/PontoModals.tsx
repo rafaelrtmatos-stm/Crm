@@ -36,18 +36,18 @@ export const Modal = ({
   maxWidth?: string;
 }) => (
   <div
-    className="fixed inset-0 z-50 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4"
+    className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
     onClick={onClose}
   >
     <div
-      className={`w-full ${maxWidth} bg-white rounded-2xl shadow-2xl border border-slate-200/80 p-6 space-y-4`}
+      className={`w-full ${maxWidth} bg-slate-900/95 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 p-6 space-y-4 text-white`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-        <h4 className="text-base font-black text-slate-900 tracking-tight">{title}</h4>
+      <div className="flex items-center justify-between pb-3 border-b border-white/10">
+        <h4 className="text-base font-black text-white tracking-tight">{title}</h4>
         <button
           onClick={onClose}
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          className="p-1 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
         >
           <X size={18} />
         </button>
@@ -67,17 +67,17 @@ export const Field = ({
   helpText?: string;
 }) => (
   <label className="block space-y-1">
-    <span className="text-xs font-bold text-slate-700 block">{label}</span>
+    <span className="text-xs font-bold text-white/80 block">{label}</span>
     {children}
-    {helpText && <span className="text-[11px] text-slate-400 block">{helpText}</span>}
+    {helpText && <span className="text-[11px] text-white/40 block">{helpText}</span>}
   </label>
 );
 
 export const inputCls =
-  'w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-emerald-500 focus:bg-white shadow-2xs';
+  'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-emerald-500/60 focus:bg-white/10 shadow-xs transition-colors';
 
 export const btnSave =
-  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider shadow-xs transition-colors';
+  'w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 transition-all cursor-pointer';
 
 // Modal Novo Funcionário
 export function NovoFuncModal({
@@ -162,7 +162,7 @@ export function NovoFuncModal({
           ))}
         </select>
       </Field>
-      <p className="text-[11px] text-slate-400">
+      <p className="text-[11px] text-white/40">
         A jornada inicial padrão será de segunda a sábado (08:00 às 17:00 com intervalo de 1h). Você
         poderá ajustá-la na aba Jornada.
       </p>
@@ -337,7 +337,7 @@ export function RegistroModal({
           placeholder="ex.: esqueceu de bater a saída no relógio"
         />
       </Field>
-      <p className="text-[11px] text-slate-400">
+      <p className="text-[11px] text-white/40">
         Registro manual fica protegido contra sobrescrita automática por arquivos do relógio.
       </p>
       <button onClick={() => onSave(ctx.funcionario_id, ctx.data, h)} className={btnSave}>
@@ -415,7 +415,7 @@ export function JornadaEditorModal({
   return (
     <Modal title="Editar Grade Semanal de Jornada" onClose={onClose} maxWidth="max-w-2xl">
       <div className="space-y-4">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-white/50">
           A alteração passa a valer a partir de hoje ({hoje.split('-').reverse().join('/')}). Dias
           anteriores continuam calculados com a jornada histórica correspondente.
         </p>
@@ -423,7 +423,7 @@ export function JornadaEditorModal({
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-slate-400 font-semibold border-b border-slate-100 text-left">
+              <tr className="text-white/40 font-semibold border-b border-white/10 text-left">
                 <th className="pb-2 pr-3">Dia</th>
                 <th className="pb-2 pr-3 text-center">Trabalha</th>
                 <th className="pb-2 pr-3">Entrada</th>
@@ -432,16 +432,16 @@ export function JornadaEditorModal({
                 <th className="pb-2">Saída</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-white/5">
               {rows.map((r, i) => (
-                <tr key={r.dow} className="hover:bg-slate-50">
-                  <td className="py-2 pr-3 font-bold text-slate-800">{r.nome}</td>
+                <tr key={r.dow} className="hover:bg-white/5 transition-colors">
+                  <td className="py-2 pr-3 font-bold text-white">{r.nome}</td>
                   <td className="py-2 pr-3 text-center">
                     <input
                       type="checkbox"
                       checked={r.trabalha}
                       onChange={(e) => up(i, 'trabalha', e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                      className="rounded text-emerald-500 focus:ring-emerald-400 bg-white/10 border-white/20"
                     />
                   </td>
                   {(['entrada', 'inicio_intervalo', 'fim_intervalo', 'saida'] as const).map(
@@ -452,7 +452,7 @@ export function JornadaEditorModal({
                           disabled={!r.trabalha}
                           value={r[k]}
                           onChange={(e) => up(i, k, e.target.value)}
-                          className={`${inputCls} w-24 disabled:opacity-40 disabled:bg-slate-100`}
+                          className={`${inputCls} w-24 disabled:opacity-30 disabled:bg-white/5`}
                         />
                       </td>
                     )
@@ -486,15 +486,15 @@ export function DesativarConfirmModal({
   return (
     <Modal title="Desativar Funcionário do Ponto" onClose={onClose}>
       <div className="space-y-4">
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-3">
-          <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-bold">Deseja realmente desativar {nome}?</p>
-            <p className="text-amber-800">
+            <p className="font-bold text-white">Deseja realmente desativar {nome}?</p>
+            <p className="text-white/70">
               O funcionário não aparecerá mais na tela operacional de ativos, porém todo o histórico
               de ponto, registros e banco de horas será <b>100% preservado</b>.
             </p>
-            <p className="text-amber-800">
+            <p className="text-white/60">
               Você poderá reativá-lo a qualquer momento em <b>Configurações &gt; Inativos</b>.
             </p>
           </div>
@@ -503,13 +503,13 @@ export function DesativarConfirmModal({
         <div className="flex items-center justify-end gap-2 pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold"
+            className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white/80 text-xs font-bold transition-colors cursor-pointer"
           >
             Cancelar
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5"
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <UserX size={14} /> Confirmar Desativação
           </button>

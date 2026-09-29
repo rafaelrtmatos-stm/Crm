@@ -621,7 +621,17 @@ export default function App() {
   useEffect(() => {
     supabase.from('configuracoes').select('menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
       if (data?.menu_config && Array.isArray(data.menu_config) && data.menu_config.length > 0) {
-        setMenuConfig(data.menu_config);
+        const ids = new Set(data.menu_config.map((m: any) => m.id));
+        const merged = [...data.menu_config];
+        if (!ids.has('ponto')) {
+          const invIdx = merged.findIndex((m: any) => m.id === 'inventory');
+          if (invIdx !== -1) {
+            merged.splice(invIdx + 1, 0, { id: 'ponto', visible: true });
+          } else {
+            merged.push({ id: 'ponto', visible: true });
+          }
+        }
+        setMenuConfig(merged);
       }
     });
   }, []);
@@ -2591,6 +2601,19 @@ export default function App() {
     // sem essa aba (ex: aba nova adicionada depois que o allowedTabs foi configurado)
     if (user?.isAdmin) return true;
 
+    // Controle de Ponto: visível no menu lateral
+    if (item.id === 'ponto') {
+      if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
+        return (
+          user.allowedTabs.includes('ponto') ||
+          user.allowedTabs.includes('comissoes') ||
+          canSeeFinanceiroTab(user, 'ponto') ||
+          true
+        );
+      }
+      return true;
+    }
+
     // If user has specific allowedTabs, check it first
     if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
       if (item.id === 'inventory') {
@@ -2615,15 +2638,19 @@ export default function App() {
   }).sort((a, b) => {
     // Ordem escolhida pelo admin em Configuracoes > Menu Lateral (se nao configurado, mantem a ordem padrao)
     if (!menuConfig) return 0;
-    const idxA = menuConfig.findIndex(m => m.id === a.id);
-    const idxB = menuConfig.findIndex(m => m.id === b.id);
-    if (idxA === -1 && idxB === -1) return 0;
-    if (idxA === -1) return 1;
-    if (idxB === -1) return -1;
-    return idxA - idxB;
+    const getPos = (id: string) => {
+      const idx = menuConfig.findIndex(m => m.id === id);
+      if (idx !== -1) return idx;
+      if (id === 'ponto') {
+        const invIdx = menuConfig.findIndex(m => m.id === 'inventory');
+        return invIdx !== -1 ? invIdx + 0.5 : 5.5;
+      }
+      return 999;
+    };
+    return getPos(a.id) - getPos(b.id);
   }).filter(item => {
     // Item escondido pelo admin (exceto Opcoes, que sempre fica visivel pra admin nao se trancar fora)
-    if (!menuConfig || item.id === 'settings') return true;
+    if (!menuConfig || item.id === 'settings' || item.id === 'ponto') return true;
     const cfg = menuConfig.find(m => m.id === item.id);
     return cfg ? cfg.visible : true;
   });

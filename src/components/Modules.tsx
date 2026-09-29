@@ -355,7 +355,7 @@ function mapUsuarioRow(row: any): AppUser {
 
 // Permissoes granulares padrao (visualizar/criar/editar/excluir) por perfil.
 // O admin sempre tem acesso total independente disso (checado a parte via isAdmin).
-const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'settings', 'robozinho_rafa', 'comissoes'];
+const ALL_MODULE_IDS = ['dashboard', 'pos', 'messages', 'clientes_espera', 'contacts', 'crm', 'production', 'inventory', 'ponto', 'settings', 'robozinho_rafa', 'comissoes'];
 function fullAccess(): ModuleCrudPermission { return { view: true, create: true, edit: true, delete: true }; }
 function noAccess(): ModuleCrudPermission { return { view: false, create: false, edit: false, delete: false }; }
 function viewOnly(): ModuleCrudPermission { return { view: true, create: false, edit: false, delete: false }; }
@@ -3879,6 +3879,39 @@ export const ChatPanel = ({
   const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
   const [isChangingStage, setIsChangingStage] = useState(false);
   const [isStageMenuOpen, setIsStageMenuOpen] = useState(false);
+  const stageButtonRef = useRef<HTMLButtonElement>(null);
+  const [stageMenuPos, setStageMenuPos] = useState<{ top: number; left: number } | null>(null);
+
+  const handleToggleStageMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isStageMenuOpen) {
+      setIsStageMenuOpen(false);
+      return;
+    }
+    if (stageButtonRef.current) {
+      const rect = stageButtonRef.current.getBoundingClientRect();
+      const dropdownWidth = 240;
+      let left = rect.left;
+      if (left + dropdownWidth > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - dropdownWidth - 12);
+      }
+      if (left < 12) left = 12;
+      const top = rect.bottom + 6;
+      setStageMenuPos({ top, left });
+    }
+    setIsStageMenuOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isStageMenuOpen) return;
+    const closeMenu = () => setIsStageMenuOpen(false);
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    return () => {
+      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+    };
+  }, [isStageMenuOpen]);
   // Foto de perfil do contato no cabeçalho (mesmo lead.photoUrl da lista de Mensagens) + ampliação ao clicar.
   const [isPhotoOpen, setIsPhotoOpen] = useState(false);
   useEffect(() => { setIsPhotoOpen(false); }, [conversation?.id]);
@@ -6352,8 +6385,9 @@ export const ChatPanel = ({
             const indicadorEtapaEl = effectiveFunnelId && funnelStages.length > 0 && (
                     <div className="relative shrink-0">
                       <button
+                        ref={stageButtonRef}
                         type="button"
-                        onClick={() => setIsStageMenuOpen(o => !o)}
+                        onClick={handleToggleStageMenu}
                         disabled={isChangingStage}
                         className={cn(
                           "flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 shadow-xs",
@@ -6371,15 +6405,19 @@ export const ChatPanel = ({
 
                       {isStageMenuOpen && typeof document !== 'undefined' && createPortal(
                         <>
-                          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[99998]" onClick={() => setIsStageMenuOpen(false)} />
-                          <div className="fixed inset-x-3 bottom-4 sm:bottom-auto sm:top-[60px] sm:left-24 sm:w-80 z-[99999] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
-                            <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 border-b border-white/10 mb-1.5">
-                              <span>Mudar Etapa do Lead</span>
+                          <div className="fixed inset-0 z-[99998]" onClick={() => setIsStageMenuOpen(false)} />
+                          <div 
+                            style={{ top: stageMenuPos ? `${stageMenuPos.top}px` : '56px', left: stageMenuPos ? `${stageMenuPos.left}px` : '12px' }}
+                            className="fixed z-[99999] bg-slate-900/98 backdrop-blur-md border border-white/15 rounded-xl shadow-2xl p-1.5 w-60 max-h-72 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-between px-2 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 border-b border-white/10 mb-1">
+                              <span>Mudar Etapa</span>
                               <button type="button" onClick={() => setIsStageMenuOpen(false)} className="text-white/40 hover:text-white p-0.5">
-                                <X size={13} />
+                                <X size={12} />
                               </button>
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-0.5">
                               {funnelStages.map(stage => {
                                 const isActive = stage.id === activeStageId;
                                 const c = stage.color || '#ef4444';
@@ -6389,15 +6427,15 @@ export const ChatPanel = ({
                                     type="button"
                                     onClick={() => { handleChangeStageFromChat(stage.id); setIsStageMenuOpen(false); }}
                                     className={cn(
-                                      "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all text-left cursor-pointer",
-                                      isActive ? "bg-white/10 border border-white/15 text-white" : "hover:bg-white/5 text-white/70"
+                                      "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer",
+                                      isActive ? "bg-white/15 text-white" : "hover:bg-white/5 text-white/70"
                                     )}
                                   >
-                                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c }} />
-                                    <span className="flex-1 truncate normal-case font-semibold" style={{ color: isActive ? c : undefined }}>
+                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c }} />
+                                    <span className="flex-1 truncate normal-case" style={{ color: isActive ? c : undefined }}>
                                       {stage.name}
                                     </span>
-                                    {isActive && <Check size={14} style={{ color: c }} className="shrink-0" strokeWidth={2.5} />}
+                                    {isActive && <Check size={13} style={{ color: c }} className="shrink-0" strokeWidth={2.5} />}
                                   </button>
                                 );
                               })}
@@ -28406,6 +28444,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'messages', label: 'Mensagens' },
     { id: 'pos', label: 'PDV Gráfica' },
     { id: 'inventory', label: 'Estoque & Materiais' },
+    { id: 'ponto', label: 'Controle de Ponto' },
     { id: 'contacts', label: 'Contatos' },
     { id: 'clientes_espera', label: 'Clientes em Espera' },
     { id: 'production', label: 'Ordem de Serviço' },

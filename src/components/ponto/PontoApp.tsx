@@ -422,10 +422,10 @@ export function PontoApp() {
   // Render de carregamento
   if (loading && funcs.length === 0 && !erro) {
     return (
-      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 text-center text-slate-400 text-sm">
-        <RefreshCw size={24} className="animate-spin text-emerald-600 mb-3" />
-        <p className="font-semibold text-slate-700">Carregando Ponto Eletrônico...</p>
-        <p className="text-xs text-slate-400 mt-1">Conectando aos registros operacionais</p>
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 text-center text-white/50 text-sm">
+        <RefreshCw size={24} className="animate-spin text-emerald-400 mb-3" />
+        <p className="font-semibold text-white">Carregando Ponto Eletrônico...</p>
+        <p className="text-xs text-white/40 mt-1">Conectando aos registros operacionais</p>
       </div>
     );
   }
@@ -434,14 +434,14 @@ export function PontoApp() {
   if (erro) {
     return (
       <div className="p-6 max-w-xl mx-auto my-8">
-        <div className="bg-white rounded-2xl border border-rose-200 p-6 shadow-sm space-y-3">
-          <p className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+        <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-rose-500/30 p-6 shadow-xl space-y-3">
+          <p className="flex items-center gap-2 text-rose-400 font-bold text-sm">
             <AlertTriangle size={18} /> Falha ao carregar o ponto
           </p>
-          <p className="text-xs text-slate-600">{erro}</p>
+          <p className="text-xs text-white/60">{erro}</p>
           <button
             onClick={carregar}
-            className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs uppercase tracking-wider hover:bg-emerald-700 transition-colors"
+            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-colors cursor-pointer"
           >
             Tentar novamente
           </button>
@@ -451,7 +451,7 @@ export function PontoApp() {
   }
 
   return (
-    <div className="flex h-full min-h-[700px] bg-[#F4F6F8] text-slate-800 rounded-2xl overflow-hidden border border-slate-200/80 shadow-xs">
+    <div className="flex h-full min-h-[700px] bg-slate-950/40 text-white rounded-2xl overflow-hidden border border-white/10 backdrop-blur-xl shadow-2xl">
       {/* Sidebar do Ponto */}
       <PontoSidebar
         currentTab={currentTab}
@@ -535,13 +535,13 @@ export function PontoApp() {
 
               {/* TAB: REGISTROS DE PONTO (Visão geral de todos os registros) */}
               {currentTab === 'registros' && (
-                <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs space-y-5">
+                <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl space-y-5 text-white">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                      <h3 className="text-xl font-black text-white tracking-tight">
                         Registros de Ponto
                       </h3>
-                      <p className="text-xs text-slate-500 font-medium">
+                      <p className="text-xs text-white/50 font-medium">
                         Histórico e batidas de ponto de todos os funcionários
                       </p>
                     </div>
@@ -551,19 +551,19 @@ export function PontoApp() {
                         type="date"
                         value={filtroDataRegistros}
                         onChange={(e) => setFiltroDataRegistros(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-bold focus:outline-none"
+                        className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
                       />
                       <div className="relative min-w-[180px]">
                         <Search
                           size={13}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"
                         />
                         <input
                           type="text"
                           value={buscaRegistros}
                           onChange={(e) => setBuscaRegistros(e.target.value)}
                           placeholder="Buscar funcionário..."
-                          className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none"
+                          className="w-full pl-8 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:outline-none focus:border-emerald-500/50"
                         />
                       </div>
                     </div>
@@ -572,7 +572,7 @@ export function PontoApp() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="text-slate-400 font-semibold border-b border-slate-100 text-left">
+                        <tr className="text-white/40 font-semibold border-b border-white/10 text-left">
                           <th className="pb-3 pr-4">Funcionário</th>
                           <th className="pb-3 pr-4">Matrícula</th>
                           <th className="pb-3 pr-4">Entrada</th>
@@ -584,7 +584,7 @@ export function PontoApp() {
                           <th className="pb-3 text-right">Ação</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/5">
                         {ativos
                           .filter((f) => {
                             const nome = (
@@ -603,41 +603,41 @@ export function PontoApp() {
                               `Funcionário ${f.numero_relogio}`;
 
                             return (
-                              <tr key={f.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="py-3 pr-4 font-bold text-slate-800">
+                              <tr key={f.id} className="hover:bg-white/5 transition-colors">
+                                <td className="py-3 pr-4 font-bold text-white">
                                   <button
                                     onClick={() => setSelId(f.id)}
-                                    className="hover:text-emerald-700 text-left"
+                                    className="hover:text-emerald-400 text-left transition-colors cursor-pointer"
                                   >
                                     {nome}
                                   </button>
                                 </td>
-                                <td className="py-3 pr-4 text-slate-500 font-mono">
+                                <td className="py-3 pr-4 text-white/50 font-mono">
                                   {String(f.numero_relogio).padStart(3, '0')}
                                 </td>
-                                <td className="py-3 pr-4 font-mono text-slate-700">
+                                <td className="py-3 pr-4 font-mono text-white/80">
                                   {hhmm(r?.entrada)}
                                 </td>
-                                <td className="py-3 pr-4 font-mono text-slate-700">
+                                <td className="py-3 pr-4 font-mono text-white/80">
                                   {hhmm(r?.inicio_intervalo)}
                                 </td>
-                                <td className="py-3 pr-4 font-mono text-slate-700">
+                                <td className="py-3 pr-4 font-mono text-white/80">
                                   {hhmm(r?.fim_intervalo)}
                                 </td>
-                                <td className="py-3 pr-4 font-mono text-slate-700">
+                                <td className="py-3 pr-4 font-mono text-white/80">
                                   {hhmm(r?.saida)}
                                 </td>
-                                <td className="py-3 pr-4 font-bold text-slate-800">
+                                <td className="py-3 pr-4 font-bold text-white">
                                   {fmtHM(a.trabalhados)}
                                 </td>
                                 <td className="py-3 pr-4">
                                   <span
                                     className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                       a.status === 'presente'
-                                        ? 'bg-emerald-50 text-emerald-700'
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                         : a.status === 'atrasado'
-                                        ? 'bg-amber-50 text-amber-700'
-                                        : 'bg-rose-50 text-rose-700'
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                                     }`}
                                   >
                                     {a.status}
@@ -652,7 +652,7 @@ export function PontoApp() {
                                         reg: r,
                                       })
                                     }
-                                    className="p-1 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100"
+                                    className="p-1 rounded-lg text-white/40 hover:text-emerald-400 hover:bg-white/10 transition-colors cursor-pointer"
                                     title="Editar registro"
                                   >
                                     <Pencil size={13} />
@@ -669,18 +669,18 @@ export function PontoApp() {
 
               {/* TAB: AJUSTES PENDENTES */}
               {currentTab === 'ajustes' && (
-                <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl space-y-4 text-white">
                   <div>
-                    <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                    <h3 className="text-xl font-black text-white tracking-tight">
                       Ajustes Pendentes
                     </h3>
-                    <p className="text-xs text-slate-500 font-medium">
+                    <p className="text-xs text-white/50 font-medium">
                       Ocorrências de batidas faltantes, atrasos relevantes e divergências
                     </p>
                   </div>
 
                   {ajustesPendentes.length === 0 ? (
-                    <div className="py-12 text-center text-slate-400 text-xs">
+                    <div className="py-12 text-center text-white/40 text-xs">
                       Nenhuma pendência ou inconsistência encontrada nos últimos 14 dias!
                     </div>
                   ) : (
@@ -693,23 +693,23 @@ export function PontoApp() {
                         return (
                           <div
                             key={idx}
-                            className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-4 text-xs"
+                            className="p-4 rounded-xl border border-white/10 bg-white/5 flex items-center justify-between gap-4 text-xs"
                           >
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-900">{nome}</span>
-                                <span className="text-slate-400">•</span>
-                                <span className="font-semibold text-slate-700">
+                                <span className="font-bold text-white">{nome}</span>
+                                <span className="text-white/40">•</span>
+                                <span className="font-semibold text-white/70">
                                   {item.data.split('-').reverse().join('/')}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-slate-500 mt-1">
+                              <p className="text-[11px] text-white/50 mt-1">
                                 Batida registrada:{' '}
-                                <span className="font-mono">
+                                <span className="font-mono text-white/80">
                                   {hhmm(item.registro?.entrada)} / {hhmm(item.registro?.saida)}
                                 </span>{' '}
                                 • Motivo:{' '}
-                                <span className="font-semibold text-amber-700">
+                                <span className="font-semibold text-amber-400">
                                   {item.status === 'incompleto'
                                     ? 'Batida de saída ou intervalo faltando'
                                     : 'Atraso fora da tolerância'}
@@ -725,7 +725,7 @@ export function PontoApp() {
                                   reg: item.registro,
                                 })
                               }
-                              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-2xs transition-colors shrink-0"
+                              className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all shrink-0 cursor-pointer"
                             >
                               Ajustar Agora
                             </button>
@@ -739,13 +739,13 @@ export function PontoApp() {
 
               {/* TAB: RELATÓRIOS */}
               {currentTab === 'relatorios' && (
-                <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs space-y-5">
+                <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl space-y-5 text-white">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-xl font-black text-slate-900 tracking-tight">
+                      <h3 className="text-xl font-black text-white tracking-tight">
                         Relatórios do Ponto
                       </h3>
-                      <p className="text-xs text-slate-500 font-medium">
+                      <p className="text-xs text-white/50 font-medium">
                         Consolidado mensal de horas, extras e frequência
                       </p>
                     </div>
@@ -754,7 +754,7 @@ export function PontoApp() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="text-slate-400 font-semibold border-b border-slate-100 text-left">
+                        <tr className="text-white/40 font-semibold border-b border-white/10 text-left">
                           <th className="pb-3 pr-4">Funcionário</th>
                           <th className="pb-3 pr-4">Setor</th>
                           <th className="pb-3 pr-4">Horas Trabalhadas (Mês)</th>
@@ -762,7 +762,7 @@ export function PontoApp() {
                           <th className="pb-3 text-right">Espelho</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/5">
                         {ativos.map((f) => {
                           const saldo = saldoBanco(f.id);
                           const nome =
@@ -770,17 +770,17 @@ export function PontoApp() {
                             f.nome_relogio ||
                             `Funcionário ${f.numero_relogio}`;
                           return (
-                            <tr key={f.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="py-3 pr-4 font-bold text-slate-800">{nome}</td>
-                              <td className="py-3 pr-4 text-slate-500">
+                            <tr key={f.id} className="hover:bg-white/5 transition-colors">
+                              <td className="py-3 pr-4 font-bold text-white">{nome}</td>
+                              <td className="py-3 pr-4 text-white/50">
                                 {f.colaboradores?.cargo || 'Geral'}
                               </td>
-                              <td className="py-3 pr-4 font-bold text-slate-800">
+                              <td className="py-3 pr-4 font-bold text-white">
                                 {fmtHM(analise(f, hoje).trabalhados * 20)} (estimado)
                               </td>
                               <td
                                 className={`py-3 pr-4 font-bold ${
-                                  saldo >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                                  saldo >= 0 ? 'text-emerald-400' : 'text-rose-400'
                                 }`}
                               >
                                 {saldo >= 0 ? '+ ' : '- '}
@@ -789,7 +789,7 @@ export function PontoApp() {
                               <td className="py-3 text-right">
                                 <button
                                   onClick={() => setSelId(f.id)}
-                                  className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                                  className="px-3 py-1 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs border border-white/10 transition-colors cursor-pointer"
                                 >
                                   Ver Espelho
                                 </button>

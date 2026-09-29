@@ -2,38 +2,34 @@ import React, { useState } from 'react';
 import {
   Search,
   UserPlus,
-  Pencil,
   Eye,
+  Pencil,
   UserX,
   UserCheck,
   ShieldCheck,
   ShieldAlert,
   Link2,
   Trash2,
-  AlertTriangle,
 } from 'lucide-react';
 import { AvatarPhoto } from '../SharedUI';
-import { StatusDia } from '../../lib/pontoCalc';
+
+export interface ColaboradorItem {
+  id: string;
+  nome: string;
+  cargo?: string | null;
+  foto_url?: string | null;
+  telefone_whatsapp?: string | null;
+}
 
 export interface FuncionarioItem {
   id: string;
-  company_id: string;
   numero_relogio: string;
-  nome_relogio: string | null;
+  nome_relogio: string;
   colaborador_id: string | null;
-  tolerancia_minutos: number;
   ativo: boolean;
-  colaboradores?: {
-    id: string;
-    nome: string;
-    cargo?: string | null;
-    foto_url: string | null;
-    telefone_whatsapp: string | null;
-    created_at?: string;
-  } | null;
-  temLogin: boolean;
-  statusHoje?: StatusDia;
-  horasHoje?: string;
+  colaboradores?: ColaboradorItem | null;
+  temLogin?: boolean;
+  tolerancia_minutos?: number;
 }
 
 export interface ColaboradorOption {
@@ -68,19 +64,19 @@ export function PontoFuncionarios({
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-white">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+            <h2 className="text-2xl font-black text-white tracking-tight">
               Funcionários Ativos
             </h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               {funcionariosAtivos.length}
             </span>
           </div>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">
+          <p className="text-xs text-white/50 font-medium mt-0.5">
             Equipe com registro ativo no ponto eletrônico
           </p>
         </div>
@@ -89,20 +85,20 @@ export function PontoFuncionarios({
           <div className="relative min-w-[220px]">
             <Search
               size={15}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40"
             />
             <input
               type="text"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por nome, setor ou matrícula..."
-              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200/90 rounded-xl text-xs text-slate-800 placeholder-slate-400 shadow-2xs focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20"
+              className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 shadow-xs focus:outline-none focus:border-emerald-500/50"
             />
           </div>
 
           <button
             onClick={onNovoFuncionario}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wide shadow-xs transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wide shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
           >
             <UserPlus size={15} /> Novo Funcionário
           </button>
@@ -111,9 +107,9 @@ export function PontoFuncionarios({
 
       {/* Grid de Cards de Funcionários */}
       {filtrados.length === 0 ? (
-        <div className="bg-white rounded-2xl p-12 text-center border border-slate-200/80 shadow-xs">
-          <p className="text-sm font-bold text-slate-700">Nenhum funcionário ativo encontrado</p>
-          <p className="text-xs text-slate-400 mt-1">
+        <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-12 text-center border border-white/10 shadow-xl">
+          <p className="text-sm font-bold text-white/80">Nenhum funcionário ativo encontrado</p>
+          <p className="text-xs text-white/40 mt-1">
             Tente buscar com outro termo ou cadastre um novo funcionário do ponto.
           </p>
         </div>
@@ -128,7 +124,7 @@ export function PontoFuncionarios({
             return (
               <div
                 key={f.id}
-                className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs hover:shadow-md hover:border-emerald-500/40 transition-all flex flex-col justify-between group"
+                className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 border border-white/10 shadow-xl hover:border-emerald-500/40 transition-all flex flex-col justify-between group"
               >
                 <div>
                   {/* Topo do Card: Avatar e Badges */}
@@ -137,26 +133,26 @@ export function PontoFuncionarios({
                       <AvatarPhoto
                         photoUrl={f.colaboradores?.foto_url}
                         name={nome}
-                        className="w-16 h-16 border-2 border-white ring-1 ring-slate-200 shadow-xs"
-                        textClassName="text-xl font-black text-slate-700"
+                        className="w-16 h-16 border-2 border-white/10 shadow-md bg-slate-800"
+                        textClassName="text-xl font-black text-white"
                       />
                       <span
-                        className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white ring-1 ring-emerald-500/20"
+                        className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-900 ring-1 ring-emerald-500/30"
                         title="Ativo no ponto"
                       />
                     </div>
 
                     <div className="flex flex-col items-end gap-1.5">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                         ATIVO
                       </span>
                       {f.temLogin ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
                           <ShieldCheck size={11} /> Com conta
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                          <ShieldAlert size={11} className="text-slate-400" /> Sem conta de login
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/5 text-white/50 border border-white/10">
+                          <ShieldAlert size={11} className="text-white/40" /> Sem conta de login
                         </span>
                       )}
                     </div>
@@ -164,36 +160,36 @@ export function PontoFuncionarios({
 
                   {/* Informações Principais */}
                   <div className="mt-4">
-                    <h3 className="font-bold text-slate-900 text-base leading-snug group-hover:text-emerald-700 transition-colors">
+                    <h3 className="font-bold text-white text-base leading-snug group-hover:text-emerald-400 transition-colors">
                       {nome}
                     </h3>
-                    <p className="text-xs font-semibold text-emerald-700 mt-0.5">{setor}</p>
+                    <p className="text-xs font-semibold text-emerald-400 mt-0.5">{setor}</p>
 
-                    <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                    <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <span className="text-[11px] text-slate-400 block font-medium">Matrícula</span>
-                        <span className="font-bold text-slate-700">{matricula}</span>
+                        <span className="text-[11px] text-white/40 block font-medium">Matrícula</span>
+                        <span className="font-bold text-white/90">{matricula}</span>
                       </div>
                       <div>
-                        <span className="text-[11px] text-slate-400 block font-medium">ID Ponto</span>
-                        <span className="font-mono font-bold text-slate-700 text-[11px]">{idPonto}</span>
+                        <span className="text-[11px] text-white/40 block font-medium">ID Ponto</span>
+                        <span className="font-mono font-bold text-white/90 text-[11px]">{idPonto}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Rodapé de Ações */}
-                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center gap-2">
+                <div className="mt-5 pt-3 border-t border-white/10 flex items-center gap-2">
                   <button
                     onClick={() => onAbrirPerfil(f.id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-2xs transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
                   >
                     <Eye size={14} /> Ver Perfil
                   </button>
 
                   <button
                     onClick={() => onEditarFuncionario(f)}
-                    className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-colors"
+                    className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
                     title="Editar informações"
                   >
                     <Pencil size={13} /> Editar
@@ -201,7 +197,7 @@ export function PontoFuncionarios({
 
                   <button
                     onClick={() => onDesativarFuncionario(f)}
-                    className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    className="p-2 rounded-xl text-white/40 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                     title="Desativar funcionário"
                   >
                     <UserX size={15} />
@@ -258,38 +254,38 @@ export function PontoConfigFuncionarios({
   });
 
   return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs space-y-6">
+    <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl space-y-6 text-white">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-lg font-black text-slate-900 tracking-tight">
+          <h3 className="text-lg font-black text-white tracking-tight">
             Funcionários do Ponto
           </h3>
-          <p className="text-xs text-slate-500 font-medium">
+          <p className="text-xs text-white/50 font-medium">
             Gerenciamento administrativo de ativos, inativos e cadastros sem vínculo
           </p>
         </div>
 
         <button
           onClick={onNovoFuncionario}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase shadow-xs transition-colors self-start sm:self-auto"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase shadow-md transition-all active:scale-95 self-start sm:self-auto cursor-pointer"
         >
           <UserPlus size={14} /> Novo Cadastro
         </button>
       </div>
 
       {/* Abas [Ativos 3] [Inativos 1] [Não vinculados 2] */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-3 flex-wrap">
+      <div className="flex items-center gap-2 border-b border-white/10 pb-3 flex-wrap">
         <button
           onClick={() => setTab('ativos')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             tab === 'ativos'
-              ? 'bg-[#0B3D2B] text-white shadow-2xs'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+              : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
           }`}
         >
           <span>Ativos</span>
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-            tab === 'ativos' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
+            tab === 'ativos' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-white/10 text-white/60'
           }`}>
             {ativos.length}
           </span>
@@ -297,15 +293,15 @@ export function PontoConfigFuncionarios({
 
         <button
           onClick={() => setTab('inativos')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             tab === 'inativos'
-              ? 'bg-[#0B3D2B] text-white shadow-2xs'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-xs'
+              : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
           }`}
         >
           <span>Inativos</span>
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-            tab === 'inativos' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
+            tab === 'inativos' ? 'bg-rose-500/30 text-rose-200' : 'bg-white/10 text-white/60'
           }`}>
             {inativos.length}
           </span>
@@ -313,15 +309,15 @@ export function PontoConfigFuncionarios({
 
         <button
           onClick={() => setTab('nao_vinculados')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             tab === 'nao_vinculados'
-              ? 'bg-[#0B3D2B] text-white shadow-2xs'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
+              : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
           }`}
         >
           <span>Não vinculados</span>
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-            tab === 'nao_vinculados' ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-700'
+            tab === 'nao_vinculados' ? 'bg-amber-500/30 text-amber-200' : 'bg-white/10 text-white/60'
           }`}>
             {naoVinculados.length}
           </span>
@@ -330,13 +326,13 @@ export function PontoConfigFuncionarios({
 
       {/* Busca */}
       <div className="relative max-w-sm">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
         <input
           type="text"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar funcionário nesta aba..."
-          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
+          className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:outline-none focus:border-emerald-500/50"
         />
       </div>
 
@@ -344,7 +340,7 @@ export function PontoConfigFuncionarios({
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-slate-400 font-semibold border-b border-slate-100 text-left">
+            <tr className="text-white/40 font-semibold border-b border-white/10 text-left uppercase tracking-wider text-[10px]">
               <th className="pb-3 pr-4">Nº Relógio</th>
               <th className="pb-3 pr-4">Funcionário</th>
               <th className="pb-3 pr-4">Vínculo Colaborador</th>
@@ -352,10 +348,10 @@ export function PontoConfigFuncionarios({
               <th className="pb-3 text-right">Ações</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-white/5">
             {filtrados.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-slate-400">
+                <td colSpan={5} className="py-8 text-center text-white/40">
                   Nenhum funcionário encontrado nesta aba.
                 </td>
               </tr>
@@ -363,8 +359,8 @@ export function PontoConfigFuncionarios({
               filtrados.map((f) => {
                 const nome = f.colaboradores?.nome || f.nome_relogio || `Funcionário ${f.numero_relogio}`;
                 return (
-                  <tr key={f.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3 pr-4 font-mono font-bold text-slate-700">
+                  <tr key={f.id} className="hover:bg-white/5 transition-colors">
+                    <td className="py-3 pr-4 font-mono font-bold text-white/80">
                       {f.numero_relogio}
                     </td>
                     <td className="py-3 pr-4">
@@ -372,12 +368,12 @@ export function PontoConfigFuncionarios({
                         <AvatarPhoto
                           photoUrl={f.colaboradores?.foto_url}
                           name={nome}
-                          className="w-8 h-8 border-slate-200"
-                          textClassName="text-[11px] font-bold"
+                          className="w-8 h-8 border-white/10"
+                          textClassName="text-[11px] font-bold text-white"
                         />
                         <div>
-                          <p className="font-bold text-slate-900">{nome}</p>
-                          <p className="text-[10px] text-slate-400">
+                          <p className="font-bold text-white">{nome}</p>
+                          <p className="text-[10px] text-white/40">
                             {f.colaboradores?.cargo || 'Sem setor'}
                           </p>
                         </div>
@@ -385,7 +381,7 @@ export function PontoConfigFuncionarios({
                     </td>
                     <td className="py-3 pr-4">
                       {f.colaborador_id ? (
-                        <span className="font-semibold text-emerald-700">
+                        <span className="font-semibold text-emerald-400">
                           {f.colaboradores?.nome || 'Vinculado'}
                         </span>
                       ) : (
@@ -395,11 +391,11 @@ export function PontoConfigFuncionarios({
                             onChange={(e) =>
                               setVinculos({ ...vinculos, [f.id]: e.target.value })
                             }
-                            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none"
+                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
                           >
-                            <option value="">Selecione Colaborador...</option>
+                            <option value="" className="bg-slate-900 text-white">Selecione Colaborador...</option>
                             {colaboradoresDisponiveis.map((c) => (
-                              <option key={c.id} value={c.id}>
+                              <option key={c.id} value={c.id} className="bg-slate-900 text-white">
                                 {c.nome} {c.cargo ? `(${c.cargo})` : ''}
                               </option>
                             ))}
@@ -407,7 +403,7 @@ export function PontoConfigFuncionarios({
                           <button
                             disabled={!vinculos[f.id]}
                             onClick={() => onVincularColaborador(f.id, vinculos[f.id])}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 disabled:opacity-40 text-white font-bold text-xs"
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black disabled:opacity-40 text-xs transition-colors cursor-pointer"
                           >
                             <Link2 size={12} className="inline mr-1" /> Vincular
                           </button>
@@ -416,11 +412,11 @@ export function PontoConfigFuncionarios({
                     </td>
                     <td className="py-3 pr-4">
                       {f.ativo ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                           ATIVO
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-600">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-white/10 text-white/60 border border-white/10">
                           INATIVO
                         </span>
                       )}
@@ -431,19 +427,19 @@ export function PontoConfigFuncionarios({
                           <>
                             <button
                               onClick={() => onAbrirPerfil(f.id)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold text-xs"
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 font-bold text-xs cursor-pointer"
                             >
                               Ver
                             </button>
                             <button
                               onClick={() => onEditarFuncionario(f)}
-                              className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs"
+                              className="px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-xs cursor-pointer"
                             >
                               Editar
                             </button>
                             <button
                               onClick={() => onDesativarFuncionario(f)}
-                              className="px-2.5 py-1 rounded-lg text-rose-600 hover:bg-rose-50 font-bold text-xs"
+                              className="px-2.5 py-1 rounded-lg text-rose-400 hover:bg-rose-500/10 font-bold text-xs cursor-pointer"
                             >
                               Desativar
                             </button>
@@ -452,19 +448,19 @@ export function PontoConfigFuncionarios({
                           <>
                             <button
                               onClick={() => onReativarFuncionario(f.id)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-xs flex items-center gap-1"
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer"
                             >
                               <UserCheck size={12} /> Reativar
                             </button>
                             <button
                               onClick={() => onEditarFuncionario(f)}
-                              className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs"
+                              className="px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-xs cursor-pointer"
                             >
                               Editar
                             </button>
                             <button
                               onClick={() => onExcluirFuncionario(f)}
-                              className="px-2.5 py-1 rounded-lg text-rose-600 hover:bg-rose-50 font-bold text-xs flex items-center gap-1"
+                              className="px-2.5 py-1 rounded-lg text-rose-400 hover:bg-rose-500/10 font-bold text-xs flex items-center gap-1 cursor-pointer"
                             >
                               <Trash2 size={12} /> Excluir
                             </button>
