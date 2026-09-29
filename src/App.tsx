@@ -51,22 +51,6 @@ import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida, buscarFotoAtu
 import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  LineChart, 
-  Line,
-  AreaChart,
-  Area,
-  PieChart,
-  Pie,
-  Cell
-} from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { format } from 'date-fns';
