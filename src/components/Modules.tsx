@@ -3862,6 +3862,19 @@ export const ChatPanel = ({
   const [isRecording, setIsRecording] = useState(false);
   const [audiosComErro, setAudiosComErro] = useState<Record<string, boolean>>({});
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const quickRepliesBtnRef = useRef<HTMLDivElement>(null);
+  const [quickRepliesPos, setQuickRepliesPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
+  useEffect(() => {
+    if (!showQuickReplies) { setQuickRepliesPos(null); return; }
+    const el = quickRepliesBtnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = 260;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    const bottom = window.innerHeight - r.top + 8;
+    const maxHeight = Math.max(120, Math.min(320, r.top - 16));
+    setQuickRepliesPos({ left, bottom, maxHeight });
+  }, [showQuickReplies]);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -7317,30 +7330,44 @@ export const ChatPanel = ({
                     )}
                   </div>
 
-                  {/* [Rápidas] — Ação Secundária */}
-                  <button
-                    type="button"
-                    onClick={() => setShowQuickReplies(v => !v)}
-                    className={cn(
-                      "text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 active:scale-95",
-                      showQuickReplies 
-                        ? "bg-red-500/20 text-red-300 border-red-500/40" 
-                        : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
-                    )}
-                  >
-                    <Sparkles size={10} className={showQuickReplies ? "text-red-400" : "text-amber-400"} />
-                    <span>Rápidas</span>
-                  </button>
-                  {showQuickReplies && quickTemplates.map((tpl, i) => (
+                  {/* [Mensagens Rápidas] — somente ícone; lista abre para cima */}
+                  <div className="relative shrink-0" ref={quickRepliesBtnRef}>
                     <button
-                      key={i}
                       type="button"
-                      onClick={() => { setNewMessage(tpl.text); setShowQuickReplies(false); }}
-                      className="text-[9.5px] font-bold bg-white/5 hover:bg-white/10 text-white/80 hover:text-white px-2.5 py-1 rounded-lg border border-white/10 shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer active:scale-95"
+                      onClick={() => setShowQuickReplies(v => !v)}
+                      title="Mensagens Rápidas"
+                      aria-label="Mensagens Rápidas"
+                      className={cn(
+                        "p-1.5 rounded-lg border shadow-sm transition-all shrink-0 cursor-pointer flex items-center justify-center active:scale-95",
+                        showQuickReplies
+                          ? "bg-red-500/20 text-red-300 border-red-500/40"
+                          : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
+                      )}
                     >
-                      {tpl.label}
+                      <Bot size={14} className={showQuickReplies ? "text-red-400" : "text-amber-400"} />
                     </button>
-                  ))}
+                    {showQuickReplies && quickRepliesPos && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowQuickReplies(false)} />
+                        <div
+                          className="fixed w-[260px] overflow-y-auto custom-scrollbar bg-slate-900 border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5"
+                          style={{ left: quickRepliesPos.left, bottom: quickRepliesPos.bottom, maxHeight: quickRepliesPos.maxHeight }}
+                        >
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 px-2 py-0.5">Mensagens Rápidas</p>
+                          {quickTemplates.map((tpl, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => { setNewMessage(tpl.text); setShowQuickReplies(false); }}
+                              className="w-full text-left px-3 py-1.5 rounded-xl text-[10.5px] font-bold text-white/80 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                            >
+                              {tpl.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {reenvioPendente && (
