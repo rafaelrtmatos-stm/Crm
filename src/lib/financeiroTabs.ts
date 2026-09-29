@@ -5,6 +5,7 @@ import type { AppUser } from '../types';
 // tela de Usuarios (Modules.tsx) deixa o admin marcar quais abas cada usuario enxerga -- igual as abas do PDV.
 export const FINANCEIRO_TABS = [
   { id: 'funcionarios', label: 'Funcionários', desc: 'Colaboradores e comissões' },
+  { id: 'ponto', label: 'Controle de Ponto', desc: 'Espelho de ponto e horas' },
   { id: 'materias_primas', label: 'Matérias-Primas', desc: 'Insumos e custo por unidade' },
   { id: 'maquinas', label: 'Máquinas & Equipamentos', desc: 'Custos operacionais e depreciação' },
   { id: 'precificacao', label: 'Precificação', desc: 'Formação automática de preços' },

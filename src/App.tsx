@@ -126,6 +126,7 @@ import { ModuleErrorBoundary } from './components/SharedUI';
 import { PrecificacaoModule } from './components/PrecificacaoModule';
 import { MateriasPrimasModule } from './components/MateriasPrimasModule';
 import { MaquinasModule } from './components/MaquinasModule';
+import { PontoModule } from './components/PontoModule';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
 import { SEM_CRM_MESSAGES } from './lib/flags';
 
@@ -178,17 +179,17 @@ const SidebarItem = ({
 // 3. Máquinas (Cadastro e custos operacionais com cálculo automático de depreciação, manutenção, cabeça, energia e tinta)
 // 4. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTabSalvo, setSubTabState] = useState<'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
+  const [subTabSalvo, setSubTabState] = useState<'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('rpro_financeiro_subtab');
-      if (saved && ['funcionarios', 'materias_primas', 'maquinas', 'precificacao'].includes(saved)) {
-        return saved as 'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao';
+      if (saved && ['funcionarios', 'ponto', 'materias_primas', 'maquinas', 'precificacao'].includes(saved)) {
+        return saved as 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao';
       }
     }
     return 'funcionarios';
   });
 
-  const setSubTab = (tab: 'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao') => {
+  const setSubTab = (tab: 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao') => {
     setSubTabState(tab);
     if (typeof window !== 'undefined') {
       localStorage.setItem('rpro_financeiro_subtab', tab);
@@ -199,7 +200,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
   // cai na primeira permitida; se nenhuma for, mostra aviso de sem acesso.
   const abasVisiveis: string[] = FINANCEIRO_TABS.filter(t => canSeeFinanceiroTab(user, t.id)).map(t => t.id);
   const subTab = (abasVisiveis.includes(subTabSalvo) ? subTabSalvo : (abasVisiveis[0] ?? null)) as
-    'funcionarios' | 'materias_primas' | 'maquinas' | 'precificacao' | null;
+    'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao' | null;
 
   const [selectedMaquinaForPrec, setSelectedMaquinaForPrec] = useState<string | null>(null);
 
@@ -224,6 +225,19 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
             )}
           >
             <Users size={14} /> Funcionários
+          </button>
+        )}
+        {abasVisiveis.includes('ponto') && (
+          <button
+            onClick={() => setSubTab('ponto')}
+            className={cn(
+              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
+              subTab === 'ponto'
+                ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
+                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+            )}
+          >
+            <Clock size={14} /> Controle de Ponto
           </button>
         )}
         {abasVisiveis.includes('materias_primas') && (
@@ -271,6 +285,12 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
           <ModuleErrorBoundary label="Funcionários">
             <div className="overflow-y-auto custom-scrollbar h-full">
               <ComissoesAdminPanel />
+            </div>
+          </ModuleErrorBoundary>
+        ) : subTab === 'ponto' ? (
+          <ModuleErrorBoundary label="Controle de Ponto">
+            <div className="overflow-y-auto custom-scrollbar h-full">
+              <PontoModule />
             </div>
           </ModuleErrorBoundary>
         ) : subTab === 'materias_primas' ? (
@@ -623,7 +643,7 @@ export default function App() {
   }, []);
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
-    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'production', 'settings', 'comissoes', 'robozinho_rafa', 'clientes_espera', 'inventory'];
+    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'production', 'settings', 'comissoes', 'robozinho_rafa', 'clientes_espera', 'inventory', 'ponto'];
     return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
   });
   const setActiveTab = (tab: MainTab) => {
