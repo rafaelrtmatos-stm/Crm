@@ -121,19 +121,74 @@ export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
   return locais.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 };
 
+const BUCKET_MIDIA = 'whatsapp-media';
+
+const extDoMime = (mime: string): string => {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  if (mime.includes('gif')) return 'gif';
+  return 'jpg';
+};
+
+// Sobe a imagem da mensagem salva para o Storage do Supabase e devolve a URL publica.
+// (Antes a imagem ia como base64 dentro do JSON, estourava o localStorage e o update
+// silenciosamente falhava no banco.)
+export const uploadImagemMensagemRapida = async (arquivo: Blob): Promise<string | null> => {
+  try {
+    const mime = arquivo.type || 'image/jpeg';
+    const caminho = `respostas-rapidas/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${extDoMime(mime)}`;
+    const { error } = await supabase.storage
+      .from(BUCKET_MIDIA)
+      .upload(caminho, arquivo, { contentType: mime, upsert: false });
+    if (error) {
+      console.error('Erro ao subir imagem da mensagem rapida:', error);
+      return null;
+    }
+    const { data } = supabase.storage.from(BUCKET_MIDIA).getPublicUrl(caminho);
+    return data?.publicUrl || null;
+  } catch (err) {
+    console.error('Erro ao subir imagem da mensagem rapida:', err);
+    return null;
+  }
+};
+
+// Mensagens antigas que ainda guardam a imagem como base64 (data:) sao migradas pro Storage
+// na proxima vez que a lista for salva.
+const migrarImagensBase64 = async (lista: QuickReply[]): Promise<QuickReply[]> => {
+  return Promise.all(lista.map(async (item) => {
+    if (!item.imageUrl || !item.imageUrl.startsWith('data:')) return item;
+    try {
+      const blob = await (await fetch(item.imageUrl)).blob();
+      const url = await uploadImagemMensagemRapida(blob);
+      return url ? { ...item, imageUrl: url } : item;
+    } catch {
+      return item;
+    }
+  }));
+};
+
 export const salvarMensagensRapidas = async (lista: QuickReply[]): Promise<boolean> => {
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(lista));
-    window.dispatchEvent(new CustomEvent('quick-replies-updated', { detail: lista }));
+    const listaFinal = await migrarImagensBase64(lista);
 
-    // Persiste no Supabase se houver coluna
     try {
-      await supabase
-        .from('configuracoes')
-        .update({ quick_replies: lista, updated_at: new Date().toISOString() })
-        .eq('company_id', COMPANY_ID);
-    } catch {
-      // Ignora erro se coluna não existir no Postgres
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(listaFinal));
+    } catch (err) {
+      console.warn('Nao foi possivel gravar as mensagens rapidas no localStorage (cheio?):', err);
+    }
+    window.dispatchEvent(new CustomEvent('quick-replies-updated', { detail: listaFinal }));
+
+    // supabase-js NAO lanca excecao em erro de banco: ele devolve { error }.
+    // O try/catch antigo nunca pegava nada, entao a falha era silenciosa.
+    const { error } = await supabase
+      .from('configuracoes')
+      .upsert(
+        { company_id: COMPANY_ID, quick_replies: listaFinal, updated_at: new Date().toISOString() },
+        { onConflict: 'company_id' }
+      );
+    if (error) {
+      console.error('Erro ao salvar mensagens rapidas no Supabase:', error);
+      return false;
     }
     return true;
   } catch (err) {
@@ -152,7 +207,8 @@ export const adicionarMensagemRapida = async (item: Omit<QuickReply, 'id' | 'cre
     order: lista.length
   };
   const atualizada = [...lista, novo];
-  await salvarMensagensRapidas(atualizada);
+  const ok = await salvarMensagensRapidas(atualizada);
+  if (!ok) throw new Error('Falha ao salvar a mensagem rápida no Supabase');
   return novo;
 };
 

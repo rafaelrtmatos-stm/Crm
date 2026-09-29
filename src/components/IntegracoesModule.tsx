@@ -209,12 +209,16 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   }, [whatsappConectado, canalSelecionado]);
 
-  const TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
+  // Usuario comum so ve Mensagens Rapidas. Conexoes, Robozinho e Figurinhas sao so do admin.
+  const isAdmin = !!user?.isAdmin;
+  const TODAS_TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
     { id: 'conexoes', label: 'Conexões', icon: Plug },
     { id: 'mensagens_rapidas', label: 'Mensagens Rápidas', icon: Zap },
     { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
     { id: 'figurinhas', label: 'Figurinhas WhatsApp', icon: Smile },
   ];
+  const TABS = isAdmin ? TODAS_TABS : TODAS_TABS.filter(t => t.id === 'mensagens_rapidas');
+  const tabAtual: IntegracoesTab = isAdmin ? tab : 'mensagens_rapidas';
 
   return (
     <div className="space-y-6">
@@ -226,23 +230,23 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       </div>
 
       {/* Abas */}
-      <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
+      {isAdmin && <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
         {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => handleTabChange(t.id)}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all shrink-0 cursor-pointer",
-              tab === t.id ? "bg-primary-500 text-slate-950 shadow-lg" : "bg-white/5 text-white/40 hover:text-white"
+              tabAtual === t.id ? "bg-primary-500 text-slate-950 shadow-lg" : "bg-white/5 text-white/40 hover:text-white"
             )}
           >
             <t.icon size={14} />
             {t.label}
           </button>
         ))}
-      </div>
+      </div>}
 
-      {tab === 'conexoes' && (
+      {tabAtual === 'conexoes' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {CANAIS.map(canal => {
             const isGoogle = canal.id === 'google_contacts';
@@ -294,15 +298,15 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
         </div>
       )}
 
-      {tab === 'mensagens_rapidas' && (
+      {tabAtual === 'mensagens_rapidas' && (
         <QuickRepliesManager />
       )}
 
-      {tab === 'robozinho_rafa' && (
+      {tabAtual === 'robozinho_rafa' && (
         <RobozinhoRafaModule currentCompany={currentCompany} user={user} />
       )}
 
-      {tab === 'figurinhas' && (
+      {tabAtual === 'figurinhas' && (
         <FigurinhasManager user={user} currentCompany={currentCompany} />
       )}
 

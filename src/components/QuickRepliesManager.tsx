@@ -19,7 +19,8 @@ import {
   carregarMensagensRapidas, 
   adicionarMensagemRapida, 
   atualizarMensagemRapida, 
-  excluirMensagemRapida 
+  excluirMensagemRapida,
+  uploadImagemMensagemRapida
 } from '../lib/quickRepliesStorage';
 import { showAlert, showConfirm } from '../lib/notify';
 
@@ -91,12 +92,13 @@ export const QuickRepliesManager: React.FC<{
     setSaving(true);
     try {
       if (editingReply) {
-        await atualizarMensagemRapida(editingReply.id, {
+        const ok = await atualizarMensagemRapida(editingReply.id, {
           title: formTitle.trim(),
           shortcut: shortcutFormatted || undefined,
           text: formText.trim(),
           imageUrl: formImageUrl.trim() || undefined
         });
+        if (!ok) throw new Error('Falha ao salvar no Supabase');
       } else {
         await adicionarMensagemRapida({
           title: formTitle.trim(),
@@ -137,16 +139,16 @@ export const QuickRepliesManager: React.FC<{
     }
 
     setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setFormImageUrl(event.target?.result as string);
-      setIsUploading(false);
-    };
-    reader.onerror = () => {
-      showAlert('Erro ao processar imagem.');
-      setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    uploadImagemMensagemRapida(file)
+      .then((url) => {
+        if (url) {
+          setFormImageUrl(url);
+        } else {
+          showAlert('Não foi possível enviar a imagem para o Supabase. Tente novamente.');
+        }
+      })
+      .catch(() => showAlert('Erro ao processar imagem.'))
+      .finally(() => setIsUploading(false));
   };
 
   const filtered = replies.filter(r => {
