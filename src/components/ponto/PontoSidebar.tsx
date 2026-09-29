@@ -9,7 +9,6 @@ import {
   LogOut,
   X,
 } from 'lucide-react';
-import { RafaArtsLogo } from '../RafaArtsLogo';
 import { AvatarPhoto } from '../SharedUI';
 
 export type PontoNavTab =
@@ -73,29 +72,20 @@ export function PontoSidebar({
         }`}
       >
         <div>
-          {/* Logo Cabeçalho */}
-          <div className="p-5 flex items-center justify-between border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center p-1 shadow-sm">
-                <RafaArtsLogo className="w-7 h-7 text-white" />
-              </div>
-              <div className="leading-tight">
-                <span className="block font-black text-sm tracking-wider text-white">RAFA ARTS</span>
-                <span className="block text-[10px] font-bold tracking-widest text-emerald-400 uppercase">
-                  Ponto Eletrônico
-                </span>
-              </div>
-            </div>
+          {/* Cabeçalho apenas no mobile para fechar a gaveta */}
+          <div className="p-3 flex items-center justify-between lg:hidden border-b border-white/10">
+            <span className="text-xs font-bold text-white/60 uppercase tracking-wider">Menu</span>
             <button
               onClick={onCloseMobile}
-              className="p-1 rounded-lg text-white/50 hover:text-white lg:hidden"
+              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+              title="Fechar menu"
             >
               <X size={18} />
             </button>
           </div>
 
           {/* Itens de Navegação */}
-          <nav className="p-3 space-y-1.5 mt-2">
+          <nav className="p-3 space-y-1.5 pt-4">
             {navItems.map((item) => {
               const active = currentTab === item.id;
               const Icon = item.icon;

@@ -22,15 +22,14 @@ export function PontoHeader({
 
   return (
     <header className="bg-slate-900/80 border-b border-white/10 px-4 md:px-6 py-3 flex items-center justify-between backdrop-blur-xl shrink-0 text-white">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <button
           onClick={onToggleSidebar}
-          className="p-2 -ml-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-          title="Alternar menu"
+          className="lg:hidden p-2 -ml-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          title="Alternar menu do ponto"
         >
           <Menu size={20} />
         </button>
-        <h1 className="text-base sm:text-lg font-bold text-white tracking-tight">Ponto Eletrônico</h1>
       </div>
 
       <div className="flex items-center gap-3">

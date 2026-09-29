@@ -135,6 +135,7 @@ export const QuickRepliesManager: React.FC<{
 
     if (file.size > 2 * 1024 * 1024) {
       showAlert('Selecione uma imagem de até 2MB.');
+      e.target.value = '';
       return;
     }
 
@@ -144,11 +145,29 @@ export const QuickRepliesManager: React.FC<{
         if (url) {
           setFormImageUrl(url);
         } else {
-          showAlert('Não foi possível enviar a imagem para o Supabase. Tente novamente.');
+          // Se o upload para o Storage falhar temporariamente, usa Data URL local como fallback seguro
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              setFormImageUrl(reader.result);
+            }
+          };
+          reader.readAsDataURL(file);
         }
       })
-      .catch(() => showAlert('Erro ao processar imagem.'))
-      .finally(() => setIsUploading(false));
+      .catch(() => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            setFormImageUrl(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      })
+      .finally(() => {
+        setIsUploading(false);
+        e.target.value = '';
+      });
   };
 
   const filtered = replies.filter(r => {
