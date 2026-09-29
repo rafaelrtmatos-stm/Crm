@@ -3715,6 +3715,10 @@ export const ChatPanel = ({
   const [enviandoArquivo, setEnviandoArquivo] = useState(false);
   // Mensagens de mídia com preview imediato, barra de progresso em tempo real e estado (PENDENTE -> ENVIANDO -> ENVIADA / ERRO)
   const [optimisticMediaMessages, setOptimisticMediaMessages] = useState<any[]>([]);
+  // Imagens coladas/escolhidas que ainda NÃO foram enviadas: aparecem como prévia junto da caixa de texto.
+  const [pendingImages, setPendingImages] = useState<{ id: string; file: File; previewUrl: string }[]>([]);
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
   // Guarda o texto de um envio que falhou, pra mostrar o botão "Reenviar" (ver handleSendMessage) --
   // sem isso o atendente precisaria redigitar a mensagem inteira de novo.
   const [reenvioPendente, setReenvioPendente] = useState<string | null>(null);
@@ -4348,7 +4352,10 @@ export const ChatPanel = ({
   const chatMessages = useMemo(() => {
     const base = messages.filter(m => !m.isNote);
     if (optimisticMediaMessages.length === 0) return base;
-    return [...base, ...optimisticMediaMessages];
+    // Quando a mensagem real já chegou do servidor, esconde a otimista (evita a foto aparecer 2x).
+    const urlsReais = new Set(base.map((m: any) => m.mediaUrl).filter(Boolean));
+    const otimistas = optimisticMediaMessages.filter((o: any) => !(o.uploadStatus === 'sent' && o.mediaUrl && urlsReais.has(o.mediaUrl)));
+    return [...base, ...otimistas];
   }, [messages, optimisticMediaMessages]);
 
   // --- Galeria do visualizador de imagens ---
@@ -4583,11 +4590,57 @@ export const ChatPanel = ({
 
   // 5. Drag & Drop de arquivos na conversa
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const MAX_IMAGENS_PREVIA = 10;
+  const adicionarImagensPendentes = (files: File[]) => {
+    const imagens = files.filter(f => f && f.size > 0 && f.type.startsWith('image/'));
+    if (imagens.length === 0) return;
+    const livres = Math.max(0, MAX_IMAGENS_PREVIA - pendingImagesRef.current.length);
+    const novas = imagens.slice(0, livres).map(file => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    if (novas.length === 0) {
+      showAlert(`Máximo de ${MAX_IMAGENS_PREVIA} imagens por envio.`);
+      return;
+    }
+    setPendingImages(prev => [...prev, ...novas]);
+    setTimeout(() => chatInputRef.current?.focus(), 0);
+  };
+  const removerImagemPendente = (id: string) => {
+    const alvo = pendingImagesRef.current.find(p => p.id === id);
+    if (alvo) URL.revokeObjectURL(alvo.previewUrl);
+    setPendingImages(prev => prev.filter(p => p.id !== id));
+  };
+  // Envia as imagens da prévia; o texto da caixa vira legenda da primeira imagem.
+  const enviarImagensPendentes = async () => {
+    const lista = pendingImagesRef.current;
+    if (lista.length === 0) return;
+    const legenda = (typeof newMessage === 'string' ? newMessage : '').trim();
+    setPendingImages([]);
+    setNewMessage('');
+    for (let i = 0; i < lista.length; i++) {
+      await handleSendFile(lista[i].file, 'image', i === 0 ? legenda : '');
+    }
+    lista.forEach(p => URL.revokeObjectURL(p.previewUrl));
+  };
+  // Ao trocar de conversa (ou sair), descarta as prévias pendentes.
+  useEffect(() => {
+    return () => {
+      pendingImagesRef.current.forEach(p => URL.revokeObjectURL(p.previewUrl));
+      setPendingImages([]);
+    };
+  }, [conversation?.id]);
+
   const handleDropFiles = (files: FileList | null | undefined) => {
     if (!files || files.length === 0) return;
-    const file = files[0];
-    const isImg = /^image\/(jpeg|png|webp|gif)/i.test(file.type);
-    handleSendFile(file, isImg ? 'image' : 'document');
+    const lista = Array.from(files);
+    const imagens = lista.filter(f => /^image\/(jpeg|png|webp|gif)/i.test(f.type));
+    if (imagens.length > 0) {
+      adicionarImagensPendentes(imagens);
+      return;
+    }
+    handleSendFile(lista[0], 'document');
   };
 
   // 3. Citar / Responder mensagem (estilo WhatsApp)
@@ -5882,22 +5935,27 @@ export const ChatPanel = ({
 
   // Colar imagem do Clipboard (Ctrl+V) na conversa
   const handlePasteAnywhere = useCallback((e: React.ClipboardEvent | ClipboardEvent) => {
+    // O mesmo evento de colar passa pela caixa, pelo container e pela janela: trata só uma vez.
+    const nativo: any = (e as any).nativeEvent || e;
+    if (nativo.__imagemColadaTratada) return;
     const items = e.clipboardData?.items;
     if (!items || items.length === 0) return;
+    const arquivos: File[] = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.type && (item.type.startsWith('image/') || item.type.includes('image'))) {
         const blob = item.getAsFile();
         if (blob) {
-          e.preventDefault();
           const ext = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-          const file = new File([blob], `imagem_colada_${Date.now()}.${ext}`, { type: blob.type || 'image/png' });
-          handleSendFile(file, 'image');
-          return;
+          arquivos.push(new File([blob], `imagem_colada_${Date.now()}_${i}.${ext}`, { type: blob.type || 'image/png' }));
         }
       }
     }
-  }, [conversation?.phone, conversation?.id, currentCompany?.id, newMessage, user]);
+    if (arquivos.length === 0) return;
+    nativo.__imagemColadaTratada = true;
+    e.preventDefault();
+    adicionarImagensPendentes(arquivos);
+  }, [conversation?.phone, conversation?.id, currentCompany?.id]);
 
   useEffect(() => {
     if (activeTab !== 'chat') return;
@@ -7239,7 +7297,16 @@ export const ChatPanel = ({
                                      className="block overflow-hidden rounded-xl cursor-pointer group/img relative bg-slate-900/50"
                                      title="Clique para visualizar a imagem ampliada"
                                    >
-                                     <img src={m.mediaUrl || m.localBlobUrl} alt={m.fileName || 'Imagem recebida'} className="max-w-full max-h-64 object-cover rounded-xl group-hover/img:scale-[1.02] transition-transform" loading="lazy" decoding="async" />
+                                     <img
+                                       src={m.localBlobUrl || m.mediaUrl}
+                                       alt={m.fileName || 'Imagem recebida'}
+                                       className={cn(
+                                         "max-w-full max-h-64 object-cover rounded-xl transition-all duration-300",
+                                         (m.uploadStatus === 'uploading' || m.uploadStatus === 'pending') ? "blur-md scale-110" : "group-hover/img:scale-[1.02]"
+                                       )}
+                                       loading="lazy"
+                                       decoding="async"
+                                     />
                                      {(!m.uploadStatus || m.uploadStatus === 'sent') && (
                                        <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
                                          <span className="bg-black/75 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow-md flex items-center gap-1">
@@ -7247,23 +7314,26 @@ export const ChatPanel = ({
                                          </span>
                                        </div>
                                      )}
-                                     {(m.uploadStatus === 'uploading' || m.uploadStatus === 'pending') && (
-                                       <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px] flex flex-col items-center justify-center p-3 text-white pointer-events-none">
-                                         <div className="w-9 h-9 rounded-full bg-slate-900/90 border border-white/20 flex items-center justify-center mb-2 shadow-lg">
-                                           <Loader2 size={18} className="animate-spin text-emerald-400" />
+                                     {(m.uploadStatus === 'uploading' || m.uploadStatus === 'pending') && (() => {
+                                       const pct = Math.min(100, Math.max(0, Math.round(m.uploadProgress || 0)));
+                                       const raio = 22;
+                                       const circ = 2 * Math.PI * raio;
+                                       return (
+                                         <div className="absolute inset-0 bg-black/25 flex items-center justify-center pointer-events-none">
+                                           <div className="relative w-16 h-16 flex items-center justify-center rounded-full bg-black/45 backdrop-blur-sm shadow-lg">
+                                             <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 56 56">
+                                               <circle cx="28" cy="28" r={raio} fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="4" />
+                                               <circle
+                                                 cx="28" cy="28" r={raio} fill="none" stroke="#34d399" strokeWidth="4" strokeLinecap="round"
+                                                 strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)}
+                                                 style={{ transition: 'stroke-dashoffset 200ms linear' }}
+                                               />
+                                             </svg>
+                                             <span className="relative text-[13px] font-bold text-white tabular-nums drop-shadow">{pct}%</span>
+                                           </div>
                                          </div>
-                                         <div className="w-full max-w-[130px] bg-white/20 rounded-full h-2 overflow-hidden p-[1px]">
-                                           <div
-                                             className="bg-gradient-to-r from-emerald-400 to-teal-300 h-full rounded-full transition-all duration-200"
-                                             style={{ width: `${Math.max(6, m.uploadProgress || 0)}%` }}
-                                           />
-                                         </div>
-                                         <div className="flex items-center gap-1.5 mt-1.5 text-[10px] font-bold text-white drop-shadow">
-                                           <span>{m.uploadProgress !== undefined && m.uploadProgress > 0 ? `${m.uploadProgress}%` : ''}</span>
-                                           <span className="text-white/80">{m.uploadStatus === 'pending' ? 'Iniciando...' : (m.uploadProgress === 100 ? 'Processando...' : 'Enviando...')}</span>
-                                         </div>
-                                       </div>
-                                     )}
+                                       );
+                                     })()}
                                      {m.uploadStatus === 'sent' && (
                                        <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-sm text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md border border-emerald-500/30">
                                          <Check size={11} strokeWidth={3} />
@@ -7290,48 +7360,6 @@ export const ChatPanel = ({
                                        </div>
                                      )}
                                    </div>
-                                   {m.uploadStatus && (
-                                     <div className="px-2 py-1.5 rounded-xl bg-slate-900/90 text-white border border-white/10 text-[10px] font-medium">
-                                       {m.uploadStatus === 'uploading' || m.uploadStatus === 'pending' ? (
-                                         <div className="space-y-1">
-                                           <div className="flex items-center justify-between text-[10px] font-bold">
-                                             <span className="flex items-center gap-1 text-emerald-400">
-                                               <Loader2 size={10} className="animate-spin text-emerald-400" />
-                                               <span>{m.uploadStatus === 'pending' ? 'Iniciando...' : (m.uploadProgress === 100 ? 'Processando envio...' : 'Enviando...')}</span>
-                                             </span>
-                                             <span className="font-mono text-emerald-300 font-bold">{m.uploadProgress || 0}%</span>
-                                           </div>
-                                           <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
-                                             <div
-                                               className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-200"
-                                               style={{ width: `${Math.max(5, m.uploadProgress || 0)}%` }}
-                                             />
-                                           </div>
-                                         </div>
-                                       ) : m.uploadStatus === 'sent' ? (
-                                         <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                                           <CheckCircle2 size={12} className="text-emerald-400" />
-                                           <span>Enviada</span>
-                                         </div>
-                                       ) : m.uploadStatus === 'error' ? (
-                                         <div className="flex items-center justify-between gap-1 text-rose-400 font-bold">
-                                           <span className="flex items-center gap-1">
-                                             <AlertCircle size={12} className="text-rose-400 shrink-0" />
-                                             <span>Falha no envio</span>
-                                           </span>
-                                           {m.retryFn && (
-                                             <button
-                                               type="button"
-                                               onClick={(e) => { e.stopPropagation(); m.retryFn(); }}
-                                               className="px-2 py-0.5 text-[9px] bg-rose-600 hover:bg-rose-500 text-white rounded font-bold transition-all cursor-pointer"
-                                             >
-                                               Reenviar
-                                             </button>
-                                           )}
-                                         </div>
-                                       ) : null}
-                                     </div>
-                                   )}
                                    {m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto' && (
                                      <p
                                        onClick={() => {
@@ -7770,12 +7798,33 @@ export const ChatPanel = ({
                       if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
                     }}
                   />
+                  {/* Prévia das imagens coladas/escolhidas, antes de enviar */}
+                  {pendingImages.length > 0 && (
+                    <div className="mb-1.5 flex items-center gap-2.5 overflow-x-auto custom-scrollbar bg-slate-900/90 border border-white/15 rounded-2xl p-2.5 backdrop-blur-md shadow-xl">
+                      {pendingImages.map(p => (
+                        <div key={p.id} className="relative shrink-0">
+                          <img src={p.previewUrl} alt="Imagem para enviar" className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded-xl border border-white/15" />
+                          <button
+                            type="button"
+                            onClick={() => removerImagemPendente(p.id)}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/85 hover:bg-rose-600 border border-white/30 text-white flex items-center justify-center transition-colors cursor-pointer"
+                            title="Remover imagem"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      <span className="text-[10px] text-white/50 font-medium shrink-0 pl-1 max-w-[140px] leading-snug">
+                        {pendingImages.length === 1 ? 'Adicione uma legenda (opcional) e envie' : `${pendingImages.length} imagens · a legenda vai na primeira`}
+                      </span>
+                    </div>
+                  )}
                   {/* Campo de Mensagem Limpo & Profissional */}
                   <div className="flex items-end gap-1 sm:gap-1.5 bg-slate-900/90 p-1 sm:p-1.5 rounded-2xl border border-white/15 focus-within:border-red-500/60 transition-all shadow-xl backdrop-blur-md">
                     {/* Botões [📎] [🖼] [🙂] */}
                     <div className="flex items-center gap-0.5 pb-0.5 shrink-0">
                       <input ref={documentoInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'document'); }} />
-                      <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleSendFile(f, 'image'); }} />
+                      <input ref={fotoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files || []) as File[]; e.target.value = ''; adicionarImagensPendentes(fs); }} />
                       <button
                         type="button"
                         title="Enviar documento (até 100 MB)"
@@ -7816,7 +7865,8 @@ export const ChatPanel = ({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          handleSendMessage();
+                          if (pendingImages.length > 0) enviarImagensPendentes();
+                          else handleSendMessage();
                         } else if (e.key === 'Escape' && replyingToMessage) {
                           e.preventDefault();
                           setReplyingToMessage(null);
@@ -7824,14 +7874,14 @@ export const ChatPanel = ({
                           setShowQuickReplies(true);
                         }
                       }}
-                      placeholder="Digite sua mensagem... (/ para respostas rápidas)"
+                      placeholder={pendingImages.length > 0 ? "Adicione uma legenda... (opcional)" : "Digite sua mensagem... (/ para respostas rápidas)"}
                       className="flex-1 bg-transparent border-none outline-none text-xs text-white font-medium p-1.5 sm:p-2 resize-none max-h-24 min-h-[34px] custom-scrollbar focus:ring-0 placeholder:text-white/35 leading-relaxed"
                       rows={1}
                     />
 
                     {/* Botões [🎤] ou [ENVIAR] */}
                     <div className="flex items-center pb-0.5 pr-0.5 shrink-0">
-                      {newMessage.trim() === '' ? (
+                      {newMessage.trim() === '' && pendingImages.length === 0 ? (
                         <button 
                           type="button"
                           onClick={() => setIsRecording(!isRecording)}
@@ -7846,7 +7896,7 @@ export const ChatPanel = ({
                       ) : (
                         <button 
                           type="button"
-                          onClick={() => handleSendMessage()}
+                          onClick={() => { if (pendingImages.length > 0) enviarImagensPendentes(); else handleSendMessage(); }}
                           className="h-8.5 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-lg shadow-red-950/60 text-white flex items-center gap-1.5 active:scale-95 transition-all font-black text-xs uppercase tracking-wider cursor-pointer"
                           title="Enviar mensagem (Enter)"
                         >
