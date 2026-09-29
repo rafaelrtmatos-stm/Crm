@@ -42,18 +42,23 @@ export const GoogleContactsSyncModal: React.FC<GoogleContactsSyncModalProps> = (
   const [progressCount, setProgressCount] = useState({ current: 0, total: 0 });
   const [syncResult, setSyncResult] = useState<GoogleSyncResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isUnauthorizedDomain, setIsUnauthorizedDomain] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+  const [manualToken, setManualToken] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setAccount(getSavedGoogleAccount());
       setSyncResult(null);
       setErrorMessage(null);
+      setIsUnauthorizedDomain(false);
     }
   }, [isOpen]);
 
   const handleConnect = async () => {
     setLoading(true);
     setErrorMessage(null);
+    setIsUnauthorizedDomain(false);
     try {
       const { accessToken } = await connectGoogleContacts();
       const acc = getSavedGoogleAccount();
@@ -62,7 +67,11 @@ export const GoogleContactsSyncModal: React.FC<GoogleContactsSyncModalProps> = (
       await triggerSyncWithToken(accessToken);
     } catch (err: any) {
       console.error(err);
-      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+      const errStr = `${err?.code || ''} ${err?.message || ''} ${err || ''}`;
+      if (err?.code === 'auth/unauthorized-domain' || errStr.includes('unauthorized-domain')) {
+        setIsUnauthorizedDomain(true);
+        setErrorMessage('Domínio não autorizado pelo Firebase Authentication (auth/unauthorized-domain).');
+      } else if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
         const msg = err.message || 'Falha ao autenticar com o Google.';
         setErrorMessage(typeof msg === 'string' ? msg : JSON.stringify(msg));
       }
@@ -233,8 +242,73 @@ export const GoogleContactsSyncModal: React.FC<GoogleContactsSyncModalProps> = (
           <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-2 text-rose-300 text-xs">
             <AlertCircle size={15} className="shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="font-bold">Ocorreu um erro:</p>
+              <p className="font-bold">Aviso de Autenticação:</p>
               <p className="text-[11px] opacity-90">{errorMessage}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Card explicativo quando o domínio não estiver autorizado no Firebase */}
+        {isUnauthorizedDomain && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-3 animate-in fade-in text-xs">
+            <div className="space-y-1">
+              <p className="font-bold text-amber-300 uppercase tracking-wide text-[11px]">
+                Como resolver a autorização do Google:
+              </p>
+              <p className="text-[11.5px] text-white/80 leading-relaxed">
+                O Firebase Authentication exige que o endereço atual esteja listado em <b>Domínios Autorizados</b> para abrir o login do Google com segurança.
+              </p>
+            </div>
+
+            <div className="bg-black/50 border border-white/10 rounded-xl p-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/50">Endereço atual deste ambiente:</p>
+              <div className="flex items-center justify-between gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
+                <code className="text-xs font-mono text-emerald-300 truncate select-all">
+                  {typeof window !== 'undefined' ? window.location.hostname : ''}
+                </code>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (typeof window !== 'undefined') {
+                      try {
+                        await navigator.clipboard.writeText(window.location.hostname);
+                        setCopiedDomain(true);
+                        setTimeout(() => setCopiedDomain(false), 2500);
+                      } catch {}
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white font-bold text-[10px] shrink-0 transition-colors cursor-pointer"
+                >
+                  {copiedDomain ? '✓ Copiado!' : 'Copiar Domínio'}
+                </button>
+              </div>
+              <p className="text-[10px] text-white/50 leading-relaxed">
+                👉 Adicione este domínio no <b>Firebase Console</b> &gt; <b>Authentication</b> &gt; <b>Settings</b> &gt; <b>Authorized domains</b>.
+              </p>
+            </div>
+
+            {/* Alternativa: Conexão direta por Token de Acesso */}
+            <div className="pt-2 border-t border-amber-500/20 space-y-2">
+              <p className="text-[11px] font-bold text-white/90">
+                Ou sincronize colando diretamente um Token de Acesso do Google:
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={manualToken}
+                  onChange={(e) => setManualToken(e.target.value)}
+                  placeholder="Cole o Access Token (ya29...)"
+                  className="flex-1 bg-black/50 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-amber-500/60 focus:outline-none font-mono"
+                />
+                <Button
+                  type="button"
+                  onClick={() => manualToken.trim() && triggerSyncWithToken(manualToken.trim())}
+                  disabled={!manualToken.trim() || syncing}
+                  className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 cursor-pointer"
+                >
+                  Sincronizar
+                </Button>
+              </div>
             </div>
           </div>
         )}

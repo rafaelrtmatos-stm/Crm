@@ -436,6 +436,8 @@ export const NotificacoesPendentesBell = ({
     };
   }, [aberto, calcularPosicao]);
 
+  if (total === 0) return null;
+
   const handleResolverItem = async (e: React.MouseEvent, n: NotificacaoPendente) => {
     e.stopPropagation();
     if (resolvendoPhones.has(n.phone)) return;

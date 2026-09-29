@@ -23,7 +23,7 @@ import {
   isFigurinhaFavorita, 
   type StickerItem 
 } from '../lib/stickersStorage';
-import { carregarMensagensRapidas, type QuickReply } from '../lib/quickRepliesStorage';
+import { carregarMensagensRapidas, getQuickRepliesSync, type QuickReply } from '../lib/quickRepliesStorage';
 import { getCache, setCache, isNetworkError } from '../lib/offlineSync';
 import { 
   TrendingUp, 
@@ -3862,19 +3862,9 @@ export const ChatPanel = ({
   const [isRecording, setIsRecording] = useState(false);
   const [audiosComErro, setAudiosComErro] = useState<Record<string, boolean>>({});
   const [showQuickReplies, setShowQuickReplies] = useState(false);
-  const quickRepliesBtnRef = useRef<HTMLDivElement>(null);
-  const [quickRepliesPos, setQuickRepliesPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
-  useEffect(() => {
-    if (!showQuickReplies) { setQuickRepliesPos(null); return; }
-    const el = quickRepliesBtnRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const width = 260;
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    const bottom = window.innerHeight - r.top + 8;
-    const maxHeight = Math.max(120, Math.min(320, r.top - 16));
-    setQuickRepliesPos({ left, bottom, maxHeight });
-  }, [showQuickReplies]);
+  const [quickRepliesSearch, setQuickRepliesSearch] = useState('');
+  const quickRepliesBtnRef = useRef<HTMLButtonElement>(null);
+  const [quickRepliesPos, setQuickRepliesPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -5138,7 +5128,7 @@ export const ChatPanel = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation?.id, initialDraft]);
 
-  const [quickRepliesList, setQuickRepliesList] = useState<QuickReply[]>([]);
+  const [quickRepliesList, setQuickRepliesList] = useState<QuickReply[]>(() => getQuickRepliesSync());
   useEffect(() => {
     carregarMensagensRapidas().then(setQuickRepliesList);
     const handleUpdate = () => carregarMensagensRapidas().then(setQuickRepliesList);
@@ -6307,10 +6297,10 @@ export const ChatPanel = ({
                         <ChevronDown size={9} className={cn("shrink-0 opacity-70 transition-transform duration-200", isStageMenuOpen && "rotate-180")} />
                       </button>
 
-                      {isStageMenuOpen && (
+                      {isStageMenuOpen && typeof document !== 'undefined' && createPortal(
                         <>
-                          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[99]" onClick={() => setIsStageMenuOpen(false)} />
-                          <div className="fixed inset-x-3 bottom-4 sm:bottom-auto sm:absolute sm:top-full sm:mt-1.5 sm:left-0 sm:right-auto sm:w-80 z-[100] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[99998]" onClick={() => setIsStageMenuOpen(false)} />
+                          <div className="fixed inset-x-3 bottom-4 sm:bottom-auto sm:top-[60px] sm:left-24 sm:w-80 z-[99999] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 max-h-[75vh] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
                             <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 border-b border-white/10 mb-1.5">
                               <span>Mudar Etapa do Lead</span>
                               <button type="button" onClick={() => setIsStageMenuOpen(false)} className="text-white/40 hover:text-white p-0.5">
@@ -6341,7 +6331,8 @@ export const ChatPanel = ({
                               })}
                             </div>
                           </div>
-                        </>
+                        </>,
+                        document.body
                       )}
                     </div>
             );
@@ -6465,8 +6456,8 @@ export const ChatPanel = ({
             </button>
           )}
 
-          {/* Botão Venda PDV - apenas fora do modo embedded (no PDV já está no terminal) */}
-          {!isEmbedded && permissions.canStartPosSale && (
+          {/* Botão Venda PDV - apenas fora do modo embedded (no PDV já está no terminal) e não para grupos */}
+          {!isEmbedded && !isGroup && permissions.canStartPosSale && (
             <button
               type="button"
               onClick={handleStartSale}
@@ -6497,12 +6488,12 @@ export const ChatPanel = ({
             >
               <MoreVertical size={14} />
             </button>
-            {showQuickActions && (
+            {showQuickActions && typeof document !== 'undefined' && createPortal(
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowQuickActions(false)} />
-                <div className="absolute top-full mt-1.5 right-0 bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 min-w-[230px] max-h-[85vh] overflow-y-auto custom-scrollbar space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
+                <div className="fixed inset-0 z-[99998] bg-black/60 backdrop-blur-xs" onClick={() => setShowQuickActions(false)} />
+                <div className="fixed inset-x-3 bottom-4 sm:bottom-auto sm:top-[60px] sm:right-4 sm:left-auto sm:w-72 bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-3xl sm:rounded-2xl shadow-2xl z-[99999] p-2 max-h-[82vh] overflow-y-auto custom-scrollbar space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
                   <div className="px-3 py-1.5 border-b border-white/10 mb-1 flex items-center justify-between">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Opções do Contato</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{isGroup ? 'Opções do Grupo' : 'Opções do Contato'}</p>
                     {activeTab !== 'chat' && (
                       <span className="text-[8px] font-bold text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
                         {activeTab.toUpperCase()}
@@ -6570,7 +6561,7 @@ export const ChatPanel = ({
                       <Search size={14} className="text-white/60" />
                       <span>Buscar na Conversa</span>
                     </button>
-                    {permissions.canStartPosSale && (
+                    {!isGroup && permissions.canStartPosSale && (
                       <button
                         type="button"
                         onClick={() => { handleStartSale(); setShowQuickActions(false); }}
@@ -6657,35 +6648,64 @@ export const ChatPanel = ({
                       )}
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('data'); setShowQuickActions(false); }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors cursor-pointer",
-                      activeTab === 'data' ? "bg-white/20 text-white" : "text-slate-300 hover:bg-white/10"
-                    )}
-                  >
-                    <Users size={14} className="text-slate-400" />
-                    <span>Dados do Contato</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('sales'); setShowQuickActions(false); }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors cursor-pointer",
-                      activeTab === 'sales' ? "bg-blue-500/20 text-blue-300" : "text-blue-300 hover:bg-white/10"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <ShoppingBag size={14} className="text-blue-400" />
-                      <span>Histórico de Vendas</span>
-                    </div>
-                    {clienteVendas.length > 0 && (
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-200">
-                        {clienteVendas.length}
-                      </span>
-                    )}
-                  </button>
+                  {isGroup ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('media'); setShowQuickActions(false); }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors cursor-pointer",
+                          activeTab === 'media' ? "bg-purple-500/20 text-purple-300" : "text-purple-300 hover:bg-white/10"
+                        )}
+                      >
+                        <ImageIcon size={14} className="text-purple-400" />
+                        <span>Mídias Enviadas</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('participants'); setShowQuickActions(false); }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors cursor-pointer",
+                          activeTab === 'participants' ? "bg-sky-500/20 text-sky-300" : "text-sky-300 hover:bg-white/10"
+                        )}
+                      >
+                        <Users size={14} className="text-sky-400" />
+                        <span>Membros do Grupo</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('data'); setShowQuickActions(false); }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2.5 transition-colors cursor-pointer",
+                          activeTab === 'data' ? "bg-white/20 text-white" : "text-slate-300 hover:bg-white/10"
+                        )}
+                      >
+                        <Users size={14} className="text-slate-400" />
+                        <span>Dados do Contato</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setActiveTab('sales'); setShowQuickActions(false); }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2.5 transition-colors cursor-pointer",
+                          activeTab === 'sales' ? "bg-blue-500/20 text-blue-300" : "text-blue-300 hover:bg-white/10"
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <ShoppingBag size={14} className="text-blue-400" />
+                          <span>Histórico de Vendas</span>
+                        </div>
+                        {clienteVendas.length > 0 && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-200">
+                            {clienteVendas.length}
+                          </span>
+                        )}
+                      </button>
+                    </>
+                  )}
                   {conversation.phone && (
                     <button
                       type="button"
@@ -6706,7 +6726,8 @@ export const ChatPanel = ({
                     <span>{pipWindow ? "Restaurar ao Sistema" : "Sobrepor na Tela (PC)"}</span>
                   </button>
                 </div>
-              </>
+              </>,
+              document.body
             )}
           </div>
 
@@ -7330,42 +7351,190 @@ export const ChatPanel = ({
                     )}
                   </div>
 
-                  {/* [Mensagens Rápidas] — somente ícone; lista abre para cima */}
-                  <div className="relative shrink-0" ref={quickRepliesBtnRef}>
+                  {/* [Rápidas] — Ação Secundária com lista para CIMA */}
+                  <div className="relative shrink-0">
                     <button
+                      ref={quickRepliesBtnRef}
                       type="button"
-                      onClick={() => setShowQuickReplies(v => !v)}
-                      title="Mensagens Rápidas"
-                      aria-label="Mensagens Rápidas"
+                      onClick={() => {
+                        const r = quickRepliesBtnRef.current?.getBoundingClientRect();
+                        if (r) {
+                          setQuickRepliesPos({
+                            bottom: window.innerHeight - r.top + 8,
+                            left: Math.max(12, Math.min(r.left, window.innerWidth - 340 - 12))
+                          });
+                        }
+                        setShowQuickReplies(v => !v);
+                        setQuickRepliesSearch('');
+                      }}
                       className={cn(
-                        "p-1.5 rounded-lg border shadow-sm transition-all shrink-0 cursor-pointer flex items-center justify-center active:scale-95",
-                        showQuickReplies
-                          ? "bg-red-500/20 text-red-300 border-red-500/40"
+                        "text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 active:scale-95",
+                        showQuickReplies 
+                          ? "bg-red-500/20 text-red-300 border-red-500/40" 
                           : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
                       )}
+                      title="Mensagens Rápidas (atalho / no chat)"
                     >
-                      <Bot size={14} className={showQuickReplies ? "text-red-400" : "text-amber-400"} />
+                      <Sparkles size={10} className={showQuickReplies ? "text-red-400" : "text-amber-400"} />
+                      <span>Rápidas</span>
                     </button>
-                    {showQuickReplies && quickRepliesPos && (
+
+                    {showQuickReplies && typeof document !== 'undefined' && createPortal(
                       <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowQuickReplies(false)} />
-                        <div
-                          className="fixed w-[260px] overflow-y-auto custom-scrollbar bg-slate-900 border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5"
-                          style={{ left: quickRepliesPos.left, bottom: quickRepliesPos.bottom, maxHeight: quickRepliesPos.maxHeight }}
+                        <div className="fixed inset-0 z-[99998] bg-black/40 backdrop-blur-xs" onClick={() => setShowQuickReplies(false)} />
+                        <div 
+                          className="fixed w-[calc(100vw-24px)] sm:w-80 max-w-[340px] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[99999] p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-150"
+                          style={{ bottom: quickRepliesPos.bottom, left: quickRepliesPos.left }}
                         >
-                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 px-2 py-0.5">Mensagens Rápidas</p>
-                          {quickTemplates.map((tpl, i) => (
+                          {/* Header do Menu para Cima */}
+                          <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                            <div className="flex items-center gap-1.5">
+                              <Sparkles size={12} className="text-amber-400" />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white">Mensagens Rápidas</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowQuickReplies(false);
+                                  if (typeof window !== 'undefined') {
+                                    localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
+                                    window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
+                                  }
+                                  if (setActiveTab) setActiveTab('robozinho_rafa');
+                                  if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
+                                }}
+                                className="text-[9px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 rounded cursor-pointer"
+                                title="Editar mensagens e fotos na aba Integrações"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowQuickReplies(false)}
+                                className="text-white/40 hover:text-white p-0.5 rounded"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Campo de Busca Rápida */}
+                          <div className="relative">
+                            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={quickRepliesSearch}
+                              onChange={(e) => setQuickRepliesSearch(e.target.value)}
+                              placeholder="Filtrar por título, texto ou /atalho..."
+                              className="w-full bg-black/40 border border-white/10 rounded-xl pl-7 pr-2.5 py-1 text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50"
+                              autoFocus
+                            />
+                          </div>
+
+                          {/* Lista Rolável para Cima */}
+                          <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1 pr-0.5">
+                            {(() => {
+                              const filtradas = quickTemplates.filter(tpl => {
+                                if (!quickRepliesSearch.trim()) return true;
+                                const q = quickRepliesSearch.toLowerCase();
+                                return (
+                                  tpl.label.toLowerCase().includes(q) ||
+                                  (tpl.text && tpl.text.toLowerCase().includes(q)) ||
+                                  (tpl.shortcut && tpl.shortcut.toLowerCase().includes(q))
+                                );
+                              });
+
+                              if (filtradas.length === 0) {
+                                return (
+                                  <p className="text-center py-4 text-white/40 text-[10px]">
+                                    Nenhuma mensagem rápida encontrada.
+                                  </p>
+                                );
+                              }
+
+                              return filtradas.map((tpl, i) => (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={() => {
+                                    if (tpl.text) {
+                                      setNewMessage(prev => prev ? `${prev}\n${tpl.text}` : tpl.text);
+                                    }
+                                    if (tpl.imageUrl) {
+                                      fetch(tpl.imageUrl)
+                                        .then(res => res.blob())
+                                        .then(blob => {
+                                          const file = new File([blob], `resposta_rapida_${Date.now()}.png`, { type: blob.type || 'image/png' });
+                                          handleSendFile(file, 'image');
+                                        })
+                                        .catch(() => {
+                                          showAlert('Não foi possível carregar a imagem da resposta rápida.');
+                                        });
+                                    }
+                                    setShowQuickReplies(false);
+                                  }}
+                                  className="w-full text-left p-2 rounded-xl bg-white/[0.03] hover:bg-white/10 border border-white/5 hover:border-white/15 transition-all flex items-start gap-2 group cursor-pointer"
+                                >
+                                  {tpl.imageUrl ? (
+                                    <img
+                                      src={tpl.imageUrl}
+                                      alt=""
+                                      className="w-8 h-8 rounded-lg object-cover border border-white/10 shrink-0 mt-0.5"
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0 mt-0.5 text-white/50 group-hover:text-amber-400">
+                                      <MessageSquare size={13} />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                                      <span className="text-[11px] font-bold text-white truncate group-hover:text-red-300 transition-colors">
+                                        {tpl.label}
+                                      </span>
+                                      {tpl.shortcut && (
+                                        <span className="text-[8.5px] font-mono px-1 py-0.2 rounded bg-red-500/20 text-red-300 border border-red-500/30 shrink-0">
+                                          {tpl.shortcut}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {tpl.text && (
+                                      <p className="text-[10px] text-white/60 line-clamp-2 leading-tight">
+                                        {tpl.text}
+                                      </p>
+                                    )}
+                                    {tpl.imageUrl && !tpl.text && (
+                                      <span className="text-[9px] text-amber-300 font-bold flex items-center gap-1">
+                                        <ImageIcon size={10} /> Imagem pronta para envio
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+
+                          {/* Rodapé direcionando para a aba Integrações */}
+                          <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] text-white/40">
+                            <span>Atalho <kbd className="font-mono text-white/70 bg-white/10 px-1 py-0.5 rounded">/</kbd></span>
                             <button
-                              key={i}
                               type="button"
-                              onClick={() => { setNewMessage(tpl.text); setShowQuickReplies(false); }}
-                              className="w-full text-left px-3 py-1.5 rounded-xl text-[10.5px] font-bold text-white/80 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+                              onClick={() => {
+                                setShowQuickReplies(false);
+                                if (typeof window !== 'undefined') {
+                                  localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
+                                  window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
+                                }
+                                if (setRootActiveTab) setRootActiveTab('integracoes');
+                              }}
+                              className="text-red-400 hover:underline font-bold"
                             >
-                              {tpl.label}
+                              Configurar em Integrações →
                             </button>
-                          ))}
+                          </div>
                         </div>
-                      </>
+                      </>,
+                      document.body
                     )}
                   </div>
                 </div>

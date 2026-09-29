@@ -486,14 +486,17 @@ export const MessageHoverActions = ({
         </button>
       </div>
 
-      {/* Gatilho visível no Mobile: pequeno botão no canto da mensagem */}
+      {/* Gatilho visível no Mobile: botão no canto superior da mensagem (z-[35] garantindo ficar sempre na frente do card de mensagem) */}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setIsActionSheetOpen(true); }}
-        className="sm:hidden absolute top-1 right-1 w-5 h-5 rounded-full bg-black/40 text-white/60 hover:text-white flex items-center justify-center transition-colors z-10"
+        className={cn(
+          "sm:hidden absolute -top-2 w-6 h-6 rounded-full bg-slate-900/95 border border-white/20 text-white/80 hover:text-white flex items-center justify-center shadow-md transition-all active:scale-90 z-[35] cursor-pointer",
+          isOutgoing ? "right-1" : "left-1"
+        )}
         title="Opções da mensagem"
       >
-        <MoreHorizontal size={11} />
+        <MoreHorizontal size={13} />
       </button>
 
       {/* PORTAL DO ACTION SHEET ESTILO WHATSAPP IOS (Z-INDEX TOTAL NO BODY, NUNCA CORTA) */}
@@ -864,14 +867,13 @@ export const CustomerContextSidebar = ({
   });
 
   const resolvedTab = isGroup
-    ? (activeTab === 'participants' || activeTab === 'media' || activeTab === 'sales' ? activeTab : 'participants')
+    ? (activeTab === 'media' ? 'media' : 'participants')
     : activeTab;
 
   const tabsList = isGroup
     ? [
         { id: 'participants', label: 'PARTICIPANTES', icon: Users, count: (groupParticipants || []).length },
         { id: 'media', label: 'MÍDIAS', icon: ImageIcon, count: (groupMedia || []).length },
-        { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
       ]
     : [
         { id: 'sales', label: 'VENDAS', icon: ShoppingBag, count: clienteVendas.length },
@@ -973,23 +975,13 @@ export const CustomerContextSidebar = ({
               </div>
             </div>
 
-            {/* 4 Botões de Ação Rápida em Blocos Cinza Estilo WhatsApp iOS */}
-            <div className="grid grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={onStartSale}
-                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
-                title="Iniciar Venda PDV"
-              >
-                <ShoppingBag size={18} className="text-emerald-400" />
-                <span className="text-[10px] font-medium text-white/80">Venda</span>
-              </button>
-
+            {/* 3 Botões de Ação do Grupo Estilo WhatsApp iOS */}
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setActiveTab('media')}
-                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
-                title="Ver Mídias"
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95 cursor-pointer"
+                title="Ver Mídias Enviadas"
               >
                 <ImageIcon size={18} className="text-purple-400" />
                 <span className="text-[10px] font-medium text-white/80">Mídias</span>
@@ -998,8 +990,8 @@ export const CustomerContextSidebar = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('participants')}
-                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
-                title="Ver Membros"
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95 cursor-pointer"
+                title="Ver Participantes"
               >
                 <Users size={18} className="text-sky-400" />
                 <span className="text-[10px] font-medium text-white/80">Membros</span>
@@ -1008,10 +1000,9 @@ export const CustomerContextSidebar = ({
               <button
                 type="button"
                 onClick={() => {
-                  // Aciona a busca no chat pai
                   window.dispatchEvent(new CustomEvent('open-chat-search'));
                 }}
-                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95"
+                className="flex flex-col items-center justify-center gap-1.5 p-2.5 rounded-2xl bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/5 transition-colors text-white active:scale-95 cursor-pointer"
                 title="Pesquisar mensagens"
               >
                 <Search size={18} className="text-white/60" />
@@ -1103,20 +1094,11 @@ export const CustomerContextSidebar = ({
                             <button
                               type="button"
                               onClick={() => onOpenChatWithPhone(phoneOrId)}
-                              title="Abrir chat individual"
-                              className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                              title="Abrir conversa no privado com este participante"
+                              className="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-bold text-[10px] flex items-center gap-1.5 transition-colors cursor-pointer"
                             >
-                              <MessageCircle size={14} />
-                            </button>
-                          )}
-                          {onStartSale && (
-                            <button
-                              type="button"
-                              onClick={onStartSale}
-                              title="Iniciar Venda PDV"
-                              className="p-1.5 rounded-lg bg-white/5 text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-                            >
-                              <ShoppingBag size={13} />
+                              <MessageCircle size={13} />
+                              <span>Conversar</span>
                             </button>
                           )}
                         </div>
@@ -1470,7 +1452,7 @@ export const CustomerContextSidebar = ({
           </div>
         )}
 
-        {activeTab === 'sales' && (
+        {!isGroup && activeTab === 'sales' && (
           <div className="space-y-2.5">
             {/* Bloco Serviço / Pedido Solicitado pelo Lead - Em cima de vendas no card */}
             <div className="p-3 bg-amber-500/5 border border-amber-500/25 rounded-xl space-y-2 shadow-sm">
@@ -1530,20 +1512,6 @@ export const CustomerContextSidebar = ({
               )}
             </div>
 
-            {isGroup && onStartSale && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2 mb-2">
-                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 block">Vendas do Grupo</span>
-                <p className="text-[11px] text-white/70">Inicie um pedido ou orçamento no PDV com este grupo de WhatsApp.</p>
-                <button
-                  type="button"
-                  onClick={onStartSale}
-                  className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
-                >
-                  <ShoppingBag size={13} strokeWidth={2.5} />
-                  <span>Iniciar Venda no PDV</span>
-                </button>
-              </div>
-            )}
             {isLoadingVendas ? (
               <div className="flex justify-center py-6"><RefreshCw size={16} className="animate-spin text-primary-500" /></div>
             ) : clienteVendas.length === 0 ? (

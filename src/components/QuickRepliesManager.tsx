@@ -78,8 +78,8 @@ export const QuickRepliesManager: React.FC<{
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formTitle.trim() || !formText.trim()) {
-      showAlert('Preencha pelo menos o título e o texto da mensagem.');
+    if (!formTitle.trim() || (!formText.trim() && !formImageUrl.trim())) {
+      showAlert('Preencha o título e pelo menos um texto ou uma imagem.');
       return;
     }
 
@@ -329,11 +329,12 @@ export const QuickRepliesManager: React.FC<{
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-white/60 mb-1">
-              Texto da Mensagem *
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-white/60">
+                Texto da Mensagem {formImageUrl ? '(opcional com foto)' : '*'}
+              </label>
+            </div>
             <textarea
-              required
               rows={4}
               value={formText}
               onChange={(e) => setFormText(e.target.value)}
@@ -346,38 +347,50 @@ export const QuickRepliesManager: React.FC<{
             <label className="block text-[11px] font-bold uppercase tracking-wider text-white/60 mb-1">
               Foto / Imagem Anexada (opcional)
             </label>
-            <div className="flex items-center gap-3">
-              {formImageUrl ? (
-                <div className="relative w-16 h-16 rounded-xl border border-white/10 overflow-hidden shrink-0 group">
-                  <img src={formImageUrl} alt="Preview" className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setFormImageUrl('')}
-                    className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-rose-400 transition-opacity"
-                    title="Remover imagem"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ) : (
-                <div className="w-16 h-16 rounded-xl bg-white/5 border border-dashed border-white/10 flex items-center justify-center text-white/20 shrink-0">
-                  <ImageIcon size={20} />
-                </div>
-              )}
+            <div className="space-y-2 bg-black/30 p-2.5 rounded-xl border border-white/5">
+              <div className="flex items-center gap-3">
+                {formImageUrl ? (
+                  <div className="relative w-16 h-16 rounded-xl border border-white/10 overflow-hidden shrink-0 group">
+                    <img src={formImageUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setFormImageUrl('')}
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-rose-400 transition-opacity"
+                      title="Remover imagem"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-xl bg-white/5 border border-dashed border-white/10 flex items-center justify-center text-white/20 shrink-0">
+                    <ImageIcon size={20} />
+                  </div>
+                )}
 
-              <div className="flex-1 space-y-1.5">
-                <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold cursor-pointer transition-colors border border-white/10">
-                  <Upload size={13} />
-                  <span>{isUploading ? 'Carregando...' : formImageUrl ? 'Trocar Imagem' : 'Escolher Foto'}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageFile}
-                    className="hidden"
-                    disabled={isUploading}
-                  />
-                </label>
-                <p className="text-[10px] text-white/40">PNG, JPG ou WEBP até 2MB</p>
+                <div className="flex-1 space-y-1.5">
+                  <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold cursor-pointer transition-colors border border-white/10">
+                    <Upload size={13} />
+                    <span>{isUploading ? 'Carregando...' : formImageUrl ? 'Trocar Imagem' : 'Escolher Foto do Computador'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageFile}
+                      className="hidden"
+                      disabled={isUploading}
+                    />
+                  </label>
+                  <p className="text-[10px] text-white/40">PNG, JPG ou WEBP até 2MB</p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-white/5 flex items-center gap-2">
+                <input
+                  type="url"
+                  value={formImageUrl}
+                  onChange={(e) => setFormImageUrl(e.target.value)}
+                  placeholder="Ou cole a URL da imagem (https://...)"
+                  className="flex-1 px-2.5 py-1.5 bg-black/40 border border-white/10 rounded-lg text-[11px] text-white placeholder:text-white/30 focus:border-emerald-500 focus:outline-none"
+                />
               </div>
             </div>
           </div>

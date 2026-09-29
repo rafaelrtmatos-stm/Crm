@@ -72,6 +72,19 @@ const DEFAULT_QUICK_REPLIES: QuickReply[] = [
   }
 ];
 
+export const getQuickRepliesSync = (): QuickReply[] => {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      }
+    }
+  } catch {}
+  return DEFAULT_QUICK_REPLIES;
+};
+
 export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
   let locais: QuickReply[] = [];
   try {
