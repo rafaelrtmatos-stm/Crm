@@ -4351,6 +4351,47 @@ export const ChatPanel = ({
     return [...base, ...optimisticMediaMessages];
   }, [messages, optimisticMediaMessages]);
 
+  // --- Galeria do visualizador de imagens ---
+  // Todas as imagens já enviadas da conversa, da mais antiga (esquerda) para a mais nova (direita).
+  const galeriaImagens = useMemo(() => {
+    return chatMessages
+      .filter((m: any) => m.mediaContentType === 'image' && !!m.mediaUrl && (!m.uploadStatus || m.uploadStatus === 'sent'))
+      .map((m: any) => ({
+        url: m.mediaUrl as string,
+        caption: (m.text && m.text !== '📷 Imagem' && m.text !== '📷 Foto') ? m.text as string : undefined,
+        fileName: (m.fileName || 'Imagem') as string,
+      }));
+  }, [chatMessages]);
+  const indiceImagemAtual = imageViewerModal ? galeriaImagens.findIndex(g => g.url === imageViewerModal.url) : -1;
+  const navegarImagem = (delta: number) => {
+    if (indiceImagemAtual < 0) return;
+    const alvo = galeriaImagens[indiceImagemAtual + delta];
+    if (alvo) setImageViewerModal(alvo);
+  };
+  const navegarImagemRef = useRef(navegarImagem);
+  navegarImagemRef.current = navegarImagem;
+  const swipeInicioXRef = useRef<number | null>(null);
+
+  // Setas do teclado: esquerda = foto anterior (mais antiga), direita = próxima (mais nova).
+  useEffect(() => {
+    if (!imageViewerModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') navegarImagemRef.current(-1);
+      else if (e.key === 'ArrowRight') navegarImagemRef.current(1);
+      else if (e.key === 'Escape') setImageViewerModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [!!imageViewerModal]);
+
+  // Pré-carrega as fotos vizinhas para a troca ser instantânea.
+  useEffect(() => {
+    if (indiceImagemAtual < 0) return;
+    [galeriaImagens[indiceImagemAtual - 1], galeriaImagens[indiceImagemAtual + 1]].forEach(g => {
+      if (g) { const img = new Image(); img.src = g.url; }
+    });
+  }, [indiceImagemAtual, galeriaImagens]);
+
   // --- PC / Desktop Experiência Avançada (Melhorias de Atendimento) ---
   // 1. Painel lateral de contexto/perfil (Desktop) - SEMPRE inicia fechado por padrão
   const [showDesktopSidebar, setShowDesktopSidebar] = useState<boolean>(false);
@@ -6280,6 +6321,11 @@ export const ChatPanel = ({
                     <p className="text-xs sm:text-sm font-bold text-white truncate max-w-[260px] sm:max-w-md">
                       {imageViewerModal.fileName || 'Visualização da Imagem'}
                     </p>
+                    {indiceImagemAtual >= 0 && galeriaImagens.length > 1 && (
+                      <span className="text-[11px] font-bold text-white/60 shrink-0 tabular-nums">
+                        {indiceImagemAtual + 1} / {galeriaImagens.length}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -6325,14 +6371,45 @@ export const ChatPanel = ({
 
                 {/* Área da imagem */}
                 <div
-                  className="flex-1 flex flex-col items-center justify-center p-3 sm:p-6 overflow-hidden min-h-0"
+                  className="relative flex-1 flex flex-col items-center justify-center p-3 sm:p-6 overflow-hidden min-h-0"
                   onClick={() => setImageViewerModal(null)}
+                  onTouchStart={(e) => { swipeInicioXRef.current = e.touches[0]?.clientX ?? null; }}
+                  onTouchEnd={(e) => {
+                    const ini = swipeInicioXRef.current;
+                    swipeInicioXRef.current = null;
+                    if (ini == null) return;
+                    const dx = (e.changedTouches[0]?.clientX ?? ini) - ini;
+                    if (Math.abs(dx) < 50) return;
+                    // Arrastar para a direita volta para a foto mais antiga; para a esquerda avança.
+                    navegarImagem(dx > 0 ? -1 : 1);
+                  }}
                 >
+                  {indiceImagemAtual > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); navegarImagem(-1); }}
+                      className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                      title="Foto anterior"
+                    >
+                      <ChevronLeft size={26} />
+                    </button>
+                  )}
+                  {indiceImagemAtual >= 0 && indiceImagemAtual < galeriaImagens.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); navegarImagem(1); }}
+                      className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                      title="Próxima foto"
+                    >
+                      <ChevronRight size={26} />
+                    </button>
+                  )}
                   <div
                     className="relative max-w-full max-h-full flex flex-col items-center justify-center"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <img
+                      key={imageViewerModal.url}
                       src={imageViewerModal.url}
                       alt={imageViewerModal.fileName || 'Imagem'}
                       className="max-h-[75vh] sm:max-h-[80vh] max-w-[95vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl border border-white/10 transition-transform"
