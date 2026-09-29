@@ -50,6 +50,7 @@ import { ChevronRight } from 'lucide-react';
 import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida, buscarFotoAtual, textoTempoDeEspera } from './lib/notify';
 import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
+import ComissoesEmbedded from './comissoes/ComissoesEmbedded';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, 
@@ -178,6 +179,17 @@ const SidebarItem = ({
 // 2. Matérias-Primas (Cadastro de insumos e matérias-primas: custo por unidade, unidade de medida, observação)
 // 3. Máquinas (Cadastro e custos operacionais com cálculo automático de depreciação, manutenção, cabeça, energia e tinta)
 // 4. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
+// Usuario com cargo "comissao" so e mandado pra /comissoes se o admin NAO liberou nenhuma outra aba pra ele
+// (Opcoes > Usuarios e Permissoes). Se liberou outras abas, entra no CRM normal e ve so o que foi permitido.
+const isSomenteComissao = (u?: { role?: string; allowedTabs?: string[] } | null) =>
+  u?.role === 'comissao' && !(Array.isArray(u.allowedTabs) && u.allowedTabs.some(t => t !== 'comissoes'));
+
+// Dentro do CRM, quem tem colaborador vinculado (e nao e admin) ve apenas a PROPRIA comissao na aba Financeiro.
+const MinhaComissao = ({ colaboradorId }: { colaboradorId: string }) => {
+  try { localStorage.setItem('rpro_comissoes_colaborador_id_menu', colaboradorId); } catch { /* ignora */ }
+  return <ComissoesEmbedded />;
+};
+
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
   const [subTabSalvo, setSubTabState] = useState<'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
     if (typeof window !== 'undefined') {
@@ -2103,7 +2115,7 @@ export default function App() {
         setIsSubmitting(false);
         return;
       }
-      if (offlineUser.role === 'comissao') {
+      if (isSomenteComissao(offlineUser)) {
         if (!offlineUser.colaboradorId) {
           setAuthError('Este usuário de Comissões ainda não está vinculado a um colaborador. Peça ao administrador para reconfigurar o cadastro.');
           setIsSubmitting(false);
@@ -2320,7 +2332,7 @@ export default function App() {
       // aqui a gente ja guarda a sessao do colaborador vinculado e manda o navegador direto
       // pra /comissoes — a tela de ComissoesApp reconhece essa sessao salva e loga sozinha,
       // sem pedir nome/senha de novo (ver COLABORADOR_SESSION_KEY em comissoes/ComissoesApp.tsx).
-      if (userData.role === 'comissao') {
+      if (isSomenteComissao(userData)) {
         if (!userData.colaboradorId) {
           setAuthError('Este usuário de Comissões ainda não está vinculado a um colaborador. Peça ao administrador para reconfigurar o cadastro.');
           setIsSubmitting(false);
@@ -2426,7 +2438,7 @@ export default function App() {
         // mesmo sem conexao, contanto que ja tenha logado com internet pelo menos uma vez antes.
         if (!navigator.onLine) {
           const cached = getCachedUser(targetUserId);
-          if (cached && cached.role !== 'comissao') {
+          if (cached && !isSomenteComissao(cached)) {
             setUser(cached);
             setLoading(false);
             return;
@@ -2444,7 +2456,7 @@ export default function App() {
             // Blindagem: se por algum motivo (sessao antiga, cache, etc) um usuario "comissao"
             // tiver ficado salvo nas chaves do CRM principal, nunca deixa ele cair no dashboard —
             // limpa a sessao errada e manda pra /comissoes, onde ele realmente deve logar.
-            if (uData.role === 'comissao') {
+            if (isSomenteComissao(uData)) {
               sessionStorage.removeItem('rpro_logged_user_id');
               localStorage.removeItem('rpro_remembered_user_id');
               localStorage.removeItem('rpro_remembered_email');
@@ -2497,7 +2509,7 @@ export default function App() {
               const uData = mapUsuarioRow(usuarioRow);
               // Mesma blindagem do ramo do Firebase acima: usuario "comissao" nunca fica logado
               // no CRM principal, mesmo que uma sessao antiga tenha ficado salva.
-              if (uData.role === 'comissao') {
+              if (isSomenteComissao(uData)) {
                 sessionStorage.removeItem('rpro_logged_user_id');
                 localStorage.removeItem('rpro_remembered_user_id');
                 localStorage.removeItem('rpro_remembered_email');
@@ -2549,7 +2561,7 @@ export default function App() {
             setUser(adminData);
           } else {
             const cached = getCachedUser(targetUserId);
-            if (cached && cached.role !== 'comissao') {
+            if (cached && !isSomenteComissao(cached)) {
               setUser(cached);
             } else {
               sessionStorage.removeItem('rpro_logged_user_id');
@@ -3044,7 +3056,9 @@ export default function App() {
                   {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {activeTab === 'comissoes' && (
                     <ModuleErrorBoundary label="Financeiro">
-                      <FinanceiroModule currentCompany={currentCompany} user={user} />
+                      {!user?.isAdmin && user?.colaboradorId
+                        ? <MinhaComissao colaboradorId={user.colaboradorId} />
+                        : <FinanceiroModule currentCompany={currentCompany} user={user} />}
                     </ModuleErrorBoundary>
                   )}
                   {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
