@@ -118,9 +118,10 @@ export function PontoApp() {
     showAlert('Registro de ponto salvo.');
   };
 
-  const buscarFoto = async (colab: Colab, telefone: string) => {
+  // silencioso = atualização automática ao abrir o perfil (sem avisos); o clique na foto avisa o resultado.
+  const buscarFoto = async (colab: Colab, telefone: string, silencioso = false) => {
     const digits = telefone.replace(/\D/g, '');
-    if (!digits) { showAlert('Cadastre o WhatsApp do funcionário primeiro.'); return; }
+    if (!digits) { if (!silencioso) showAlert('Cadastre o WhatsApp do funcionário primeiro.'); return; }
     try {
       const r = await fetch('/api/whatsapp-foto-perfil', {
         method: 'POST',
@@ -129,14 +130,18 @@ export function PontoApp() {
       });
       const d = await r.json();
       if (d?.photoUrl) {
-        await supabase.from('colaboradores').update({ foto_url: d.photoUrl }).eq('id', colab.id);
-        await carregar();
-        showAlert('Foto do WhatsApp atualizada.');
-      } else {
+        if (d.photoUrl !== colab.foto_url) {
+          await supabase.from('colaboradores').update({ foto_url: d.photoUrl }).eq('id', colab.id);
+          await carregar();
+          if (!silencioso) showAlert('Foto do WhatsApp atualizada.');
+        } else if (!silencioso) {
+          showAlert('A foto já está atualizada.');
+        }
+      } else if (!silencioso) {
         showAlert('Não consegui buscar a foto (número sem WhatsApp ou foto privada). A foto atual foi mantida.');
       }
     } catch {
-      showAlert('Não consegui buscar a foto agora. A foto atual foi mantida.');
+      if (!silencioso) showAlert('Não consegui buscar a foto agora. A foto atual foi mantida.');
     }
   };
 
@@ -168,6 +173,14 @@ export function PontoApp() {
   [registros]);
 
   const selecionado = funcs.find((f) => f.id === selId) || null;
+
+  // Toda vez que o perfil de um funcionário é aberto, busca a foto atual do WhatsApp dele (em segundo plano, sem avisos).
+  // Se falhar ou não vier foto, a foto que já estava salva é mantida.
+  useEffect(() => {
+    const c = funcs.find((f) => f.id === selId)?.colaboradores;
+    if (selId && c?.telefone_whatsapp) buscarFoto(c, c.telefone_whatsapp, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selId]);
 
   // ---------- render ----------
   if (loading && funcs.length === 0 && !erro) return <div className="p-8 text-center text-white/50 text-sm">Carregando ponto...</div>;
@@ -335,7 +348,7 @@ export function PontoApp() {
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
               <div className={cn(card, 'p-5 lg:col-span-2 flex items-center gap-4')}>
-                <button title={colab?.telefone_whatsapp ? 'Clique para buscar a foto atual do WhatsApp' : 'Cadastre o WhatsApp para buscar a foto'}
+                <button title={colab?.telefone_whatsapp ? 'Clique para atualizar a foto do WhatsApp' : 'Cadastre o WhatsApp para buscar a foto'}
                   onClick={() => colab ? buscarFoto(colab, colab.telefone_whatsapp || '') : showAlert('Vincule o funcionário a um colaborador para ter foto.')}
                   className="relative group shrink-0">
                   <AvatarPhoto photoUrl={colab?.foto_url} name={nomeDe(f)} className="w-20 h-20" textClassName="text-2xl" />
@@ -479,7 +492,7 @@ function NovoFuncModal({ colabs, onClose, onSaved }: { colabs: Colab[]; onClose:
   );
 }
 
-function EditFuncModal({ func, colabs, onClose, onSaved, buscarFoto }: { func: Func; colabs: Colab[]; onClose: () => void; onSaved: () => void; buscarFoto: (c: Colab, tel: string) => Promise<void> }) {
+function EditFuncModal({ func, colabs, onClose, onSaved, buscarFoto }: { func: Func; colabs: Colab[]; onClose: () => void; onSaved: () => void; buscarFoto: (c: Colab, tel: string, silencioso?: boolean) => Promise<void> }) {
   const [numero, setNumero] = useState(func.numero_relogio); const [nome, setNome] = useState(func.nome_relogio || '');
   const [colabId, setColabId] = useState(func.colaborador_id || ''); const [tol, setTol] = useState(String(func.tolerancia_minutos));
   const [tel, setTel] = useState(func.colaboradores?.telefone_whatsapp || '');
@@ -490,7 +503,7 @@ function EditFuncModal({ func, colabs, onClose, onSaved, buscarFoto }: { func: F
       const atual = colabs.find((c) => c.id === colabId);
       const telNovo = tel.replace(/\D/g, '');
       if (telNovo !== (atual?.telefone_whatsapp || '')) await supabase.from('colaboradores').update({ telefone_whatsapp: telNovo || null }).eq('id', colabId);
-      // Foto do WhatsApp: só busca automaticamente na PRIMEIRA vez (colaborador ainda sem foto). Depois, só ao clicar na foto do perfil.
+      // Foto do WhatsApp: ao salvar o número pela primeira vez (colaborador sem foto) busca na hora; depois atualiza ao abrir o perfil e ao clicar na foto.
       if (atual && telNovo && !atual.foto_url) await buscarFoto(atual, telNovo);
     }
     onSaved();
