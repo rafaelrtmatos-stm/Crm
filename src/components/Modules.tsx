@@ -5627,7 +5627,24 @@ export const ChatPanel = ({
 
   const LIMITE_FOTO_MB = 16;
   const LIMITE_DOCUMENTO_MB = 100;
-  const handleSendFile = async (arquivo: File | null | undefined, escolhido: 'image' | 'document') => {
+  // Mensagem rápida com imagem: envia a imagem com o texto como legenda, numa única mensagem.
+  const enviarMensagemRapidaComImagem = async (tpl: { text?: string; imageUrl?: string }) => {
+    if (!tpl.imageUrl) return;
+    try {
+      const res = await fetch(tpl.imageUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const tipoImg = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/png';
+      const ext = tipoImg.includes('jpeg') || tipoImg.includes('jpg') ? 'jpg' : (tipoImg.split('/')[1] || 'png');
+      const file = new File([blob], `resposta_rapida_${Date.now()}.${ext}`, { type: tipoImg });
+      await handleSendFile(file, 'image', tpl.text || '');
+    } catch (err) {
+      console.error('Falha ao carregar a imagem da mensagem rápida:', err);
+      showAlert('Não foi possível carregar a imagem da resposta rápida.');
+    }
+  };
+
+  const handleSendFile = async (arquivo: File | null | undefined, escolhido: 'image' | 'document', legendaFixa?: string) => {
     if (!arquivo || !conversation || !currentCompany) return;
     const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
     if (canal !== 'WhatsApp' || !conversation.phone) {
@@ -5646,8 +5663,8 @@ export const ChatPanel = ({
     setIsAtBottom(true);
     isAtBottomRef.current = true;
     setNewMessagesWhileScrolled(0);
-    const legenda = newMessage.trim();
-    if (legenda) setNewMessage('');
+    const legenda = (legendaFixa !== undefined ? legendaFixa : newMessage).trim();
+    if (legenda && legendaFixa === undefined) setNewMessage('');
     const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
     const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
 
@@ -6892,7 +6909,7 @@ export const ChatPanel = ({
                             <button
                               key={i}
                               type="button"
-                              onClick={() => setNewMessage(tpl.text)}
+                              onClick={() => (tpl.imageUrl ? enviarMensagemRapidaComImagem(tpl) : setNewMessage(tpl.text))}
                               className="text-[10px] font-medium bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 text-white/70 px-3 py-1.5 rounded-xl border border-white/10 hover:border-primary-500/30 transition-all cursor-pointer"
                             >
                               {tpl.label}
@@ -7511,19 +7528,10 @@ export const ChatPanel = ({
                                   key={i}
                                   type="button"
                                   onClick={() => {
-                                    if (tpl.text) {
-                                      setNewMessage(prev => prev ? `${prev}\n${tpl.text}` : tpl.text);
-                                    }
                                     if (tpl.imageUrl) {
-                                      fetch(tpl.imageUrl)
-                                        .then(res => res.blob())
-                                        .then(blob => {
-                                          const file = new File([blob], `resposta_rapida_${Date.now()}.png`, { type: blob.type || 'image/png' });
-                                          handleSendFile(file, 'image');
-                                        })
-                                        .catch(() => {
-                                          showAlert('Não foi possível carregar a imagem da resposta rápida.');
-                                        });
+                                      enviarMensagemRapidaComImagem(tpl);
+                                    } else if (tpl.text) {
+                                      setNewMessage(prev => prev ? `${prev}\n${tpl.text}` : tpl.text);
                                     }
                                     setShowQuickReplies(false);
                                   }}
@@ -7973,7 +7981,7 @@ export const ChatPanel = ({
                     quickTemplates.map((tpl, i) => (
                       <button
                         key={i}
-                        onClick={() => { setNewMessage(tpl.text); setActiveTab('chat'); }}
+                        onClick={() => { if (tpl.imageUrl) { enviarMensagemRapidaComImagem(tpl); } else { setNewMessage(tpl.text); } setActiveTab('chat'); }}
                         className="w-full text-left p-4 bg-white/5 hover:bg-primary-500/15 border border-white/10 hover:border-primary-500/30 rounded-2xl transition-all group"
                       >
                         <h4 className="text-sm font-bold text-primary-300 group-hover:text-primary-200 mb-1">{tpl.label}</h4>
