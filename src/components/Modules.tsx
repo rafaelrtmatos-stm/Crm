@@ -15594,7 +15594,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const dataUrl = canvas.toDataURL('image/png');
     const printWin = window.open('', '_blank', 'width=500,height=800');
     if (!printWin) { showAlert('Permita pop-ups para imprimir.'); return; }
-    printWin.document.write(`<!DOCTYPE html><html><head><title>Recibo #${sale.id.slice(-8).toUpperCase()}</title><style>body{margin:0;background:#F5F7FA;display:flex;justify-content:center;}img{width:100%;max-width:560px;}</style></head><body><img src="${dataUrl}" onload="window.print();window.close();" /></body></html>`);
+    printWin.document.write(`<!DOCTYPE html><html><head><title>Ordem de Serviço #${sale.id.slice(-8).toUpperCase()}</title><style>@page{margin:4mm;size:portrait;}body{margin:0;background:#090909;display:flex;justify-content:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}img{width:100%;max-width:680px;height:auto;display:block;}</style></head><body><img src="${dataUrl}" onload="window.print();window.close();" /></body></html>`);
     printWin.document.close();
   };
 
