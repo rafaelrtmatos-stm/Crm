@@ -44,6 +44,12 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   });
 
   useEffect(() => {
+    // Ao montar ou receber foco, checa se há uma sub-aba alvo gravada (ex: mensagens_rapidas)
+    const saved = localStorage.getItem('rpro_integracoes_tab');
+    if (saved && (saved === 'conexoes' || saved === 'robozinho_rafa' || saved === 'figurinhas' || saved === 'mensagens_rapidas')) {
+      setTab(saved as IntegracoesTab);
+    }
+
     const handleSwitch = (e: any) => {
       const target = e?.detail || localStorage.getItem('rpro_integracoes_tab');
       if (target && (target === 'conexoes' || target === 'robozinho_rafa' || target === 'figurinhas' || target === 'mensagens_rapidas')) {
@@ -230,7 +236,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
   }, [whatsappConectado, canalSelecionado]);
 
   // Apenas Administradores têm acesso a Integrações (Conexões, Mensagens Rápidas, Robozinho e Figurinhas)
-  const isAdmin = !!user?.isAdmin;
+  const isAdmin = Boolean(user?.isAdmin || (user?.role as any) === 'admin' || (user?.role as any) === 'master');
   if (!isAdmin) {
     return (
       <div className="p-8 text-center bg-slate-900/60 rounded-3xl border border-white/10 max-w-md mx-auto my-12 space-y-3">

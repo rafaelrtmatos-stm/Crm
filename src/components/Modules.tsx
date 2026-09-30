@@ -24,6 +24,7 @@ import {
   type StickerItem 
 } from '../lib/stickersStorage';
 import { carregarMensagensRapidas, getQuickRepliesSync, type QuickReply } from '../lib/quickRepliesStorage';
+import { QuickRepliesManager } from './QuickRepliesManager';
 import { getCache, setCache, isNetworkError } from '../lib/offlineSync';
 import { 
   TrendingUp, 
@@ -3867,7 +3868,9 @@ export const ChatPanel = ({
   };
   const [isRecording, setIsRecording] = useState(false);
   const [audiosComErro, setAudiosComErro] = useState<Record<string, boolean>>({});
+  const isUserAdmin = Boolean(user?.isAdmin || (user?.role as any) === 'admin' || (user?.role as any) === 'master');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [isQuickRepliesModalOpen, setIsQuickRepliesModalOpen] = useState(false);
   const [quickRepliesSearch, setQuickRepliesSearch] = useState('');
   const quickRepliesBtnRef = useRef<HTMLButtonElement>(null);
   const [quickRepliesPos, setQuickRepliesPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
@@ -7633,20 +7636,15 @@ export const ChatPanel = ({
                               <span className="text-[10px] font-black uppercase tracking-wider text-white">Mensagens Rápidas</span>
                             </div>
                             <div className="flex items-center gap-1">
-                              {user?.isAdmin && (
+                              {isUserAdmin && (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setShowQuickReplies(false);
-                                    if (typeof window !== 'undefined') {
-                                      localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
-                                      window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
-                                    }
-                                    if (setRootActiveTab) setRootActiveTab('integracoes');
-                                    else if (setActiveTab) setActiveTab('integracoes');
+                                    setIsQuickRepliesModalOpen(true);
                                   }}
                                   className="text-[9px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 rounded cursor-pointer"
-                                  title="Editar mensagens e fotos na aba Integrações"
+                                  title="Editar mensagens e fotos salvas"
                                 >
                                   Editar
                                 </button>
@@ -7747,24 +7745,38 @@ export const ChatPanel = ({
                             })()}
                           </div>
 
-                          {/* Rodapé direcionando para a aba Integrações (apenas Admin) */}
-                          {user?.isAdmin && (
+                          {/* Rodapé direcionando para a aba Integrações / Modal (apenas Admin) */}
+                          {isUserAdmin && (
                             <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] text-white/40">
                               <span>Atalho <kbd className="font-mono text-white/70 bg-white/10 px-1 py-0.5 rounded">/</kbd></span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowQuickReplies(false);
-                                  if (typeof window !== 'undefined') {
-                                    localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
-                                    window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
-                                  }
-                                  if (setRootActiveTab) setRootActiveTab('integracoes');
-                                }}
-                                className="text-red-400 hover:underline font-bold"
-                              >
-                                Configurar em Integrações →
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowQuickReplies(false);
+                                    setIsQuickRepliesModalOpen(true);
+                                  }}
+                                  className="text-amber-400 hover:text-amber-300 hover:underline font-bold cursor-pointer"
+                                >
+                                  ⚙️ Gerenciar
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowQuickReplies(false);
+                                    if (typeof window !== 'undefined') {
+                                      localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
+                                      window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
+                                    }
+                                    if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
+                                  }}
+                                  className="text-red-400 hover:text-red-300 hover:underline font-bold cursor-pointer"
+                                  title="Abrir em tela cheia na aba Integrações"
+                                >
+                                  Integrações →
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -8166,8 +8178,33 @@ export const ChatPanel = ({
 
           {activeTab === 'saved' && (
             <motion.div key="saved" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-8 space-y-6 overflow-y-auto custom-scrollbar h-full flex flex-col">
-               <div className="flex items-center justify-between">
+               <div className="flex items-center justify-between gap-3">
                   <h3 className="text-xl font-bold text-white italic">Mensagens Salvas</h3>
+                  {isUserAdmin && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsQuickRepliesModalOpen(true)}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                      >
+                        <Settings size={13} /> Gerenciar Respostas Rápidas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
+                            window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
+                          }
+                          if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 text-xs font-bold transition-all cursor-pointer"
+                        title="Abrir tela cheia em Integrações"
+                      >
+                        Integrações →
+                      </button>
+                    </div>
+                  )}
                </div>
                <p className="text-xs text-white/40 italic">Clique em uma mensagem para preenchê-la no campo de envio.</p>
                <div className="space-y-3">
@@ -8595,6 +8632,31 @@ export const ChatPanel = ({
           )
         )}
       </AnimatePresence>
+
+      {/* Modal de Gerenciamento de Mensagens Rápidas aberto direto pelo Chat */}
+      {isQuickRepliesModalOpen && (
+        <Modal
+          isOpen={isQuickRepliesModalOpen}
+          onClose={() => setIsQuickRepliesModalOpen(false)}
+          title="⚡ Mensagens Rápidas & Modelos Salvos"
+          size="lg"
+        >
+          <div className="py-1">
+            <QuickRepliesManager
+              isModal={true}
+              isAdmin={isUserAdmin}
+              onSelectReply={(reply) => {
+                if (reply.imageUrl) {
+                  enviarMensagemRapidaComImagem(reply);
+                } else if (reply.text) {
+                  setNewMessage(prev => prev ? `${prev}\n${reply.text}` : reply.text);
+                }
+                setIsQuickRepliesModalOpen(false);
+              }}
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

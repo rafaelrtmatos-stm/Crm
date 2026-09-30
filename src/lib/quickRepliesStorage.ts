@@ -98,7 +98,47 @@ export const getQuickRepliesSync = (): QuickReply[] => {
   return DEFAULT_QUICK_REPLIES;
 };
 
+let realtimeChannelInitialized = false;
+
+export const inicializarSincronizacaoRealtimeMensagensRapidas = () => {
+  if (realtimeChannelInitialized || typeof window === 'undefined') return;
+  realtimeChannelInitialized = true;
+
+  try {
+    supabase
+      .channel('quick-replies-realtime-channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'robozinho_config', filter: `company_id=eq.${COMPANY_ID}` },
+        (payload: any) => {
+          const qrList = payload.new?.whatsapp_qr_integration?.quick_replies;
+          if (Array.isArray(qrList) && qrList.length > 0) {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(qrList));
+            window.dispatchEvent(new CustomEvent('quick-replies-updated', { detail: qrList }));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'configuracoes', filter: `company_id=eq.${COMPANY_ID}` },
+        (payload: any) => {
+          const qrList = payload.new?.quick_replies;
+          if (Array.isArray(qrList) && qrList.length > 0) {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(qrList));
+            window.dispatchEvent(new CustomEvent('quick-replies-updated', { detail: qrList }));
+          }
+        }
+      )
+      .subscribe();
+  } catch (err) {
+    console.warn('Erro ao inicializar realtime de mensagens rápidas:', err);
+  }
+};
+
 export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
+  // Inicializa a escuta em tempo real para sincronizar entre todos os PCs
+  inicializarSincronizacaoRealtimeMensagensRapidas();
+
   let locais: QuickReply[] = [];
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -109,7 +149,7 @@ export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
     console.error('Erro ao ler mensagens rápidas locais:', err);
   }
 
-  // Tenta carregar do Supabase (configuracoes)
+  // 1. Tenta carregar do Supabase (configuracoes.quick_replies)
   try {
     const { data, error } = await supabase
       .from('configuracoes')
@@ -127,7 +167,29 @@ export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
       return nuvem.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
   } catch {
-    // Graceful fallback para localStorage
+    // Graceful fallback
+  }
+
+  // 2. Tenta carregar do Supabase (robozinho_config.whatsapp_qr_integration.quick_replies)
+  try {
+    const { data: roboData, error: roboError } = await supabase
+      .from('robozinho_config')
+      .select('whatsapp_qr_integration')
+      .eq('company_id', COMPANY_ID)
+      .maybeSingle();
+
+    const roboReplies = roboData?.whatsapp_qr_integration?.quick_replies;
+    if (!roboError && Array.isArray(roboReplies) && roboReplies.length > 0) {
+      const nuvem: QuickReply[] = roboReplies;
+      const hasPosVenda = nuvem.some((p: any) => p.shortcut === '/posvenda' || (p.title || '').toLowerCase().includes('pós-venda') || (p.title || '').toLowerCase().includes('pos-venda'));
+      if (!hasPosVenda) {
+        nuvem.push(DEFAULT_QUICK_REPLIES[DEFAULT_QUICK_REPLIES.length - 1]);
+      }
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(nuvem));
+      return nuvem.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar do robozinho_config:', err);
   }
 
   if (locais.length === 0) {
@@ -201,32 +263,41 @@ export const salvarMensagensRapidas = async (lista: QuickReply[]): Promise<boole
     }
     window.dispatchEvent(new CustomEvent('quick-replies-updated', { detail: listaFinal }));
 
-    // Tenta persistir no Supabase (configuracoes.quick_replies)
+    // Persiste no Supabase
+    // 1. Tenta gravar em configuracoes.quick_replies (caso a coluna exista no banco)
     try {
-      const { error } = await supabase
+      await supabase
         .from('configuracoes')
         .upsert(
           { company_id: COMPANY_ID, quick_replies: listaFinal, updated_at: new Date().toISOString() },
           { onConflict: 'company_id' }
         );
-      if (error) {
-        // Se a coluna ainda não foi criada no banco (PGRST204) ou houve erro de cache de schema,
-        // mantém salvo localmente sem travar a experiência do usuário.
-        if (
-          error.code === 'PGRST204' ||
-          error.message?.includes('quick_replies') ||
-          error.message?.includes('schema cache')
-        ) {
-          console.warn('Aviso: coluna "quick_replies" ainda não existe em configuracoes no Supabase. Salvo com sucesso no armazenamento local.');
-          return true;
-        }
-        console.warn('Aviso ao sincronizar mensagens rápidas no Supabase:', error.message || error);
-        return true;
-      }
-    } catch (supabaseErr) {
-      console.warn('Aviso ao persistir mensagens rápidas no Supabase (usando local):', supabaseErr);
-      return true;
+    } catch {}
+
+    // 2. Garante persistência permanente em robozinho_config.whatsapp_qr_integration.quick_replies
+    // (tabela nativa com Realtime habilitado, sincronizando instantaneamente com todos os PCs)
+    try {
+      const { data: roboData } = await supabase
+        .from('robozinho_config')
+        .select('whatsapp_qr_integration')
+        .eq('company_id', COMPANY_ID)
+        .maybeSingle();
+
+      const existingConfig = roboData?.whatsapp_qr_integration || {};
+      await supabase
+        .from('robozinho_config')
+        .update({
+          whatsapp_qr_integration: {
+            ...existingConfig,
+            quick_replies: listaFinal
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('company_id', COMPANY_ID);
+    } catch (err) {
+      console.warn('Aviso ao sincronizar no robozinho_config:', err);
     }
+
     return true;
   } catch (err) {
     console.error('Erro ao salvar mensagens rápidas:', err);
