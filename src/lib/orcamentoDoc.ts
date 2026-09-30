@@ -1,5 +1,5 @@
 import type { Orcamento } from '../types';
-import { drawBadgeIcon, COMPANY_CONTACT, CompanyContactInfo } from './receipt';
+import { drawBadgeIcon, COMPANY_CONTACT, CompanyContactInfo, wrapCanvasText } from './receipt';
 
 export interface OrcamentoRenderInput {
   orcamento: Orcamento;
@@ -98,16 +98,49 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   const measureCanvas = document.createElement('canvas');
   const mctx = measureCanvas.getContext('2d')!;
 
-  const rowHeight = 30;
-  const obsRowExtra = 14;
-  const dimRowExtra = 12;
   const items = o.items || [];
   const subtotalBrutoOrcamento = items.reduce((acc, i) => acc + (i.area ? i.price * i.area : i.price) * i.quantity, 0);
   const descontoOrcamento = o.desconto || 0;
   const tableRows = Math.max(items.length, 1);
-  const rowHeights = Array.from({ length: tableRows }, (_, i) =>
-    rowHeight + (items[i]?.observacao ? obsRowExtra : 0) + ((items[i]?.dimensions || (!items[i]?.area && items[i]?.consumoEstoque)) ? dimRowExtra : 0)
-  );
+
+  // Largura máxima para descrição no orçamento (folga segura antes de VALOR UNIT. em width - marginX - 148 = 464px)
+  const orcDescMaxW = 270;
+  mctx.font = `600 10px ${FONT}`;
+
+  interface MeasuredOrcamentoItem {
+    titleLines: string[];
+    obsLines: string[];
+    fullDim: string;
+    rowH: number;
+  }
+
+  const measuredOrcItems: MeasuredOrcamentoItem[] = items.map(item => {
+    mctx.font = `600 10px ${FONT}`;
+    const rawName = item.name.toUpperCase();
+    const titleLines = wrapCanvasText(mctx, rawName, orcDescMaxW, 3);
+
+    mctx.font = `italic 500 8px ${FONT}`;
+    const obsLines = item.observacao ? wrapCanvasText(mctx, `Obs: ${item.observacao}`, orcDescMaxW, 3) : [];
+
+    const dimStr = item.dimensions || '';
+    const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !item.area && item.consumoEstoque)
+      ? ` (${Number(item.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
+      : '';
+    const fullDim = dimStr ? `${dimStr}${linearSuffix}` : (linearSuffix ? linearSuffix.trim() : '');
+
+    const dimExtraH = fullDim ? 12 : 0;
+    const contentH = (titleLines.length * 13) + (obsLines.length * 11) + dimExtraH;
+    const rowH = Math.max(30, 8 + contentH + 8);
+
+    return {
+      titleLines: titleLines.length > 0 ? titleLines : [rawName],
+      obsLines,
+      fullDim,
+      rowH,
+    };
+  });
+
+  const rowHeights = measuredOrcItems.length > 0 ? measuredOrcItems.map(m => m.rowH) : [30];
   const totalRowsHeight = rowHeights.reduce((a, b) => a + b, 0);
   const tableHeaderH = 30;
   const tableH = tableHeaderH + totalRowsHeight;
@@ -161,20 +194,26 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   ctx.fillRect(0, 0, width, height);
 
   let y = 30;
-  let textStartX = marginX;
   if (logoImg) {
-    const logoH = 40;
-    const logoW = (logoImg.width / logoImg.height) * logoH;
-    ctx.drawImage(logoImg, marginX, y - 8, logoW, logoH);
-    textStartX = marginX + logoW + 14;
+    const maxLogoH = 48;
+    const maxLogoW = 240;
+    let logoW = (logoImg.width / logoImg.height) * maxLogoH;
+    let logoH = maxLogoH;
+    if (logoW > maxLogoW) {
+      logoW = maxLogoW;
+      logoH = (logoImg.height / logoImg.width) * maxLogoW;
+    }
+    ctx.drawImage(logoImg, marginX, y - 10, logoW, logoH);
+  } else {
+    const textStartX = marginX;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = TEXT;
+    ctx.font = `900 19px ${FONT}`;
+    ctx.fillText(companyName.toUpperCase(), textStartX, y + 6);
+    ctx.font = `700 8.5px ${FONT}`;
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText('COMUNICAÇÃO VISUAL · IMPRESSÃO DIGITAL · ADESIVOS · FACHADAS · BANNERS', textStartX, y + 21);
   }
-  ctx.textAlign = 'left';
-  ctx.fillStyle = TEXT;
-  ctx.font = `900 19px ${FONT}`;
-  ctx.fillText(companyName.toUpperCase(), textStartX, y + 6);
-  ctx.font = `700 8.5px ${FONT}`;
-  ctx.fillStyle = TEXT_DIM;
-  ctx.fillText('COMUNICAÇÃO VISUAL · IMPRESSÃO DIGITAL · ADESIVOS · FACHADAS · BANNERS', textStartX, y + 21);
 
   ctx.textAlign = 'right';
   ctx.fillStyle = ACCENT;
@@ -239,46 +278,48 @@ export async function renderOrcamentoCanvas({ orcamento: o, companyName, logoDar
   let rowY = y + tableHeaderH;
   for (let i = 0; i < tableRows; i++) {
     const item = items[i];
+    const mItem = measuredOrcItems[i];
     const thisRowHeight = rowHeights[i];
-    if (item) {
+    if (item && mItem) {
       const unitPriceBruto = item.area ? item.price * item.area : item.price;
       const subtotalBruto = unitPriceBruto * item.quantity;
       const fatiaDesconto = descontoOrcamento > 0 && subtotalBrutoOrcamento > 0 ? (subtotalBruto / subtotalBrutoOrcamento) * descontoOrcamento : 0;
       const subtotal = Math.max(0, subtotalBruto - fatiaDesconto);
       const unitPrice = item.quantity > 0 ? subtotal / item.quantity : subtotal;
+
       ctx.textAlign = 'left';
       ctx.fillStyle = TEXT;
       ctx.font = `700 10px ${FONT}`;
-      ctx.fillText(String(item.quantity), marginX + 16, rowY + 20);
-      const itemNameUpper = item.name.toUpperCase();
-      const nameLabel = itemNameUpper.length > 36 ? itemNameUpper.slice(0, 36) + '…' : itemNameUpper;
+      ctx.fillText(String(item.quantity), marginX + 16, rowY + 18);
+
       ctx.font = `600 10px ${FONT}`;
-      ctx.fillText(nameLabel, marginX + 60, rowY + 20);
+      const titleStartY = rowY + 18;
+      mItem.titleLines.forEach((tLine, tIdx) => {
+        ctx.fillText(tLine, marginX + 60, titleStartY + tIdx * 13);
+      });
+
       ctx.textAlign = 'right';
       ctx.fillStyle = TEXT_DIM;
-      ctx.fillText(`R$ ${unitPrice.toFixed(2).replace('.', ',')}`, width - marginX - 148, rowY + 20);
+      ctx.fillText(`R$ ${unitPrice.toFixed(2).replace('.', ',')}`, width - marginX - 148, rowY + 18);
       ctx.fillStyle = TEXT;
       ctx.font = `800 10px ${FONT}`;
-      ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 20);
-      let extraLineY = rowY + 32;
-      const dimStr = item.dimensions || '';
-      const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !item.area && item.consumoEstoque)
-        ? ` (${Number(item.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
-        : '';
-      const fullDim = dimStr ? `${dimStr}${linearSuffix}` : (linearSuffix ? linearSuffix.trim() : '');
-      if (fullDim) {
+      ctx.fillText(`R$ ${subtotal.toFixed(2).replace('.', ',')}`, width - marginX - 16, rowY + 18);
+
+      let extraLineY = titleStartY + (mItem.titleLines.length - 1) * 13 + 14;
+      if (mItem.fullDim) {
         ctx.textAlign = 'left';
         ctx.fillStyle = ACCENT;
         ctx.font = `700 8px ${FONT}`;
-        ctx.fillText(`Medida: ${fullDim}`, marginX + 60, extraLineY);
+        ctx.fillText(`Medida: ${mItem.fullDim}`, marginX + 60, extraLineY);
         extraLineY += 12;
       }
-      if (item.observacao) {
+      if (mItem.obsLines.length > 0) {
         ctx.textAlign = 'left';
         ctx.fillStyle = TEXT_FAINT;
         ctx.font = `italic 500 8px ${FONT}`;
-        const obsLabel = item.observacao.length > 60 ? item.observacao.slice(0, 60) + '…' : item.observacao;
-        ctx.fillText(`Obs: ${obsLabel}`, marginX + 60, extraLineY);
+        mItem.obsLines.forEach((oLine, oIdx) => {
+          ctx.fillText(oLine, marginX + 60, extraLineY + oIdx * 11);
+        });
       }
     }
     if (i < tableRows - 1) {

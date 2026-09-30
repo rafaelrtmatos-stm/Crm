@@ -164,7 +164,9 @@ import {
   ArrowUp,
   Reply,
   Wand2,
-  Truck
+  Truck,
+  Paintbrush,
+  CheckCircle
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -7607,22 +7609,24 @@ export const ChatPanel = ({
                               <span className="text-[10px] font-black uppercase tracking-wider text-white">Mensagens Rápidas</span>
                             </div>
                             <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowQuickReplies(false);
-                                  if (typeof window !== 'undefined') {
-                                    localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
-                                    window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
-                                  }
-                                  if (setActiveTab) setActiveTab('robozinho_rafa');
-                                  if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
-                                }}
-                                className="text-[9px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 rounded cursor-pointer"
-                                title="Editar mensagens e fotos na aba Integrações"
-                              >
-                                Editar
-                              </button>
+                              {user?.isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowQuickReplies(false);
+                                    if (typeof window !== 'undefined') {
+                                      localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
+                                      window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
+                                    }
+                                    if (setRootActiveTab) setRootActiveTab('integracoes');
+                                    else if (setActiveTab) setActiveTab('integracoes');
+                                  }}
+                                  className="text-[9px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 rounded cursor-pointer"
+                                  title="Editar mensagens e fotos na aba Integrações"
+                                >
+                                  Editar
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setShowQuickReplies(false)}
@@ -7719,24 +7723,26 @@ export const ChatPanel = ({
                             })()}
                           </div>
 
-                          {/* Rodapé direcionando para a aba Integrações */}
-                          <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] text-white/40">
-                            <span>Atalho <kbd className="font-mono text-white/70 bg-white/10 px-1 py-0.5 rounded">/</kbd></span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowQuickReplies(false);
-                                if (typeof window !== 'undefined') {
-                                  localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
-                                  window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
-                                }
-                                if (setRootActiveTab) setRootActiveTab('integracoes');
-                              }}
-                              className="text-red-400 hover:underline font-bold"
-                            >
-                              Configurar em Integrações →
-                            </button>
-                          </div>
+                          {/* Rodapé direcionando para a aba Integrações (apenas Admin) */}
+                          {user?.isAdmin && (
+                            <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] text-white/40">
+                              <span>Atalho <kbd className="font-mono text-white/70 bg-white/10 px-1 py-0.5 rounded">/</kbd></span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowQuickReplies(false);
+                                  if (typeof window !== 'undefined') {
+                                    localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
+                                    window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
+                                  }
+                                  if (setRootActiveTab) setRootActiveTab('integracoes');
+                                }}
+                                className="text-red-400 hover:underline font-bold"
+                              >
+                                Configurar em Integrações →
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </>,
                       document.body
@@ -15590,7 +15596,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handlePrintReceipt = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoLightUrl, logoDarkUrl, companyContact });
     const dataUrl = canvas.toDataURL('image/png');
     const printWin = window.open('', '_blank', 'width=500,height=800');
     if (!printWin) { showAlert('Permita pop-ups para imprimir.'); return; }
@@ -15599,12 +15605,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleDownloadReceiptPdf = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoLightUrl, logoDarkUrl, companyContact });
     await downloadCanvasAsPdf(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'pdf'));
   };
 
   const handleDownloadReceiptImagem = async (sale: SaleOrder) => {
-    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoDarkUrl, companyContact });
+    const canvas = await renderReceiptCanvas({ order: sale, companyName: currentCompany?.name || 'Rafa Arts Graphics', customerPhone: sale.customerPhone, logoLightUrl, logoDarkUrl, companyContact });
     downloadCanvasAsPng(canvas, buildFileName('Recibo', sale.customerName, sale.createdAt, 'png'));
   };
 
@@ -15672,6 +15678,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         order: { ...sale, customerPhone: rawPhone, customerName },
         companyName: currentCompany?.name || 'Rafa Arts Graphics',
         customerPhone: rawPhone,
+        logoLightUrl,
         logoDarkUrl,
         companyContact,
       });
@@ -16177,6 +16184,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'; beneficiaryName: string; city: string; bank?: string } | null>(null);
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
+  const [logoLightUrl, setLogoLightUrl] = useState<string | null>(null);
   const [companyContact, setCompanyContact] = useState<CompanyContactInfo>(COMPANY_CONTACT);
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<string[]>(['pix', 'dinheiro', 'cartao_credito', 'cartao_debito']);
   const [creditCardFees, setCreditCardFees] = useState<{ installments: number; feePercent: number }[]>(
@@ -16658,6 +16666,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
       setLogoDarkUrl(data?.logo_dark_url || null);
+      setLogoLightUrl(data?.logo_light_url || null);
       setCompanyContact({
         whatsapp: data?.contact_whatsapp || COMPANY_CONTACT.whatsapp,
         instagram: data?.contact_instagram || COMPANY_CONTACT.instagram,
@@ -19685,12 +19694,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span>{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
                               </button>
                             ) : (
-                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider">
-                                {sale.serviceStatus === 'produto_entregue' ? (
-                                  <Truck size={10} className="text-sky-400" />
-                                ) : (
-                                  <Factory size={10} className="text-amber-400" />
-                                )}
+                              <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(sale.serviceStatus).bg, stageColorOf(sale.serviceStatus).text, "border-white/10")}>
+                                {React.createElement(stageIconOf(sale.serviceStatus), { size: 10, className: "shrink-0" })}
                                 <span className="truncate max-w-[90px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
                               </div>
                             )}
@@ -19897,11 +19902,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               </button>
                             ) : (
                               <div className="flex items-center gap-1.5">
-                                {sale.serviceStatus === 'produto_entregue' ? (
-                                  <Truck size={12} className="text-sky-400 shrink-0" />
-                                ) : (
-                                  <Factory size={12} className="text-amber-400 shrink-0" />
-                                )}
+                                <span className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 border border-white/10", stageColorOf(sale.serviceStatus).bg, stageColorOf(sale.serviceStatus).text)}>
+                                  {React.createElement(stageIconOf(sale.serviceStatus), { size: 12, className: "shrink-0" })}
+                                </span>
                                 <select
                                   value={sale.serviceStatus}
                                   onChange={(e) => {
@@ -20267,11 +20270,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           onClick={() => handleCycleServiceStatus(sale.id, currentStage)}
                           title="Clique para avançar a etapa — ao concluir, volta ao início"
                           className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all cursor-pointer border-0 hover:brightness-125",
-                            stageColorOf(currentStage).bg, stageColorOf(currentStage).text
+                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase whitespace-nowrap transition-all cursor-pointer border hover:brightness-125",
+                            stageColorOf(currentStage).bg, stageColorOf(currentStage).text, "border-white/10"
                           )}
                         >
-                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", stageColorOf(currentStage).dot)} />
+                          {React.createElement(stageIconOf(currentStage), { size: 11, className: "shrink-0" })}
                           {entregue ? 'Entregue' : (STAGE_LABELS[currentStage] || currentStage)}
                           <RefreshCw size={10} className="opacity-40" />
                         </button>
@@ -22957,6 +22960,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    order: lastFinalizedOrder,
                    companyName: currentCompany?.name || 'Rafa Arts Graphics',
                    customerPhone: selectedCustomer?.phone,
+                   logoLightUrl,
                    logoDarkUrl,
                    companyContact,
                  });
@@ -22977,6 +22981,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    order: lastFinalizedOrder,
                    companyName: currentCompany?.name || 'Rafa Arts Graphics',
                    customerPhone: selectedCustomer?.phone,
+                   logoLightUrl,
                    logoDarkUrl,
                    companyContact,
                  });
@@ -28006,6 +28011,19 @@ const STAGE_LABELS: Record<string, string> = {
   aguardando_retirada: 'Aguardando Retirada', produto_entregue: 'Produto Entregue',
 };
 
+// Ícones temáticos para cada uma das 8 etapas do fluxo de produção visual
+const STAGE_ICONS: Record<string, React.ElementType> = {
+  pedido_recebido: ShoppingBag,
+  aguardando_arte: Palette,
+  arte_em_desenvolvimento: Wand2,
+  aguardando_aprovacao: ClipboardCheck,
+  producao: Factory,
+  acabamento: Paintbrush,
+  aguardando_retirada: Package,
+  produto_entregue: Truck,
+};
+const stageIconOf = (stageId: string): React.ElementType => STAGE_ICONS[stageId] || Layers;
+
 // Cor de cada etapa (bolinha + badge) nos cards do funil de Serviços, na lista de Notas em Aberto
 // e nos badges de Orçamento/Contrato. Pra mudar a cor de uma etapa, so trocar a classe aqui —
 // dot/text/bg seguem a mesma cor base pra ficar consistente em todo lugar que a etapa aparece.
@@ -28100,9 +28118,11 @@ const OrdemServicoColumn = ({ stageId, pedidos, onDropdownChange, selectMode, se
              {todosSelecionados && <Check size={9} className="text-slate-900" />}
            </button>
          )}
-         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", stageColorOf(stageId).dot)} />
-         <h3 className="text-[7.5px] font-black uppercase tracking-wide text-white/50 truncate leading-tight">{STAGE_LABELS[stageId]}</h3>
-         <Badge className="bg-white/5 border-none opacity-50 px-1.5 py-0 h-4 flex items-center shrink-0 text-[8px]">{pedidos.length}</Badge>
+         <span className={cn("w-5 h-5 rounded-md flex items-center justify-center shrink-0 border border-white/10 shadow-sm", stageColorOf(stageId).bg, stageColorOf(stageId).text)}>
+           {React.createElement(stageIconOf(stageId), { size: 11, className: "shrink-0" })}
+         </span>
+         <h3 className="text-[8px] font-black uppercase tracking-wide text-white/80 truncate leading-tight flex-1" title={STAGE_LABELS[stageId]}>{STAGE_LABELS[stageId]}</h3>
+         <Badge className="bg-white/10 border-none px-1.5 py-0 h-4 flex items-center shrink-0 text-[8px] font-bold text-white/80">{pedidos.length}</Badge>
       </div>
       <div
         ref={setNodeRef}
@@ -28458,10 +28478,11 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                     key={stageId}
                     onClick={() => setEtapaSelecionada(stageId)}
                     className={cn(
-                      "shrink-0 flex items-center gap-1.5 px-3 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border transition-all",
-                      etapaSelecionada === stageId ? "bg-primary-500 text-slate-900 border-primary-500" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
+                      "shrink-0 flex items-center gap-2 px-3 h-9 rounded-lg text-[10px] font-black uppercase tracking-wide cursor-pointer border transition-all",
+                      etapaSelecionada === stageId ? "bg-primary-500 text-slate-900 border-primary-500 shadow-md" : "bg-white/5 text-white/50 border-white/10 hover:text-white"
                     )}
                   >
+                    {React.createElement(stageIconOf(stageId), { size: 12, className: etapaSelecionada === stageId ? "text-slate-900" : stageColorOf(stageId).text })}
                     {STAGE_LABELS[stageId]} <Badge className={cn("border-none px-1.5 py-0 h-4 text-[8px]", etapaSelecionada === stageId ? "bg-slate-900/20 text-slate-900" : "bg-white/10 text-white/50")}>{count}</Badge>
                   </button>
                 );

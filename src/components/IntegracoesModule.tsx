@@ -229,16 +229,30 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   }, [whatsappConectado, canalSelecionado]);
 
-  // Usuario comum so ve Mensagens Rapidas. Conexoes, Robozinho e Figurinhas sao so do admin.
+  // Apenas Administradores têm acesso a Integrações (Conexões, Mensagens Rápidas, Robozinho e Figurinhas)
   const isAdmin = !!user?.isAdmin;
+  if (!isAdmin) {
+    return (
+      <div className="p-8 text-center bg-slate-900/60 rounded-3xl border border-white/10 max-w-md mx-auto my-12 space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+          <Plug size={22} />
+        </div>
+        <h3 className="text-base font-black text-white">Acesso Restrito</h3>
+        <p className="text-xs text-white/50 leading-relaxed">
+          Esta área de configurações de integrações e mensagens pré-definidas é exclusiva para administradores da empresa.
+        </p>
+      </div>
+    );
+  }
+
   const TODAS_TABS: { id: IntegracoesTab; label: string; icon: any }[] = [
     { id: 'conexoes', label: 'Conexões', icon: Plug },
     { id: 'mensagens_rapidas', label: 'Mensagens Rápidas', icon: Zap },
     { id: 'robozinho_rafa', label: 'Robozinho Rafa', icon: Bot },
     { id: 'figurinhas', label: 'Figurinhas WhatsApp', icon: Smile },
   ];
-  const TABS = isAdmin ? TODAS_TABS : TODAS_TABS.filter(t => t.id === 'mensagens_rapidas');
-  const tabAtual: IntegracoesTab = isAdmin ? tab : 'mensagens_rapidas';
+  const TABS = TODAS_TABS;
+  const tabAtual: IntegracoesTab = tab;
 
   return (
     <div className="space-y-6">
@@ -365,7 +379,7 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
       )}
 
       {tabAtual === 'mensagens_rapidas' && (
-        <QuickRepliesManager />
+        <QuickRepliesManager isAdmin={isAdmin} />
       )}
 
       {tabAtual === 'robozinho_rafa' && (

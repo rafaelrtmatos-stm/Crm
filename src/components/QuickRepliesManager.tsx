@@ -24,10 +24,13 @@ import {
 } from '../lib/quickRepliesStorage';
 import { showAlert, showConfirm } from '../lib/notify';
 
+import { Company, AppUser } from '../types';
+
 export const QuickRepliesManager: React.FC<{
   onSelectReply?: (reply: QuickReply) => void;
   isModal?: boolean;
-}> = ({ onSelectReply, isModal = false }) => {
+  isAdmin?: boolean;
+}> = ({ onSelectReply, isModal = false, isAdmin = false }) => {
   const [replies, setReplies] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -202,14 +205,16 @@ export const QuickRepliesManager: React.FC<{
           >
             <RefreshCw size={14} className={loading ? "animate-spin text-emerald-400" : ""} />
           </button>
-          <button
-            type="button"
-            onClick={abrirFormCriacao}
-            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-950/40 transition-transform active:scale-95"
-          >
-            <Plus size={14} />
-            <span>Nova Mensagem</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={abrirFormCriacao}
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-950/40 transition-transform active:scale-95"
+            >
+              <Plus size={14} />
+              <span>Nova Mensagem</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -228,14 +233,16 @@ export const QuickRepliesManager: React.FC<{
           <p className="text-xs text-white/40 max-w-sm mx-auto">
             Crie respostas automáticas e orçamentos padronizados para enviar aos clientes com 1 clique no WhatsApp.
           </p>
-          <button
-            type="button"
-            onClick={abrirFormCriacao}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/15 text-white text-xs font-semibold rounded-xl border border-white/10 transition-colors"
-          >
-            <Plus size={13} />
-            <span>Criar primeira resposta</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={abrirFormCriacao}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/15 text-white text-xs font-semibold rounded-xl border border-white/10 transition-colors"
+            >
+              <Plus size={13} />
+              <span>Criar primeira resposta</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[580px] overflow-y-auto custom-scrollbar pr-1">
@@ -258,24 +265,26 @@ export const QuickRepliesManager: React.FC<{
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity shrink-0" onClick={e => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => abrirFormEdicao(r)}
-                      className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors"
-                      title="Editar"
-                    >
-                      <Edit3 size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleExcluir(r)}
-                      className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
-                      title="Excluir"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => abrirFormEdicao(r)}
+                        className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+                        title="Editar"
+                      >
+                        <Edit3 size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExcluir(r)}
+                        className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors"
+                        title="Excluir"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <p className="text-xs text-white/70 line-clamp-3 leading-relaxed whitespace-pre-wrap font-sans">

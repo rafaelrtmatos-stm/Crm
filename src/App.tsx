@@ -2630,7 +2630,8 @@ export default function App() {
     }
     
     // Se nao tem admin nem allowedTabs definido, mostra so o Dashboard por padrao —
-    // Configuracoes NUNCA deve aparecer de graca pra quem nao e admin
+    // Configuracoes e Integrações NUNCA devem aparecer de graça pra quem não é admin
+    if (item.id === 'settings' || item.id === 'robozinho_rafa') return false;
     if (item.id === 'dashboard') return true;
     
     // Otherwise check company active modules

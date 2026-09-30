@@ -1,4 +1,5 @@
 import type { SaleOrder } from '../types';
+import { supabase } from '../supabase';
 
 export interface CompanyContactInfo {
   whatsapp: string;
@@ -17,6 +18,7 @@ export interface ReceiptRenderInput {
   customerCpf?: string;
   customerAddress?: string;
   responsavel?: string;
+  logoLightUrl?: string | null;
   logoDarkUrl?: string | null;
   companyContact?: Partial<CompanyContactInfo>;
   isOrcamento?: boolean;
@@ -81,6 +83,69 @@ function forceTwoLines(label: string): string[] {
   if (words.length <= 1) return [label];
   const mid = Math.ceil(words.length / 2);
   return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
+}
+
+// Quebra texto com inteligência respeitando largura máxima e palavras longas
+export function wrapCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number = 4
+): string[] {
+  if (!text || !text.trim()) return [];
+  const clean = text.trim();
+  const words = clean.split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+
+    // Se uma única palavra for maior que maxWidth, quebra por caractere
+    if (ctx.measureText(word).width > maxWidth) {
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = '';
+      }
+      let chunk = '';
+      for (const char of word) {
+        if (ctx.measureText(chunk + char).width > maxWidth) {
+          lines.push(chunk);
+          chunk = char;
+        } else {
+          chunk += char;
+        }
+      }
+      if (chunk) currentLine = chunk;
+      continue;
+    }
+
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+      if (lines.length >= maxLines) {
+        break;
+      }
+    } else {
+      currentLine = testLine;
+    }
+  }
+
+  if (currentLine && lines.length < maxLines) {
+    lines.push(currentLine);
+  }
+
+  // Se atingiu o limite de linhas e ainda há texto excedente, aplica reticências elegantes
+  if (lines.length > 0 && lines.length === maxLines) {
+    let last = lines[lines.length - 1];
+    while (last.length > 0 && ctx.measureText(last + '…').width > maxWidth) {
+      last = last.slice(0, -1).trim();
+    }
+    lines[lines.length - 1] = last + '…';
+  }
+
+  return lines;
 }
 
 export const COMPANY_CONTACT: CompanyContactInfo = {
@@ -267,6 +332,7 @@ export async function renderReceiptCanvas({
   customerCpf,
   customerAddress,
   responsavel,
+  logoLightUrl,
   logoDarkUrl,
   companyContact,
   isOrcamento,
@@ -291,11 +357,25 @@ export async function renderReceiptCanvas({
     }
   }
 
-  // Logo da empresa
+  // Logo da empresa: o recibo possui fundo escuro (#090909), portanto prioriza a LOGO CLARA (fundo escuro).
+  // Se não foi repassada via props, busca logo_light_url em configuracoes com fallback para logoDarkUrl.
   let logoImg: HTMLImageElement | null = null;
-  if (logoDarkUrl) {
+  let targetLogoUrl: string | null = logoLightUrl || null;
+  if (!targetLogoUrl) {
     try {
-      logoImg = await loadImage(logoDarkUrl);
+      const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
+      targetLogoUrl = data?.logo_light_url || data?.logo_dark_url || logoDarkUrl || null;
+    } catch {
+      targetLogoUrl = logoDarkUrl || null;
+    }
+  }
+  if (!targetLogoUrl && logoDarkUrl) {
+    targetLogoUrl = logoDarkUrl;
+  }
+
+  if (targetLogoUrl) {
+    try {
+      logoImg = await loadImage(targetLogoUrl);
     } catch {
       logoImg = null;
     }
@@ -329,15 +409,55 @@ export async function renderReceiptCanvas({
   const infoCardsH = 98;
 
   // Tabela de Produtos (Dinâmica - expande proporcionalmente conforme quantidade e observações)
-  const tableItemRows = items.length > 0 ? items.length : 1;
-  const itemRowHeights = items.length > 0
-    ? items.map(item => {
-        let h = 46;
-        if (item.observacao) h += 14;
-        if (item.dimensions || (!item.area && item.consumoEstoque)) h += 12;
-        return h;
-      })
-    : [46];
+  const descMaxW = 230; // Folga segura de 24px antes da coluna MEDIDA (que começa em marginX + 310)
+
+  // Medição prévia dinâmica com canvas virtual para calcular altura exata e quebras de linha de cada item
+  const measureCanvas = document.createElement('canvas');
+  const mctx = measureCanvas.getContext('2d')!;
+
+  interface MeasuredReceiptItem {
+    titleLines: string[];
+    subLines: string[];
+    dimStr: string;
+    linearSuffix: string;
+    rowH: number;
+  }
+
+  const measuredItems: MeasuredReceiptItem[] = items.map(item => {
+    mctx.font = `900 11px ${FONT}`;
+    const rawTitle = item.name.toUpperCase();
+    const titleLines = wrapCanvasText(mctx, rawTitle, descMaxW, 3);
+
+    let subDesc = '';
+    if (item.observacao && item.observacao.trim()) {
+      subDesc = item.observacao.trim();
+    } else if (item.name.toLowerCase().includes('adesivo')) {
+      subDesc = 'Material: Vinil adesivo impresso';
+    } else if (item.name.toLowerCase().includes('banner') || item.name.toLowerCase().includes('lona')) {
+      subDesc = 'Material: Lona impressa com acabamento';
+    }
+
+    mctx.font = `600 8.5px ${FONT}`;
+    const subLines = subDesc ? wrapCanvasText(mctx, subDesc, descMaxW, 3) : [];
+
+    const dimStr = item.dimensions || '';
+    const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !item.area && item.consumoEstoque)
+      ? `(${Number(item.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
+      : '';
+
+    const contentH = (titleLines.length * 14) + (subLines.length > 0 ? 4 + subLines.length * 12 : 0);
+    const rowH = Math.max(46, 12 + contentH + 12);
+
+    return {
+      titleLines: titleLines.length > 0 ? titleLines : [rawTitle],
+      subLines,
+      dimStr,
+      linearSuffix,
+      rowH,
+    };
+  });
+
+  const itemRowHeights = measuredItems.length > 0 ? measuredItems.map(m => m.rowH) : [46];
   const tableContentH = itemRowHeights.reduce((a, b) => a + b, 0);
   const tableTotalH = 36 + tableContentH; // 36px cabeçalho da tabela + linhas
 
@@ -404,43 +524,51 @@ export async function renderReceiptCanvas({
   ctx.restore();
 
   // Lado Esquerdo: Logo / Tipografia
-  let textStartX = marginX;
   if (logoImg) {
-    const maxLogoH = 46;
-    const logoW = (logoImg.width / logoImg.height) * maxLogoH;
-    ctx.drawImage(logoImg, marginX, currentY + 6, logoW, maxLogoH);
-    textStartX = marginX + logoW + 14;
+    // Quando já possui logo cadastrada para tema escuro, exibe a logo em destaque
+    // e NÃO repete o nome da empresa em texto para evitar redundância visual.
+    const maxLogoH = 68;
+    const maxLogoW = 270;
+    let logoW = (logoImg.width / logoImg.height) * maxLogoH;
+    let logoH = maxLogoH;
+    if (logoW > maxLogoW) {
+      logoW = maxLogoW;
+      logoH = (logoImg.height / logoImg.width) * maxLogoW;
+    }
+    const logoY = currentY + Math.max(0, (headerH - logoH) / 2);
+    ctx.drawImage(logoImg, marginX, logoY, logoW, logoH);
+  } else {
+    // Fallback: desenha o nome da empresa apenas se NÃO houver logo cadastrada
+    const textStartX = marginX;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = TEXT_WHITE;
+    ctx.font = `900 22px ${FONT}`;
+    ctx.fillText('RAFA ARTS', textStartX, currentY + 22);
+    ctx.fillStyle = TEXT_WHITE;
+    ctx.font = `400 22px ${FONT}`;
+    const brandW = ctx.measureText('RAFA ARTS ').width;
+    ctx.fillText('GRAPHICS', textStartX + brandW - 2, currentY + 22);
+
+    // Linha colorida discreta abaixo do logo (identidade gráfica)
+    const lineY = currentY + 28;
+    const lineW = 160;
+    const rainbowGrad = ctx.createLinearGradient(textStartX, lineY, textStartX + lineW, lineY);
+    rainbowGrad.addColorStop(0, '#FF2B2B');
+    rainbowGrad.addColorStop(0.3, '#F59E0B');
+    rainbowGrad.addColorStop(0.6, '#3B82F6');
+    rainbowGrad.addColorStop(1, '#8B5CF6');
+    ctx.fillStyle = rainbowGrad;
+    ctx.fillRect(textStartX, lineY, lineW, 2);
+
+    // Taglines
+    ctx.fillStyle = TEXT_WHITE;
+    ctx.font = `800 10px ${FONT}`;
+    ctx.fillText('COMUNICAÇÃO VISUAL', textStartX, currentY + 44);
+
+    ctx.fillStyle = TEXT_GRAY;
+    ctx.font = `700 6.8px ${FONT}`;
+    ctx.fillText('IMPRESSÃO DIGITAL • ADESIVOS • FACHADAS • BANNERS • LONAS • ACM • PVC • ENVELOPAMENTO', textStartX, currentY + 58);
   }
-
-  // Título da Empresa
-  ctx.textAlign = 'left';
-  ctx.fillStyle = TEXT_WHITE;
-  ctx.font = `900 22px ${FONT}`;
-  ctx.fillText('RAFA ARTS', textStartX, currentY + 22);
-  ctx.fillStyle = TEXT_WHITE;
-  ctx.font = `400 22px ${FONT}`;
-  const brandW = ctx.measureText('RAFA ARTS ').width;
-  ctx.fillText('GRAPHICS', textStartX + brandW - 2, currentY + 22);
-
-  // Linha colorida discreta abaixo do logo (identidade gráfica)
-  const lineY = currentY + 28;
-  const lineW = 160;
-  const rainbowGrad = ctx.createLinearGradient(textStartX, lineY, textStartX + lineW, lineY);
-  rainbowGrad.addColorStop(0, '#FF2B2B');
-  rainbowGrad.addColorStop(0.3, '#F59E0B');
-  rainbowGrad.addColorStop(0.6, '#3B82F6');
-  rainbowGrad.addColorStop(1, '#8B5CF6');
-  ctx.fillStyle = rainbowGrad;
-  ctx.fillRect(textStartX, lineY, lineW, 2);
-
-  // Taglines
-  ctx.fillStyle = TEXT_WHITE;
-  ctx.font = `800 10px ${FONT}`;
-  ctx.fillText('COMUNICAÇÃO VISUAL', textStartX, currentY + 44);
-
-  ctx.fillStyle = TEXT_GRAY;
-  ctx.font = `700 6.8px ${FONT}`;
-  ctx.fillText('IMPRESSÃO DIGITAL • ADESIVOS • FACHADAS • BANNERS • LONAS • ACM • PVC • ENVELOPAMENTO', textStartX, currentY + 58);
 
   // Lado Direito: ORDEM DE SERVIÇO, Número e Data
   const docTitle = documentTitle || (isOrcamento ? 'ORÇAMENTO' : 'ORDEM DE');
@@ -689,9 +817,10 @@ export async function renderReceiptCanvas({
 
   for (let i = 0; i < renderItemCount; i++) {
     const item = items[i];
+    const mItem = measuredItems[i];
     const thisRowH = itemRowHeights[i] || 46;
 
-    if (item) {
+    if (item && mItem) {
       const unitPriceBruto = item.area ? item.price * item.area : item.price;
       const subtotalBruto = unitPriceBruto * item.quantity;
       const fatiaDesconto = descontoPedido > 0 && subtotalBrutoPedido > 0 ? (subtotalBruto / subtotalBrutoPedido) * descontoPedido : 0;
@@ -700,54 +829,50 @@ export async function renderReceiptCanvas({
 
       // Círculo com o número da linha (ex: 01, 02)
       const numBadgeSize = 24;
-      roundRect(ctx, marginX + 16, rowY + 11, numBadgeSize, numBadgeSize, 8);
+      const badgeY = rowY + Math.min(11, Math.max(8, (thisRowH - numBadgeSize) / 2));
+      roundRect(ctx, marginX + 16, badgeY, numBadgeSize, numBadgeSize, 8);
       ctx.fillStyle = '#151515';
       ctx.fill();
       ctx.fillStyle = '#FFFFFF';
       ctx.font = `900 10px ${FONT}`;
       ctx.textAlign = 'center';
-      ctx.fillText(String(i + 1).padStart(2, '0'), marginX + 16 + numBadgeSize / 2, rowY + 26);
+      ctx.fillText(String(i + 1).padStart(2, '0'), marginX + 16 + numBadgeSize / 2, badgeY + 15);
 
-      // Descrição Principal
+      // Descrição Principal (quebra para a 2ª linha se não couber, sem invadir as outras colunas)
       ctx.textAlign = 'left';
       ctx.fillStyle = '#090909';
       ctx.font = `900 11px ${FONT}`;
-      const itemTitle = item.name.toUpperCase();
-      const displayTitle = itemTitle.length > 28 ? itemTitle.slice(0, 28) + '…' : itemTitle;
-      ctx.fillText(displayTitle, marginX + 56, rowY + 21, 240);
+      const titleStartY = rowY + 18;
+      mItem.titleLines.forEach((tLine, tIdx) => {
+        ctx.fillText(tLine, marginX + 56, titleStartY + tIdx * 14);
+      });
 
-      // Sub-descrição / Material / Observação
-      let subDesc = '';
-      if (item.observacao) subDesc = item.observacao;
-      else if (item.name.toLowerCase().includes('adesivo')) subDesc = 'Material: Vinil adesivo impresso';
-      else if (item.name.toLowerCase().includes('banner') || item.name.toLowerCase().includes('lona')) subDesc = 'Material: Lona impressa com acabamento';
-      else subDesc = 'Serviço personalizado conforme especificações';
-
-      ctx.fillStyle = '#666666';
-      ctx.font = `600 8.5px ${FONT}`;
-      ctx.fillText(subDesc.length > 40 ? subDesc.slice(0, 40) + '…' : subDesc, marginX + 56, rowY + 34, 240);
+      // Sub-descrição / Material / Observação (quebra em linha própria abaixo do título)
+      if (mItem.subLines.length > 0) {
+        ctx.fillStyle = '#666666';
+        ctx.font = `600 8.5px ${FONT}`;
+        const subStartY = titleStartY + (mItem.titleLines.length - 1) * 14 + 15;
+        mItem.subLines.forEach((sLine, sIdx) => {
+          ctx.fillText(sLine, marginX + 56, subStartY + sIdx * 12);
+        });
+      }
 
       // Coluna MEDIDA (Alinhada à esquerda com largura máxima controlada para NUNCA passar por cima do valor)
       ctx.textAlign = 'left';
-      const dimStr = item.dimensions || '';
-      const linearSuffix = (!dimStr.toLowerCase().includes('linear') && !item.area && item.consumoEstoque)
-        ? `(${Number(item.consumoEstoque).toFixed(2).replace('.', ',')}m linear)`
-        : '';
-      
       const medidaX = marginX + 310;
-      const medidaMaxW = 110;
+      const medidaMaxW = 100;
 
-      if (dimStr && linearSuffix) {
+      if (mItem.dimStr && mItem.linearSuffix) {
         ctx.fillStyle = '#111111';
         ctx.font = `700 9px ${FONT}`;
-        ctx.fillText(dimStr, medidaX, rowY + 21, medidaMaxW);
+        ctx.fillText(mItem.dimStr, medidaX, rowY + 21, medidaMaxW);
         ctx.fillStyle = '#777777';
         ctx.font = `600 8px ${FONT}`;
-        ctx.fillText(linearSuffix, medidaX, rowY + 33, medidaMaxW);
-      } else if (dimStr || linearSuffix) {
+        ctx.fillText(mItem.linearSuffix, medidaX, rowY + 33, medidaMaxW);
+      } else if (mItem.dimStr || mItem.linearSuffix) {
         ctx.fillStyle = '#111111';
         ctx.font = `700 9.5px ${FONT}`;
-        ctx.fillText(dimStr || linearSuffix, medidaX, rowY + 26, medidaMaxW);
+        ctx.fillText(mItem.dimStr || mItem.linearSuffix, medidaX, rowY + 26, medidaMaxW);
       } else {
         ctx.fillStyle = '#999999';
         ctx.font = `600 9px ${FONT}`;
