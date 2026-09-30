@@ -6293,9 +6293,9 @@ export const ChatPanel = ({
   ).trim();
 
   const chatContent = (
-    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/5 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
+    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-zinc-950 border-zinc-800 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-zinc-800 shadow-2xl">
       {/* Header - FIXO */}
-      <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[56px] w-full relative z-30">
+      <div className="px-2 sm:px-3 py-2 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/60 flex-shrink-0 gap-2 sm:gap-3 min-h-[56px] w-full relative z-30">
         {/* ESQUERDA: Botão voltar estilo iOS (< 295) conforme IMG_7567 */}
         <div className="flex items-center shrink-0">
           {onClose && (
@@ -6689,19 +6689,20 @@ export const ChatPanel = ({
             <span className="hidden md:inline">Buscar</span>
           </button>
 
-          {/* Botão Perfil (ex-Contexto) - visível sempre */}
+          {/* Botão Perfil */}
           <button
             type="button"
             onClick={toggleDesktopSidebar}
             className={cn(
-              "flex items-center gap-1 px-2 sm:px-2.5 h-7 sm:h-8 rounded-lg border transition-all text-[10px] sm:text-[10.5px] font-bold shrink-0 shadow-sm active:scale-95 cursor-pointer",
+              "flex items-center gap-1.5 px-2.5 sm:px-3 h-7 sm:h-8 rounded-lg border transition-all text-[10px] sm:text-[10.5px] font-bold shrink-0 shadow-sm active:scale-95 cursor-pointer",
               showDesktopSidebar 
                 ? "bg-red-500/20 text-red-300 border-red-500/40 shadow-sm" 
                 : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/10"
             )}
-            title="Perfil do Contato: Dados, Notas, Tarefas e Vendas (Alt + D)"
+            title="Perfil do Contato"
           >
             <User size={13} />
+            <span className="inline">Perfil</span>
           </button>
 
           {/* Botão Resolvido (Alerta de Vácuo / Tempo de Espera) */}
@@ -6717,37 +6718,35 @@ export const ChatPanel = ({
             </button>
           )}
 
-          {/* Botão Venda PDV - apenas fora do modo embedded (no PDV já está no terminal) e não para grupos */}
+          {/* Botão Vender Atendimento */}
           {!isEmbedded && !isGroup && permissions.canStartPosSale && (
             <button
               type="button"
               onClick={handleStartSale}
               disabled={isStartingSale}
-              className={cn(
-                showDesktopSidebar ? "w-7 h-7 sm:w-8 sm:h-8 p-0 justify-center flex" : "px-2.5 sm:px-3 h-7 sm:h-8 flex items-center gap-1.5",
-                "rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 disabled:opacity-60 cursor-pointer"
-              )}
-              title="Iniciar venda deste lead no PDV (Alt + V)"
+              className="px-2.5 sm:px-3 h-7 sm:h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] sm:text-[10.5px] uppercase tracking-wider shadow-sm active:scale-95 transition-all shrink-0 flex items-center gap-1.5 cursor-pointer"
+              title="Vender Atendimento"
             >
               {isStartingSale ? <Loader2 size={11} className="animate-spin" /> : <ShoppingBag size={11} strokeWidth={2.5} />}
-              {!showDesktopSidebar && <span className="inline">Vender</span>}
+              <span>Vender</span>
             </button>
           )}
 
-          {/* Menu Mais Ações (⋮) */}
+          {/* Botão Opções de Contato */}
           <div className="relative shrink-0">
             <button 
               type="button"
               className={cn(
-                "h-7 w-7 sm:h-8 sm:w-8 rounded-lg border transition-all flex items-center justify-center shrink-0 active:scale-95 cursor-pointer",
+                "h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg border transition-all flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer text-[10px] sm:text-[10.5px] font-bold",
                 showQuickActions
                   ? "bg-white/15 text-white border-white/20"
-                  : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border-white/10"
+                  : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/10"
               )}
               onClick={() => setShowQuickActions(!showQuickActions)}
-              title="Mais opções do contato"
+              title="Opções de Contato"
             >
-              <MoreVertical size={14} />
+              <MoreVertical size={13} />
+              <span className="inline">Opções</span>
             </button>
             {showQuickActions && typeof document !== 'undefined' && createPortal(
               <>
