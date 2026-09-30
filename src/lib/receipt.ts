@@ -26,16 +26,40 @@ export interface ReceiptRenderInput {
   numeroDocumento?: string;
 }
 
-export function loadImage(src: string): Promise<HTMLImageElement> {
+let cachedLogoConfig: { light: string | null; dark: string | null } | null = null;
+
+export function loadImage(src: string, timeoutMs: number = 3000): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`Timeout ao carregar imagem: ${src.slice(0, 40)}`));
+      }
+    }, timeoutMs);
+
+    const finishSuccess = (img: HTMLImageElement) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(img);
+      }
+    };
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
+    img.onload = () => finishSuccess(img);
     img.onerror = () => {
       // Se falhar com crossOrigin (ex: CORS de asset externo), tenta sem crossOrigin como fallback
       const fallbackImg = new Image();
-      fallbackImg.onload = () => resolve(fallbackImg);
-      fallbackImg.onerror = reject;
+      fallbackImg.onload = () => finishSuccess(fallbackImg);
+      fallbackImg.onerror = (e) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(e);
+        }
+      };
       fallbackImg.src = src;
     };
     img.src = src;
@@ -380,11 +404,16 @@ export async function renderReceiptCanvas({
   let logoImg: HTMLImageElement | null = null;
   let targetLogoUrl: string | null = logoLightUrl || null;
   if (!targetLogoUrl) {
-    try {
-      const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
-      targetLogoUrl = data?.logo_light_url || data?.logo_dark_url || logoDarkUrl || null;
-    } catch {
-      targetLogoUrl = logoDarkUrl || null;
+    if (cachedLogoConfig) {
+      targetLogoUrl = cachedLogoConfig.light || cachedLogoConfig.dark || logoDarkUrl || null;
+    } else {
+      try {
+        const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
+        cachedLogoConfig = { light: data?.logo_light_url || null, dark: data?.logo_dark_url || null };
+        targetLogoUrl = cachedLogoConfig.light || cachedLogoConfig.dark || logoDarkUrl || null;
+      } catch {
+        targetLogoUrl = logoDarkUrl || null;
+      }
     }
   }
   if (!targetLogoUrl && logoDarkUrl) {

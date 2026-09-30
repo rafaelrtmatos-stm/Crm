@@ -15906,7 +15906,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (blob) {
         const file = new File([blob], `Recibo-${sale.id.slice(-8).toUpperCase()}.png`, { type: 'image/png' });
         const previewUrl = URL.createObjectURL(blob);
-        setPendingReceiptAttachment({ file, previewUrl, caption: legenda });
+        setPendingReceiptAttachment({ file, previewUrl, caption: legenda, phone: cleanPhone });
       }
 
       // Se marcou para salvar este número na ficha do cliente no banco
@@ -15946,7 +15946,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
-    openSendReceiptModal(sale);
+    const rawPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim();
+    const clean = rawPhone.replace(/\D/g, '');
+    if (clean.length >= 8) {
+      await executeSendReceipt(sale, rawPhone, sale.customerName || selectedCustomer?.name || 'Cliente');
+    } else {
+      openSendReceiptModal(sale);
+    }
   };
 
   const matchesOrderStatusFilter = (sale: SaleOrder, filter: OrderStatusFilterId): boolean => {
@@ -25629,38 +25635,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          <Phone size={11} className="text-emerald-400" />
                          <span>{sale.customerPhone}</span>
                        </button>
-                       <button
-                         type="button"
-                         onClick={() => openSendReceiptModal(sale)}
-                         disabled={enviandoReciboWhatsApp}
-                         className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-xs active:scale-95"
-                         title="Enviar recibo via WhatsApp (escolher destinatário/encarregado)"
-                       >
-                         {enviandoReciboWhatsApp ? <Loader2 size={12} className="animate-spin" /> : <MessageSquare size={12} />}
-                         <span>{enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}</span>
-                       </button>
                      </div>
                    ) : (
                      <div className="flex items-center justify-between text-xs text-amber-300/80 pt-1 border-t border-white/5">
                        <span className="text-[10.5px]">Sem telefone cadastrado</span>
-                       <div className="flex items-center gap-2">
-                         <button
-                           type="button"
-                           onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
-                           className="text-[10.5px] font-bold text-primary-300 underline hover:text-white cursor-pointer"
-                         >
-                           + Adicionar
-                         </button>
-                         <button
-                           type="button"
-                           onClick={() => openSendReceiptModal(sale)}
-                           className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-xs active:scale-95"
-                           title="Enviar recibo informando o WhatsApp do cliente ou encarregado"
-                         >
-                           <MessageSquare size={11} />
-                           <span>Enviar Recibo</span>
-                         </button>
-                       </div>
+                       <button
+                         type="button"
+                         onClick={() => { setViewingReceiptSale(null); startEditSale(sale); }}
+                         className="text-[10.5px] font-bold text-primary-300 underline hover:text-white cursor-pointer"
+                       >
+                         + Adicionar Telefone
+                       </button>
                      </div>
                    )}
                  </div>

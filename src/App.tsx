@@ -731,7 +731,7 @@ export default function App() {
   const notifAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string, leadId?: string, leadData?: any } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
-  const [pendingReceiptAttachment, setPendingReceiptAttachment] = useState<{ file: File; previewUrl: string; caption: string } | null>(null);
+  const [pendingReceiptAttachment, setPendingReceiptAttachment] = useState<{ file: File; previewUrl: string; caption: string; phone?: string; leadId?: string } | null>(null);
 
   // Ponto único pra abrir uma conversa no WhatsApp Interno (aba Mensagens/Funil de Atendimento)
   // a partir de QUALQUER tela do CRM (Contratos, Orçamentos, Ficha do Cliente, Contatos, etc).
@@ -747,13 +747,39 @@ export default function App() {
     }
     if (!currentCompany) return;
     try {
-      const { data: leadsRows } = await supabase.from('leads').select('id, phone, archived').eq('company_id', 'rafa-arts');
       const ultimos8 = phoneDigits.slice(-8);
-      const existing = (leadsRows || []).find((r: any) => {
-        const p = (r.phone || '').replace(/\D/g, '');
-        if (!p) return false;
-        return p === phoneDigits || (ultimos8.length >= 8 && (p.endsWith(ultimos8) || phoneDigits.endsWith(p.slice(-8))));
-      });
+      let existing: any = null;
+
+      if (ultimos8.length >= 8) {
+        const { data: matchedLeads } = await supabase
+          .from('leads')
+          .select('id, phone, archived')
+          .eq('company_id', 'rafa-arts')
+          .ilike('phone', `%${ultimos8}%`)
+          .limit(10);
+
+        if (matchedLeads && matchedLeads.length > 0) {
+          existing = matchedLeads.find((r: any) => {
+            const p = (r.phone || '').replace(/\D/g, '');
+            return p === phoneDigits || (ultimos8.length >= 8 && (p.endsWith(ultimos8) || phoneDigits.endsWith(p.slice(-8))));
+          }) || matchedLeads[0];
+        }
+      }
+
+      if (!existing) {
+        const { data: fallbackLeads } = await supabase
+          .from('leads')
+          .select('id, phone, archived')
+          .eq('company_id', 'rafa-arts')
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        existing = (fallbackLeads || []).find((r: any) => {
+          const p = (r.phone || '').replace(/\D/g, '');
+          if (!p) return false;
+          return p === phoneDigits || (ultimos8.length >= 8 && (p.endsWith(ultimos8) || phoneDigits.endsWith(p.slice(-8))));
+        });
+      }
 
       let leadId: string;
       if (existing) {
