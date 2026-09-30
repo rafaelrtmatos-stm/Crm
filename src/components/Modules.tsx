@@ -5844,7 +5844,8 @@ export const ChatPanel = ({
 
     const optId = `temp-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const localBlobUrl = tipo === 'image' ? URL.createObjectURL(arquivo) : undefined;
-    const textoMsg = legenda || (tipo === 'image' ? '📷 Foto' : arquivo.name);
+    const isAudioArquivo = (arquivo.type && arquivo.type.startsWith('audio/')) || /\.(m4a|mp3|ogg|opus|wav)$/i.test(arquivo.name);
+    const textoMsg = legenda || (tipo === 'image' ? '📷 Foto' : isAudioArquivo ? '🎤 Áudio' : arquivo.name);
 
     const executeUpload = async () => {
       setEnviandoArquivo(true);
@@ -5926,6 +5927,12 @@ export const ChatPanel = ({
             updated_at: new Date().toISOString(),
           }).eq('id', conversation.id);
         }
+        onLeadPatched?.(conversation.id, {
+          waitingSince: undefined,
+          lastMessageText: textoMsg,
+          lastMessageDirection: 'outgoing',
+          lastMessageAt: new Date().toISOString(),
+        });
 
         // Remove a mensagem otimista após 3 segundos mantendo a indicação de sucesso
         setTimeout(() => {
@@ -10864,9 +10871,31 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
 
         {/* Linha 2: Última mensagem + Botão Venda */}
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] text-white/50 truncate flex-1 leading-snug font-normal">
-            {lead.lastClientMessageText || lead.lastMessageText || 'Sem mensagens recentes'}
-          </p>
+          <div className="flex items-center gap-1 text-[10.5px] text-white/50 truncate flex-1 leading-snug font-normal min-w-0">
+            {lead.lastMessageDirection === 'outgoing' && (() => {
+              const rawDelivery = String((lead as any).lastMessageDeliveryStatus || (lead as any).delivery_status || '').toLowerCase();
+              const isMsgRead = rawDelivery === 'read' || rawDelivery === 'played' || rawDelivery === 'viewed' || Boolean((lead as any).lastMessageReadAt || (lead as any).read_at);
+              const isMsgDelivered = isMsgRead || rawDelivery === 'delivered' || rawDelivery === 'delivery_ack' || rawDelivery === 'received' || Boolean((lead as any).lastMessageDeliveredAt || (lead as any).delivered_at);
+              if (isMsgRead) return <CheckCheck size={11} className="text-[#53bdeb] shrink-0" title="Visualizada" />;
+              if (isMsgDelivered) return <CheckCheck size={11} className="text-white/40 shrink-0" title="Entregue" />;
+              return <Check size={11} className="text-white/40 shrink-0" title="Enviada" />;
+            })()}
+            {((lead.lastMessageText || lead.lastClientMessageText || '').toLowerCase().includes('áudio') ||
+              (lead.lastMessageText || lead.lastClientMessageText || '').toLowerCase().includes('audio') ||
+              (lead.lastMessageText || lead.lastClientMessageText || '').toLowerCase().includes('voz') ||
+              /\.(m4a|mp3|ogg|opus|wav)$/i.test(lead.lastMessageText || lead.lastClientMessageText || '')) ? (
+              <span className="inline-flex items-center gap-0.5 truncate text-white/70">
+                <Mic size={10} className="text-[#53bdeb] shrink-0" />
+                <span className="truncate">
+                  {(lead.lastMessageText || lead.lastClientMessageText || '').trim() && !/\.(m4a|mp3|ogg|opus|wav)$/i.test(lead.lastMessageText || lead.lastClientMessageText || '') && !(lead.lastMessageText || lead.lastClientMessageText || '').includes('temp-upload')
+                    ? (lead.lastMessageText || lead.lastClientMessageText || '').replace(/^[🎤🎵]\s*/, '')
+                    : 'Áudio'}
+                </span>
+              </span>
+            ) : (
+              <span className="truncate">{lead.lastMessageText || lead.lastClientMessageText || 'Sem mensagens recentes'}</span>
+            )}
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             {unread > 0 && (
               <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
@@ -11194,9 +11223,31 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
 
             {/* Linha 2: Última mensagem + Botão Venda / Excluir */}
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10.5px] text-white/50 truncate flex-1 leading-snug font-normal">
-                {lead.lastClientMessageText || lead.lastMessageText || 'Sem mensagens recentes'}
-              </p>
+              <div className="flex items-center gap-1 text-[10.5px] text-white/50 truncate flex-1 leading-snug font-normal min-w-0">
+                {lead.lastMessageDirection === 'outgoing' && (() => {
+                  const rawDelivery = String((lead as any).lastMessageDeliveryStatus || (lead as any).delivery_status || '').toLowerCase();
+                  const isMsgRead = rawDelivery === 'read' || rawDelivery === 'played' || rawDelivery === 'viewed' || Boolean((lead as any).lastMessageReadAt || (lead as any).read_at);
+                  const isMsgDelivered = isMsgRead || rawDelivery === 'delivered' || rawDelivery === 'delivery_ack' || rawDelivery === 'received' || Boolean((lead as any).lastMessageDeliveredAt || (lead as any).delivered_at);
+                  if (isMsgRead) return <CheckCheck size={11} className="text-[#53bdeb] shrink-0" title="Visualizada" />;
+                  if (isMsgDelivered) return <CheckCheck size={11} className="text-white/40 shrink-0" title="Entregue" />;
+                  return <Check size={11} className="text-white/40 shrink-0" title="Enviada" />;
+                })()}
+                {((lead.lastMessageText || lead.lastClientMessageText || '').toLowerCase().includes('áudio') ||
+                  (lead.lastMessageText || lead.lastClientMessageText || '').toLowerCase().includes('audio') ||
+                  (lead.lastMessageText || lead.lastClientMessageText || '').toLowerCase().includes('voz') ||
+                  /\.(m4a|mp3|ogg|opus|wav)$/i.test(lead.lastMessageText || lead.lastClientMessageText || '')) ? (
+                  <span className="inline-flex items-center gap-0.5 truncate text-white/70">
+                    <Mic size={10} className="text-[#53bdeb] shrink-0" />
+                    <span className="truncate">
+                      {(lead.lastMessageText || lead.lastClientMessageText || '').trim() && !/\.(m4a|mp3|ogg|opus|wav)$/i.test(lead.lastMessageText || lead.lastClientMessageText || '') && !(lead.lastMessageText || lead.lastClientMessageText || '').includes('temp-upload')
+                        ? (lead.lastMessageText || lead.lastClientMessageText || '').replace(/^[🎤🎵]\s*/, '')
+                        : 'Áudio'}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="truncate">{lead.lastMessageText || lead.lastClientMessageText || 'Sem mensagens recentes'}</span>
+                )}
+              </div>
               <div className="flex items-center gap-1 shrink-0">
                 {unread > 0 && (
                   <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center shrink-0">
@@ -11280,6 +11331,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
   const [infoGrupos, setInfoGrupos] = useState<InfoGrupos | null>(null); // grupos do WhatsApp: quais existem e quais ESTE usuario pode ver
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'completed'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
+  const [deliveryStatusMap, setDeliveryStatusMap] = useState<Map<string, { status: string; readAt?: string | null; deliveredAt?: string | null }>>(new Map());
   
   // Modal de Simulação de Mensagens Multicanal
   const [isSimulateModalOpen, setIsSimulateModalOpen] = useState(false);
@@ -11540,6 +11592,32 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
       const fetchedLeads = (data || []).map(mapLeadRow);
       setLeads(fetchedLeads);
 
+      // Carrega status real de entrega e visualização das mensagens recentes
+      try {
+        const { data: recentMsgs } = await supabase
+          .from('crm_messages')
+          .select('phone,direction,delivery_status,read_at,delivered_at,created_at')
+          .eq('company_id', 'rafa-arts')
+          .eq('direction', 'outgoing')
+          .order('created_at', { ascending: false })
+          .limit(300);
+        if (recentMsgs && recentMsgs.length > 0) {
+          const mapa = new Map<string, { status: string; readAt?: string | null; deliveredAt?: string | null }>();
+          for (const m of recentMsgs) {
+            const tel = (m.phone || '').replace(/\D/g, '');
+            if (!tel || mapa.has(tel)) continue;
+            mapa.set(tel, {
+              status: m.delivery_status || '',
+              readAt: m.read_at,
+              deliveredAt: m.delivered_at,
+            });
+          }
+          setDeliveryStatusMap(mapa);
+        }
+      } catch (errStatus) {
+        console.warn('Erro ao carregar status de entrega de crm_messages:', errStatus);
+      }
+
       if (pendingWhatsAppShare) {
         const target = fetchedLeads.find(l => l.id === pendingWhatsAppShare.leadId);
         if (target) {
@@ -11567,7 +11645,30 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     };
     loadLeads();
     const channel = supabase.channel('messages-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadLeads).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const msgStatusChannel = supabase
+      .channel('messages-leads-msg-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: 'company_id=eq.rafa-arts' }, (payload: any) => {
+        const row = payload.new;
+        if (!row?.phone) return;
+        const tel = String(row.phone).replace(/\D/g, '');
+        if (!tel) return;
+        setDeliveryStatusMap(prev => {
+          const next = new Map<string, { status: string; readAt?: string | null; deliveredAt?: string | null }>(prev);
+          const atual = next.get(tel) || { status: '' };
+          next.set(tel, {
+            status: row.delivery_status || atual.status,
+            readAt: row.read_at || atual.readAt,
+            deliveredAt: row.delivered_at || atual.deliveredAt,
+          });
+          return next;
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(msgStatusChannel);
+    };
   }, [currentCompany]);
 
   // Vindo de uma NOTIFICACAO (App.tsx openNotificationLead troca pra esta aba e guarda o lead em
@@ -11829,10 +11930,49 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
                  </div>
                  
                  <div className="flex items-center justify-between gap-2 mb-1">
-                    {/* Previa SEMPRE da ultima mensagem do CLIENTE (nunca a que voce mandou) --
-                        ver Lead.lastClientMessageText em types.ts. Fallback pro campo antigo
-                        so serve pra leads criados antes dessa coluna existir. */}
-                    <p className="text-xs text-white/40 truncate flex-1">{l.lastClientMessageText || l.lastMessageText || 'Sem mensagens'}</p>
+                    {/* Previa da última mensagem (minha ou do cliente, texto ou áudio) */}
+                    <div className="flex items-center gap-1.5 text-xs text-white/50 truncate flex-1 min-w-0">
+                      {l.lastMessageDirection === 'outgoing' && (() => {
+                        const telDigits = (l.phone || '').replace(/\D/g, '');
+                        const st = deliveryStatusMap.get(telDigits);
+                        const rawDelivery = String(st?.status || (l as any).lastMessageDeliveryStatus || (l as any).delivery_status || '').toLowerCase();
+                        const isMsgRead = rawDelivery === 'read' || rawDelivery === 'played' || rawDelivery === 'viewed' || Boolean(st?.readAt || (l as any).lastMessageReadAt);
+                        const isMsgDelivered = isMsgRead || rawDelivery === 'delivered' || rawDelivery === 'delivery_ack' || rawDelivery === 'received' || Boolean(st?.deliveredAt || (l as any).lastMessageDeliveredAt);
+                        if (isMsgRead) {
+                          return <CheckCheck size={14} className="text-[#53bdeb] shrink-0" title="Visualizada" />;
+                        }
+                        if (isMsgDelivered) {
+                          return <CheckCheck size={14} className="text-[#8696a0] shrink-0" title="Entregue" />;
+                        }
+                        return <Check size={14} className="text-[#8696a0] shrink-0" title="Enviada" />;
+                      })()}
+                      {((l.lastMessageText || l.lastClientMessageText || '').toLowerCase().includes('áudio') ||
+                        (l.lastMessageText || l.lastClientMessageText || '').toLowerCase().includes('audio') ||
+                        (l.lastMessageText || l.lastClientMessageText || '').toLowerCase().includes('voz') ||
+                        /\.(m4a|mp3|ogg|opus|wav)$/i.test(l.lastMessageText || l.lastClientMessageText || '')) ? (
+                        <span className="inline-flex items-center gap-1 truncate text-white/70">
+                          <Mic size={13} className="text-[#53bdeb] shrink-0" />
+                          <span className="truncate">
+                            {(l.lastMessageText || l.lastClientMessageText || '').trim() && !/\.(m4a|mp3|ogg|opus|wav)$/i.test(l.lastMessageText || l.lastClientMessageText || '') && !(l.lastMessageText || l.lastClientMessageText || '').includes('temp-upload')
+                              ? (l.lastMessageText || l.lastClientMessageText || '').replace(/^[🎤🎵]\s*/, '')
+                              : 'Áudio'}
+                          </span>
+                        </span>
+                      ) : ((l.lastMessageText || l.lastClientMessageText || '').toLowerCase().includes('foto') ||
+                           (l.lastMessageText || l.lastClientMessageText || '').toLowerCase().includes('imagem') ||
+                           /\.(jpg|jpeg|png|webp|gif)$/i.test(l.lastMessageText || l.lastClientMessageText || '')) ? (
+                        <span className="inline-flex items-center gap-1 truncate text-white/70">
+                          <ImageIcon size={13} className="text-emerald-400 shrink-0" />
+                          <span className="truncate">
+                            {(l.lastMessageText || l.lastClientMessageText || '').trim() && !/\.(jpg|jpeg|png|webp|gif)$/i.test(l.lastMessageText || l.lastClientMessageText || '')
+                              ? (l.lastMessageText || l.lastClientMessageText || '')
+                              : 'Foto'}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="truncate">{l.lastMessageText || l.lastClientMessageText || 'Sem mensagens'}</span>
+                      )}
+                    </div>
                     {waitingSinceDate && (
                        <div className={cn(
                          "px-2 py-0.5 rounded-full text-[8.5px] font-black border uppercase tracking-wider leading-none shrink-0",
@@ -13264,15 +13404,32 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }
       }
 
-      let data, error;
+      let data: any = null;
+      let error: any = null;
       if (editingCustomerId) {
-        ({ data, error } = await supabase.from('clientes').update(payload).eq('id', editingCustomerId).select().single());
+        const resUpd = await supabase.from('clientes').update(payload).eq('id', editingCustomerId).select().maybeSingle();
+        data = resUpd.data;
+        error = resUpd.error;
+        // Se não existia no banco com esse ID (ex: veio de lead ou ID temporário local), cria novo
+        if (!error && !data) {
+          const resIns = await supabase.from('clientes').insert(payload).select().maybeSingle();
+          data = resIns.data;
+          error = resIns.error;
+        }
       } else if (idParaMesclar) {
-        const duplicadoAtual = (await supabase.from('clientes').select('*').eq('id', idParaMesclar).single()).data;
-        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
-        ({ data, error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar).select().single());
+        const resDup = await supabase.from('clientes').select('*').eq('id', idParaMesclar).maybeSingle();
+        const duplicadoAtual = resDup.data;
+        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual || {}, payload);
+        const resUpd = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar).select().maybeSingle();
+        data = resUpd.data;
+        error = resUpd.error;
+        if (!error && !data && duplicadoAtual) {
+          data = { ...duplicadoAtual, ...payloadMesclado };
+        }
       } else {
-        ({ data, error } = await supabase.from('clientes').insert(payload).select().single());
+        const resIns = await supabase.from('clientes').insert(payload).select().maybeSingle();
+        data = resIns.data;
+        error = resIns.error;
       }
       if (error) throw error;
 
@@ -13327,9 +13484,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setTimeout(() => {
         loadAllCustomers().catch(() => {});
       }, 300);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar cliente:', err);
-      showAlert('Não foi possível salvar o cliente.');
+      showAlert(`Não foi possível salvar o cliente: ${err?.message || 'Falha na gravação'}`);
     } finally {
       setIsCreatingCustomer(false);
     }
@@ -16172,21 +16329,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         }
       }
       if (customerId) {
-        await supabase.from('clientes').update({ phone: fullPhone }).eq('id', customerId);
+        const resUpd = await supabase.from('clientes').update({ phone: fullPhone }).eq('id', customerId).select().maybeSingle();
+        if (!resUpd.error && !resUpd.data) {
+          // customerId era de lead ou ID local: insere cliente novo
+          const resIns = await supabase.from('clientes').insert({ full_name: waFormName, phone: fullPhone }).select().maybeSingle();
+          if (resIns.error) throw resIns.error;
+          customerId = resIns.data?.id || customerId;
+        } else if (resUpd.error) {
+          throw resUpd.error;
+        }
         sincronizarNotasAntigasCliente(customerId, { full_name: waFormName, phone: fullPhone });
       } else {
-        const { data: inserted, error: insertErr } = await supabase.from('clientes').insert({ full_name: waFormName, phone: fullPhone }).select().single();
-        if (insertErr) throw insertErr;
-        customerId = inserted?.id;
+        const resIns = await supabase.from('clientes').insert({ full_name: waFormName, phone: fullPhone }).select().maybeSingle();
+        if (resIns.error) throw resIns.error;
+        customerId = resIns.data?.id;
       }
       setSelectedCustomer({ id: customerId || '', name: waFormName, phone: fullPhone });
       setIsWhatsAppFormOpen(false);
       if (lastFinalizedOrder) {
         await handleSendReceiptWithImageAndCaption(lastFinalizedOrder, fullPhone, waFormName);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar cliente:', err);
-      showAlert('Não foi possível salvar o cliente.');
+      showAlert(`Não foi possível salvar o cliente: ${err?.message || 'Falha na gravação'}`);
     } finally {
       setIsWaSaving(false);
     }
@@ -26090,13 +26255,15 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       if (editingClienteId) {
         ({ error } = await supabase.from('clientes').update(payload).eq('id', editingClienteId));
       } else if (idParaMesclar) {
-        const duplicadoAtual = (await supabase.from('clientes').select('*').eq('id', idParaMesclar).single()).data;
-        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual, payload);
+        const resDup = await supabase.from('clientes').select('*').eq('id', idParaMesclar).maybeSingle();
+        const duplicadoAtual = resDup.data;
+        const payloadMesclado = montarPayloadMesclagem(duplicadoAtual || {}, payload);
         ({ error } = await supabase.from('clientes').update(payloadMesclado).eq('id', idParaMesclar));
       } else {
-        const { data: insertedData, error: insertError } = await supabase.from('clientes').insert(payload).select().single();
+        const { data: insertedData, error: insertError } = await supabase.from('clientes').insert(payload).select().maybeSingle();
         error = insertError;
         if (insertedData) targetId = insertedData.id;
+        else if (!error) targetId = `cli_${Date.now()}`;
       }
       if (error) throw error;
 
@@ -26129,9 +26296,9 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         setFichaCliente((prev: any) => prev ? { ...prev, ...payload } : prev);
       }
       loadClientes();
-    } catch (err) {
-      console.error(err);
-      showAlert('Não foi possível salvar o cliente.');
+    } catch (err: any) {
+      console.error('Erro ao salvar cliente:', err);
+      showAlert(`Não foi possível salvar o cliente: ${err?.message || 'Falha na gravação'}`);
     }
   };
 

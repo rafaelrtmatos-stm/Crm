@@ -262,10 +262,26 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!forcar && Date.now() - ultimaReconciliacaoRef.current < 2 * 60 * 1000) return;
     reconciliandoRef.current = true;
     try {
-      type UltimaReal = { em: string; text: string; direction: 'incoming' | 'outgoing' };
-      // Previa da lista: em GRUPO a mensagem recebida mostra quem falou ("Maria: texto"), como no WhatsApp.
+      type UltimaReal = {
+        em: string;
+        text: string;
+        direction: 'incoming' | 'outgoing';
+        deliveryStatus?: string;
+        readAt?: string;
+        deliveredAt?: string;
+      };
+      // Previa da lista: última mensagem real (minha ou do lead, texto, áudio ou mídia)
       const previaDaMensagem = (m: any): string => {
-        const texto = m.text || '';
+        let texto = (m.text || '').trim();
+        if (!texto) {
+          if (m.content_type === 'audio' || (m.media_url && /\.(m4a|mp3|ogg|opus|wav)$/i.test(m.media_url)) || (m.file_name && /\.(m4a|mp3|ogg|opus|wav)$/i.test(m.file_name))) {
+            texto = '🎤 Áudio';
+          } else if (m.content_type === 'image' || (m.media_url && /\.(jpg|jpeg|png|webp|gif)$/i.test(m.media_url))) {
+            texto = '📷 Foto';
+          } else if (m.file_name) {
+            texto = m.file_name;
+          }
+        }
         const ehGrupo = gruposTodosRef.current.has((m.phone || '').replace(/\D/g, ''));
         return ehGrupo && m.direction === 'incoming' && m.sender_name ? `${m.sender_name}: ${texto}` : texto;
       };
@@ -277,7 +293,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         const de = pagina * PAGINA_MENSAGENS;
         let consulta = supabase
           .from('crm_messages')
-          .select('phone,text,direction,created_at,sender_name')
+          .select('phone,text,direction,created_at,sender_name,content_type,media_url,file_name,delivery_status,read_at,delivered_at')
           .eq('company_id', 'rafa-arts')
           .or('is_note.is.null,is_note.eq.false');
         if (SEM_CRM_MESSAGES) consulta = consulta.neq('channel', 'WhatsApp');
@@ -289,7 +305,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         const lote = data || [];
         for (const m of lote as any[]) {
           if (!m.phone || m.direction === 'note' || ultimaPorTelefone.has(m.phone)) continue;
-          ultimaPorTelefone.set(m.phone, { em: m.created_at, text: previaDaMensagem(m), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+          ultimaPorTelefone.set(m.phone, {
+            em: m.created_at,
+            text: previaDaMensagem(m),
+            direction: m.direction === 'incoming' ? 'incoming' : 'outgoing',
+            deliveryStatus: m.delivery_status || undefined,
+            readAt: m.read_at || undefined,
+            deliveredAt: m.delivered_at || undefined,
+          });
         }
         if (lote.length < PAGINA_MENSAGENS) break;
         let menorIndiceRestante = Infinity;
@@ -309,7 +332,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         await Promise.all(pendentes.map(async l => {
           let consultaLead = supabase
             .from('crm_messages')
-            .select('text,direction,created_at,sender_name')
+            .select('text,direction,created_at,sender_name,content_type,media_url,file_name,delivery_status,read_at,delivered_at')
             .eq('company_id', 'rafa-arts')
             .eq('phone', l.phone)
             .or('is_note.is.null,is_note.eq.false')
@@ -319,7 +342,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             .order('created_at', { ascending: false })
             .limit(1);
           const m: any = data?.[0];
-          if (m?.created_at) ultimaPorTelefone.set(l.phone as string, { em: m.created_at, text: previaDaMensagem({ ...m, phone: l.phone }), direction: m.direction === 'incoming' ? 'incoming' : 'outgoing' });
+          if (m?.created_at) {
+            ultimaPorTelefone.set(l.phone as string, {
+              em: m.created_at,
+              text: previaDaMensagem({ ...m, phone: l.phone }),
+              direction: m.direction === 'incoming' ? 'incoming' : 'outgoing',
+              deliveryStatus: m.delivery_status || undefined,
+              readAt: m.read_at || undefined,
+              deliveredAt: m.delivered_at || undefined,
+            });
+          }
         }));
       }
 
@@ -345,8 +377,11 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
           lastMessageAt: c.em,
           lastMessageText: c.text,
           lastMessageDirection: c.direction,
+          lastMessageDeliveryStatus: c.deliveryStatus,
+          lastMessageReadAt: c.readAt,
+          lastMessageDeliveredAt: c.deliveredAt,
           ...(c.direction === 'incoming' ? { lastClientMessageAt: c.em, lastClientMessageText: c.text } : {}),
-        } as Lead;
+        } as any as Lead;
       })));
       await Promise.all(correcoes.map(c => supabase.from('leads').update({
         last_message_at: c.em,
@@ -414,21 +449,44 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
     if (!currentCompany || !isOpen) return;
     const channel = supabase.channel('sidebar-popup-messages').on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
+      { event: '*', schema: 'public', table: 'crm_messages', filter: `company_id=eq.rafa-arts` },
       (payload: any) => {
         const row = payload.new;
         if (!row?.phone || row.direction === 'note' || row.is_note) return;
-        const emMs = Date.parse(row.created_at);
-        if (!Number.isFinite(emMs)) return;
-        console.log('[CRM REALTIME] nova mensagem recebida');
         const chave = String(row.phone).replace(/\D/g, '');
         if (!leadsRef.current.some(l => (l.phone || '').replace(/\D/g, '') === chave)) {
           setTimeout(() => recarregarListaRef.current?.(), 1500);
           return;
         }
+
+        // Se for UPDATE de status de entrega (ex: delivered ou read)
+        if (payload.eventType === 'UPDATE') {
+          setLeads(prev => prev.map(l => {
+            if ((l.phone || '').replace(/\D/g, '') !== chave) return l;
+            return {
+              ...l,
+              lastMessageDeliveryStatus: row.delivery_status || (l as any).lastMessageDeliveryStatus,
+              lastMessageReadAt: row.read_at || (l as any).lastMessageReadAt,
+              lastMessageDeliveredAt: row.delivered_at || (l as any).lastMessageDeliveredAt,
+            } as any;
+          }));
+          return;
+        }
+
+        const emMs = Date.parse(row.created_at);
+        if (!Number.isFinite(emMs)) return;
+        console.log('[CRM REALTIME] nova mensagem recebida');
         const entrada = row.direction === 'incoming';
         const ehGrupo = gruposTodosRef.current.has(chave);
-        const previa = ehGrupo && entrada && row.sender_name ? `${row.sender_name}: ${row.text || ''}` : (row.text || '');
+        let textoMsg = (row.text || '').trim();
+        if (!textoMsg) {
+          if (row.content_type === 'audio' || (row.media_url && /\.(m4a|mp3|ogg|opus|wav)$/i.test(row.media_url)) || (row.file_name && /\.(m4a|mp3|ogg|opus|wav)$/i.test(row.file_name))) {
+            textoMsg = '🎤 Áudio';
+          } else if (row.content_type === 'image' || (row.media_url && /\.(jpg|jpeg|png|webp|gif)$/i.test(row.media_url))) {
+            textoMsg = '📷 Foto';
+          }
+        }
+        const previa = ehGrupo && entrada && row.sender_name ? `${row.sender_name}: ${textoMsg}` : textoMsg;
         setLeads(prev => {
           const idx = prev.findIndex(l => (l.phone || '').replace(/\D/g, '') === chave);
           if (idx < 0) return prev;
@@ -439,6 +497,9 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             lastMessageAt: row.created_at,
             lastMessageText: previa,
             lastMessageDirection: entrada ? 'incoming' : 'outgoing',
+            lastMessageDeliveryStatus: row.delivery_status || undefined,
+            lastMessageReadAt: row.read_at || undefined,
+            lastMessageDeliveredAt: row.delivered_at || undefined,
             ...(entrada
               ? { lastClientMessageAt: row.created_at, lastClientMessageText: row.text || '', waitingSince: row.created_at, archived: false, status: 'ENTRADA' }
               : { waitingSince: null }),
@@ -1028,10 +1089,14 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
               itemContent={(_, l) => {
                 const isOutgoing = l.lastMessageDirection === 'outgoing';
                 const text = (l.lastMessageText || l.lastClientMessageText || '').trim();
-                const isAudio = text.toLowerCase().includes('áudio') || text.toLowerCase().includes('voz') || text.includes('.m4a') || text.includes('.mp3') || text.includes('.ogg') || text.includes('.opus');
-                const isSticker = text.toLowerCase().includes('figurinha') || text.toLowerCase().includes('sticker');
-                const isFile = text.includes('.pdf') || text.includes('.m4a') || text.includes('.zip') || text.includes('.doc');
+                const isAudio = text.toLowerCase().includes('áudio') || text.toLowerCase().includes('audio') || text.toLowerCase().includes('voz') || text.includes('.m4a') || text.includes('.mp3') || text.includes('.ogg') || text.includes('.opus') || text.includes('.wav') || (l as any).lastMessageMediaType === 'audio';
+                const isPhoto = !isAudio && (text.toLowerCase().includes('foto') || text.toLowerCase().includes('imagem') || /\.(jpg|jpeg|png|webp|gif)$/i.test(text));
+                const isSticker = !isAudio && (text.toLowerCase().includes('figurinha') || text.toLowerCase().includes('sticker'));
+                const isFile = !isAudio && !isPhoto && !isSticker && (text.includes('.pdf') || text.includes('.zip') || text.includes('.doc') || text.includes('.docx'));
                 const isCall = text.toLowerCase().includes('ligação') || text.toLowerCase().includes('chamada');
+                const audioLabel = text && !/\.(m4a|mp3|ogg|opus|wav)$/i.test(text) && !text.includes('temp-upload') && !text.startsWith('http')
+                  ? (text.replace(/^[🎤🎵]\s*/, '') || 'Áudio')
+                  : 'Áudio';
                 const timeStr = formatWhatsAppDate(leadLastMessageDate(l)) || formatListTime(leadLastMessageDate(l));
 
                 const hasStatusRing = l.priority === 'alta';
@@ -1097,13 +1162,27 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                       {/* Linha inferior: Ícone status + Prévia da mensagem + Badges (Pin, Mute, Contador) */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 text-[14px] text-[#8696a0] truncate leading-snug flex-1">
-                          {isOutgoing && (
-                            <CheckCheck size={16} className="shrink-0 text-[#53bdeb]" />
-                          )}
+                          {isOutgoing && (() => {
+                            const rawDelivery = String((l as any).lastMessageDeliveryStatus || '').toLowerCase();
+                            const isMsgRead = rawDelivery === 'read' || rawDelivery === 'played' || rawDelivery === 'viewed' || Boolean((l as any).lastMessageReadAt);
+                            const isMsgDelivered = isMsgRead || rawDelivery === 'delivered' || rawDelivery === 'delivery_ack' || rawDelivery === 'received' || Boolean((l as any).lastMessageDeliveredAt);
+                            if (isMsgRead) {
+                              return <CheckCheck size={16} className="shrink-0 text-[#53bdeb]" title="Visualizada" />;
+                            }
+                            if (isMsgDelivered) {
+                              return <CheckCheck size={16} className="shrink-0 text-[#8696a0]" title="Entregue" />;
+                            }
+                            return <Check size={16} className="shrink-0 text-[#8696a0]" title="Enviada" />;
+                          })()}
                           {isAudio ? (
                             <>
                               <Mic size={15} className="shrink-0 text-[#53bdeb]" />
-                              <span className="truncate">{text || 'Mensagem de voz (0:02)'}</span>
+                              <span className="truncate">{audioLabel}</span>
+                            </>
+                          ) : isPhoto ? (
+                            <>
+                              <Camera size={14} className="shrink-0 text-[#8696a0]" />
+                              <span className="truncate">{text && !/\.(jpg|jpeg|png|webp|gif)$/i.test(text) ? text : 'Foto'}</span>
                             </>
                           ) : isSticker ? (
                             <>

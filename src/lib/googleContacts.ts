@@ -378,7 +378,7 @@ export async function syncGoogleContactsWithDatabase(
           .from('clientes')
           .insert([newClientPayload])
           .select()
-          .single();
+          .maybeSingle();
 
         if (insErr) {
           result.errors.push(`Erro ao criar ${contact.name}: ${insErr.message}`);

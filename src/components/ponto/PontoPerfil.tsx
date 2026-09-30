@@ -187,19 +187,20 @@ export function PontoPerfil({
       </div>
 
       {/* Topo do Perfil: Card do Funcionário + 4 Cards de Indicadores */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
-        {/* Card Grande do Funcionário */}
-        <div className="xl:col-span-4 bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col justify-between">
-          <div className="flex items-start gap-4">
+      {/* Topo do Perfil: Card do Funcionário + 4 Cards de Indicadores Compactos */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4">
+        {/* Card do Funcionário - Compacto */}
+        <div className="xl:col-span-4 bg-slate-900/60 backdrop-blur-xl rounded-2xl p-4 sm:p-4.5 border border-white/10 shadow-xl flex flex-col justify-between min-w-0">
+          <div className="flex items-start gap-3">
             <div className="relative group shrink-0">
               <AvatarPhoto
                 photoUrl={colab?.foto_url}
                 name={nome}
-                className="w-20 h-20 border-2 border-white/10 ring-2 ring-white/5 shadow-md bg-slate-800"
-                textClassName="text-2xl font-black text-white"
+                className="w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/10 ring-2 ring-white/5 shadow-md bg-slate-800"
+                textClassName="text-lg sm:text-xl font-black text-white"
               />
               <span
-                className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-900 ring-1 ring-emerald-500/30"
+                className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900 ring-1 ring-emerald-500/30"
                 title="Ativo"
               />
               <button
@@ -207,96 +208,96 @@ export function PontoPerfil({
                 title="Atualizar foto do WhatsApp"
                 className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white cursor-pointer"
               >
-                <Camera size={18} />
+                <Camera size={15} />
               </button>
             </div>
 
-            <div className="min-w-0">
-              <h2 className="text-xl font-black text-white truncate tracking-tight">{nome}</h2>
-              <p className="text-xs font-semibold text-emerald-400">{setor}</p>
-              <div className="mt-1 text-[11px] text-white/50 space-y-0.5">
-                <p>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base sm:text-lg font-black text-white truncate tracking-tight" title={nome}>{nome}</h2>
+              <p className="text-[11px] font-semibold text-emerald-400 truncate">{setor}</p>
+              <div className="mt-1 text-[10.5px] text-white/50 space-y-0.5">
+                <p className="truncate">
                   Matrícula: <b className="text-white/80">{matricula}</b>
                 </p>
-                <p>
+                <p className="truncate">
                   Admissão: <b className="text-white/80">{admissao}</b>
                 </p>
               </div>
-              <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Ativo
                 </span>
                 {func.temLogin ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                    <ShieldCheck size={11} /> Com conta
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                    <ShieldCheck size={10} /> Com conta
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/5 text-white/50 border border-white/10">
-                    <ShieldAlert size={11} className="text-white/40" /> Sem conta
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-white/5 text-white/50 border border-white/10">
+                    <ShieldAlert size={10} className="text-white/40" /> Sem conta
                   </span>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
-            <span className="text-white/40 font-medium">
+          <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[11px]">
+            <span className="text-white/40 font-medium truncate">
               ID Ponto: <b className="font-mono text-white/80">{idPonto}</b>
             </span>
             <button
               onClick={onEditarDados}
-              className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+              className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer shrink-0 ml-2"
             >
-              <Pencil size={12} /> Editar dados
+              <Pencil size={11} /> Editar dados
             </button>
           </div>
         </div>
 
-        {/* 4 Cards de Indicadores (KPIs do Perfil) */}
-        <div className="xl:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {/* 4 Cards de Indicadores (KPIs do Perfil Compactos) */}
+        <div className="xl:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
           {/* Horas hoje */}
-          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 border border-white/10 shadow-xl flex flex-col justify-center">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3 border border-emerald-500/30">
-              <Clock size={20} />
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-2 border border-emerald-500/30 shrink-0">
+              <Clock size={16} />
             </div>
-            <p className="text-2xl font-black text-white leading-none">
+            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">
               {fmtHM(analiseHoje.trabalhados)}
             </p>
-            <p className="text-xs font-semibold text-white/40 mt-1">Horas hoje</p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Horas hoje</p>
           </div>
 
           {/* Horas no mês */}
-          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 border border-white/10 shadow-xl flex flex-col justify-center">
-            <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center mb-3 border border-sky-500/30">
-              <Calendar size={20} />
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center mb-2 border border-sky-500/30 shrink-0">
+              <Calendar size={16} />
             </div>
-            <p className="text-2xl font-black text-white leading-none">{fmtHM(minMes)}</p>
-            <p className="text-xs font-semibold text-white/40 mt-1">Horas no mês</p>
+            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">{fmtHM(minMes)}</p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Horas no mês</p>
           </div>
 
           {/* Banco de horas */}
-          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 border border-white/10 shadow-xl flex flex-col justify-center">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center mb-3 border border-purple-500/30">
-              <Scale size={20} />
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center mb-2 border border-purple-500/30 shrink-0">
+              <Scale size={16} />
             </div>
             <p
-              className={`text-2xl font-black leading-none ${
+              className={`text-base sm:text-lg lg:text-xl font-black leading-tight truncate whitespace-nowrap ${
                 saldoBancoMinutos >= 0 ? 'text-emerald-400' : 'text-rose-400'
               }`}
             >
               {saldoBancoMinutos >= 0 ? '+ ' : '- '}
               {fmtHM(Math.abs(saldoBancoMinutos))}
             </p>
-            <p className="text-xs font-semibold text-white/40 mt-1">Banco de horas</p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Banco de horas</p>
           </div>
 
           {/* Frequência (mês) */}
-          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 border border-white/10 shadow-xl flex flex-col justify-center">
-            <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center mb-3 border border-teal-500/30">
-              <Percent size={20} />
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center mb-2 border border-teal-500/30 shrink-0">
+              <Percent size={16} />
             </div>
-            <p className="text-2xl font-black text-white leading-none">{frequenciaPct}%</p>
-            <p className="text-xs font-semibold text-white/40 mt-1">Frequência (mês)</p>
+            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">{frequenciaPct}%</p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Frequência (mês)</p>
           </div>
         </div>
       </div>

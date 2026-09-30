@@ -1769,7 +1769,7 @@ export default function App() {
         await Promise.all(lote.map(async ({ lead: l, ciclo, chave }) => {
           lembretesRef.current.set(chave, ciclo);
           const nome = (l.contact_name || l.full_name || l.whatsapp_name || l.phone || 'Cliente').trim();
-          const previaBruta = (l.last_client_message_text || l.last_message_text || '').trim() || 'Mensagem sem texto';
+          const previaBruta = (l.last_message_text || l.last_client_message_text || '').trim() || 'Mensagem sem texto';
           const previa = previaBruta.length > 120 ? `${previaBruta.slice(0, 117)}...` : previaBruta;
           const espera = textoTempoDeEspera(l.waiting_since, agora);
           const foto = await buscarFotoAtual(l.phone, usuarioAtual?.id, l.photo_url);

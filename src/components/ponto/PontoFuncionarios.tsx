@@ -114,7 +114,7 @@ export function PontoFuncionarios({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5">
           {filtrados.map((f) => {
             const nome = f.colaboradores?.nome || f.nome_relogio || `Funcionário ${f.numero_relogio}`;
             const setor = f.colaboradores?.cargo || 'Operacional / Geral';
@@ -124,83 +124,85 @@ export function PontoFuncionarios({
             return (
               <div
                 key={f.id}
-                className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 border border-white/10 shadow-xl hover:border-emerald-500/40 transition-all flex flex-col justify-between group"
+                className="bg-slate-900/60 backdrop-blur-xl rounded-xl p-3.5 border border-white/10 shadow-lg hover:border-emerald-500/40 transition-all flex flex-col justify-between group min-w-0"
               >
                 <div>
-                  {/* Topo do Card: Avatar e Badges */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="relative">
+                  {/* Topo do Card: Avatar e Informações em linha compacta */}
+                  <div className="flex items-start gap-3">
+                    <div className="relative shrink-0">
                       <AvatarPhoto
                         photoUrl={f.colaboradores?.foto_url}
                         name={nome}
-                        className="w-16 h-16 border-2 border-white/10 shadow-md bg-slate-800"
-                        textClassName="text-xl font-black text-white"
+                        className="w-11 h-11 border border-white/15 shadow-sm bg-slate-800"
+                        textClassName="text-sm font-black text-white"
                       />
                       <span
-                        className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-900 ring-1 ring-emerald-500/30"
+                        className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 ring-1 ring-emerald-500/30"
                         title="Ativo no ponto"
                       />
                     </div>
 
-                    <div className="flex flex-col items-end gap-1.5">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        ATIVO
-                      </span>
-                      {f.temLogin ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                          <ShieldCheck size={11} /> Com conta
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <h3 className="font-bold text-white text-xs leading-snug truncate group-hover:text-emerald-400 transition-colors" title={nome}>
+                          {nome}
+                        </h3>
+                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                          ATIVO
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/5 text-white/50 border border-white/10">
-                          <ShieldAlert size={11} className="text-white/40" /> Sem conta de login
-                        </span>
-                      )}
+                      </div>
+                      <p className="text-[11px] font-medium text-emerald-400/90 truncate mt-0.5" title={setor}>{setor}</p>
+                      
+                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                        {f.temLogin ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-semibold bg-teal-500/15 text-teal-300 border border-teal-500/20">
+                            <ShieldCheck size={10} /> Com conta
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-semibold bg-white/5 text-white/40 border border-white/10">
+                            <ShieldAlert size={10} className="text-white/30" /> Sem conta
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Informações Principais */}
-                  <div className="mt-4">
-                    <h3 className="font-bold text-white text-base leading-snug group-hover:text-emerald-400 transition-colors">
-                      {nome}
-                    </h3>
-                    <p className="text-xs font-semibold text-emerald-400 mt-0.5">{setor}</p>
-
-                    <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-[11px] text-white/40 block font-medium">Matrícula</span>
-                        <span className="font-bold text-white/90">{matricula}</span>
-                      </div>
-                      <div>
-                        <span className="text-[11px] text-white/40 block font-medium">ID Ponto</span>
-                        <span className="font-mono font-bold text-white/90 text-[11px]">{idPonto}</span>
-                      </div>
+                  {/* Informações Numéricas Compactas */}
+                  <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[10.5px]">
+                    <div className="truncate">
+                      <span className="text-[10px] text-white/40 font-medium mr-1.5">Matrícula:</span>
+                      <span className="font-bold text-white/90">{matricula}</span>
+                    </div>
+                    <div className="truncate text-right">
+                      <span className="text-[10px] text-white/40 font-medium mr-1.5">ID:</span>
+                      <span className="font-mono font-bold text-white/80">{idPonto}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Rodapé de Ações */}
-                <div className="mt-5 pt-3 border-t border-white/10 flex items-center gap-2">
+                {/* Rodapé de Ações Compacto */}
+                <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center gap-1.5">
                   <button
                     onClick={() => onAbrirPerfil(f.id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                    className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer truncate"
                   >
-                    <Eye size={14} /> Ver Perfil
+                    <Eye size={13} /> Ver Perfil
                   </button>
 
                   <button
                     onClick={() => onEditarFuncionario(f)}
-                    className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
                     title="Editar informações"
                   >
-                    <Pencil size={13} /> Editar
+                    <Pencil size={12} />
                   </button>
 
                   <button
                     onClick={() => onDesativarFuncionario(f)}
-                    className="p-2 rounded-xl text-white/40 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                    className="p-1.5 rounded-lg text-white/40 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                     title="Desativar funcionário"
                   >
-                    <UserX size={15} />
+                    <UserX size={14} />
                   </button>
                 </div>
               </div>
