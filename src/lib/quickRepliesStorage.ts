@@ -69,6 +69,15 @@ const DEFAULT_QUICK_REPLIES: QuickReply[] = [
     order: 5,
     companyId: COMPANY_ID,
     createdAt: new Date().toISOString()
+  },
+  {
+    id: 'qr-7',
+    title: '🎉 Pós-Venda / Agradecimento',
+    shortcut: '/posvenda',
+    text: 'Olá! Muito obrigado pela confiança e preferência em nosso trabalho na Rafa Arts! 🎉 Esperamos que tenha gostado do resultado. Se puder avaliar nosso atendimento ou nos marcar com o trabalho pronto, ficaremos muito felizes! Estamos sempre à disposição para seus próximos projetos! 🚀',
+    order: 6,
+    companyId: COMPANY_ID,
+    createdAt: new Date().toISOString()
   }
 ];
 
@@ -78,6 +87,10 @@ export const getQuickRepliesSync = (): QuickReply[] => {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        const hasPosVenda = parsed.some((p: any) => p.shortcut === '/posvenda' || (p.title || '').toLowerCase().includes('pós-venda') || (p.title || '').toLowerCase().includes('pos-venda'));
+        if (!hasPosVenda) {
+          parsed.push(DEFAULT_QUICK_REPLIES[DEFAULT_QUICK_REPLIES.length - 1]);
+        }
         return parsed.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       }
     }
@@ -106,6 +119,10 @@ export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
 
     if (!error && data?.quick_replies && Array.isArray(data.quick_replies) && data.quick_replies.length > 0) {
       const nuvem: QuickReply[] = data.quick_replies;
+      const hasPosVenda = nuvem.some((p: any) => p.shortcut === '/posvenda' || (p.title || '').toLowerCase().includes('pós-venda') || (p.title || '').toLowerCase().includes('pos-venda'));
+      if (!hasPosVenda) {
+        nuvem.push(DEFAULT_QUICK_REPLIES[DEFAULT_QUICK_REPLIES.length - 1]);
+      }
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(nuvem));
       return nuvem.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
@@ -116,6 +133,12 @@ export const carregarMensagensRapidas = async (): Promise<QuickReply[]> => {
   if (locais.length === 0) {
     locais = DEFAULT_QUICK_REPLIES;
     salvarMensagensRapidas(locais).catch(() => {});
+  } else {
+    const hasPosVenda = locais.some((p: any) => p.shortcut === '/posvenda' || (p.title || '').toLowerCase().includes('pós-venda') || (p.title || '').toLowerCase().includes('pos-venda'));
+    if (!hasPosVenda) {
+      locais.push(DEFAULT_QUICK_REPLIES[DEFAULT_QUICK_REPLIES.length - 1]);
+      salvarMensagensRapidas(locais).catch(() => {});
+    }
   }
 
   return locais.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));

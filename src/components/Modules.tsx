@@ -5318,6 +5318,7 @@ export const ChatPanel = ({
         { label: '✅ Pagamento Confirmado', text: 'Confirmamos o recebimento do seu pagamento! Seu pedido já está em fase de produção.' },
         { label: '📦 Pedido Pronto', text: 'Notícia boa! Seu pedido ficou pronto e já está disponível para retirada/entrega.' },
         { label: '📅 Agendamento Entrega', text: 'Prezado(a) cliente, confirmando seu agendamento de entrega para a data e horário combinados.' },
+        { label: '🎉 Pós-Venda / Agradecimento', text: 'Olá! Muito obrigado pela confiança e preferência em nosso trabalho na Rafa Arts! 🎉 Esperamos que tenha gostado do resultado. Se puder avaliar nosso atendimento ou nos marcar com o trabalho pronto, ficaremos muito felizes! Estamos sempre à disposição para seus próximos projetos! 🚀' },
       ];
 
   useEffect(() => {
@@ -16510,13 +16511,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const customerName = (sale.customerName || selectedCustomer?.name || 'Cliente').trim();
     const cleanPhone = rawPhone.replace(/\D/g, '');
 
-    // 1. Confirmação clara com o usuário ("só enviar se apertar OK")
+    if (cleanPhone.length < 8) {
+      showAlert('Cliente sem telefone cadastrado para mensagem de pós-venda.');
+      return;
+    }
+
+    // 1. Confirmação clara com o usuário
     const confirmou = await showConfirm(
-      `O pedido #${sale.id.slice(-8).toUpperCase()} foi marcado como ENTREGUE!\n\nDeseja enviar a mensagem de pós-venda/agradecimento para ${customerName}${rawPhone ? ` (${rawPhone})` : ''} via WhatsApp e mover o atendimento para a coluna "Concluído" no CRM?`
+      `O pedido #${sale.id.slice(-8).toUpperCase()} foi marcado como ENTREGUE!\n\nDeseja preparar e enviar a mensagem de pós-venda/agradecimento para ${customerName}${rawPhone ? ` (${rawPhone})` : ''} via WhatsApp?`
     );
     if (!confirmou) return;
 
-    // 2. Mover o lead para a coluna Concluído no CRM (se existir o lead)
+    // 2. Mover o lead para a coluna Concluído no CRM (sem arquivar, para não sumir do histórico e mensagens)
     try {
       const { data: stages } = await supabase
         .from('funnel_stages')
@@ -16526,54 +16532,35 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         .limit(1);
       const stageConcluidoId = stages?.[0]?.id;
 
-      if (cleanPhone.length >= 8) {
-        const patch: Record<string, any> = {
-          status: 'CONCLUIDO',
-          archived: true, // Sai da lista de mensagens ativas
-          updated_at: new Date().toISOString(),
-        };
-        if (stageConcluidoId) {
-          patch.funnel_stage_id = stageConcluidoId;
-        }
-        await supabase
-          .from('leads')
-          .update(patch)
-          .eq('company_id', currentCompany?.id || 'rafa-arts')
-          .ilike('phone', `%${cleanPhone.slice(-8)}%`);
+      const patch: Record<string, any> = {
+        status: 'CONCLUIDO',
+        archived: false, // Mantém a conversa ativa e visível no histórico de mensagens
+        updated_at: new Date().toISOString(),
+      };
+      if (stageConcluidoId) {
+        patch.funnel_stage_id = stageConcluidoId;
       }
+      await supabase
+        .from('leads')
+        .update(patch)
+        .eq('company_id', currentCompany?.id || 'rafa-arts')
+        .ilike('phone', `%${cleanPhone.slice(-8)}%`);
     } catch (leadErr) {
       console.warn('Erro ao atualizar etapa do lead no CRM:', leadErr);
     }
 
-    // 3. Enviar mensagem de agradecimento/pós-venda no WhatsApp
-    if (cleanPhone.length >= 8) {
-      const msgPosVenda = `Olá, *${customerName}*! Seu pedido *#${sale.id.slice(-8).toUpperCase()}* foi finalizado e entregue com sucesso pela *${currentCompany?.name || 'Rafa Arts'}*. 🎉\n\nMuito obrigado pela confiança e preferência! Se puder avaliar nosso atendimento ou nos marcar com o trabalho pronto, ficaremos muito felizes. Estamos sempre à disposição para seus próximos projetos! 🚀`;
+    // 3. Montar a mensagem de pós-venda e abrir diretamente no card de envio do chat
+    const msgPosVenda = `Olá, *${customerName}*! Seu pedido *#${sale.id.slice(-8).toUpperCase()}* foi finalizado e entregue com sucesso pela *${currentCompany?.name || 'Rafa Arts'}*. 🎉\n\nMuito obrigado pela confiança e preferência! Se puder avaliar nosso atendimento ou nos marcar com o trabalho pronto, ficaremos muito felizes. Estamos sempre à disposição para seus próximos projetos! 🚀`;
 
-      try {
-        const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
-        const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
+    setViewingReceiptSale(null);
+    setIsSuccessModalOpen(false);
 
-        const resp = await fetch('/api/whatsapp-send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-          body: JSON.stringify({
-            phone: cleanPhone,
-            text: msgPosVenda,
-            senderName: senderDisplay,
-          }),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (resp.ok && json.ok) {
-          showAlert('🎉 Mensagem de pós-venda enviada com sucesso no WhatsApp e lead movido para Concluído!');
-        } else {
-          await findOrCreateLeadAndOpenChat(cleanPhone, customerName, msgPosVenda);
-        }
-      } catch (err) {
-        console.error('Falha ao enviar mensagem de pós-venda:', err);
-        await findOrCreateLeadAndOpenChat(cleanPhone, customerName, msgPosVenda);
-      }
-    } else {
-      showAlert('Atendimento movido para Concluído no CRM!');
+    try {
+      await openWhatsAppChat(cleanPhone, customerName, msgPosVenda);
+      showAlert('🎉 Mensagem de pós-venda pronta no card de envio do chat!');
+    } catch (err) {
+      console.error('Falha ao abrir WhatsApp para pós-venda:', err);
+      showAlert('Não foi possível abrir o WhatsApp do cliente.');
     }
   };
 

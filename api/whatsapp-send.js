@@ -268,7 +268,7 @@ export default async function handler(req, res) {
     // Os dois gravam em tabelas diferentes e nao dependem um do outro: rodam juntos (antes, em fila).
     const [salva] = await Promise.all([
       SEM_CRM_MESSAGES ? Promise.resolve(true) : registrarMensagemEnviada({
-        phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia,
+        phone: numero || phone, text: textoDaMensagem, senderName, leadId, whatsappMessageId: idMensagem, createdAt: quandoEnviada, media: midia,
         quotedMessageId, quotedText, quotedSender, quotedMediaUrl, quotedMediaType,
       }),
       atualizarLeadMensagemEnviada(Array.from(new Set([phone, numero])), textoDaMensagem, quandoEnviada),
@@ -277,7 +277,7 @@ export default async function handler(req, res) {
     res.status(200).json({ ok: true, whatsappMessageId: idMensagem, createdAt: quandoEnviada, saved: salva });
     // FASE 3 passo 3: avisa quem estiver com essa conversa aberta pra rebuscar na Evolution API
     // (sinal leve, sem conteudo) -- so depois da resposta, nunca atrasa o envio em si.
-    if (salva) waitUntil(sinalizarMensagemNova(phone));
+    if (salva) waitUntil(sinalizarMensagemNova(numero || phone));
   } catch (err) {
     console.error('Erro ao enviar mensagem via Evolution API:', err);
     res.status(500).json({ error: 'Não foi possível enviar a mensagem. Confira se a Evolution API está no ar e o número está conectado.' });
