@@ -860,8 +860,8 @@ export default function App() {
       return;
     }
     const loadCount = async () => {
-      const { data } = await supabase.from('leads').select('waiting_since').eq('company_id', 'rafa-arts');
-      setUnrepliedLeadsCount((data || []).filter((r: any) => r.waiting_since !== null && r.waiting_since !== undefined).length);
+      const { data } = await supabase.from('leads').select('waiting_since, unread, last_message_direction, archived, status').eq('company_id', 'rafa-arts');
+      setUnrepliedLeadsCount((data || []).filter((r: any) => !r.archived && r.status !== 'CONCLUIDO' && (r.unread || (r.waiting_since !== null && r.waiting_since !== undefined && r.last_message_direction !== 'resolved'))).length);
     };
     loadCount();
     const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
@@ -1021,34 +1021,67 @@ export default function App() {
 
         const isConcluidoOuArquivado = !ehGrupo && (leadRow.archived || leadRow.status === 'CONCLUIDO');
 
+        let patchRetornoFunil: Record<string, any> = {};
+        if (isConcluidoOuArquivado) {
+          const servicoAnterior = leadRow.order_summary || leadRow.service_name || leadRow.tracking?.orderSummary;
+          const valorAnterior = leadRow.estimated_value !== undefined && leadRow.estimated_value !== null ? Number(leadRow.estimated_value) : null;
+          const trackingAtual = (typeof leadRow.tracking === 'object' && leadRow.tracking !== null) ? leadRow.tracking : {};
+          const historicoAnterior = Array.isArray(trackingAtual.historicoServicos) ? trackingAtual.historicoServicos : [];
+
+          let novoHistorico = historicoAnterior;
+          if (servicoAnterior && String(servicoAnterior).trim()) {
+            novoHistorico = [
+              {
+                servico: String(servicoAnterior).trim(),
+                valor: valorAnterior,
+                concluidoEm: leadRow.updated_at || new Date().toISOString(),
+              },
+              ...historicoAnterior,
+            ];
+          }
+
+          patchRetornoFunil = {
+            archived: false,
+            status: 'ENTRADA',
+            order_summary: null,
+            service_name: null,
+            estimated_value: null,
+            tracking: {
+              ...trackingAtual,
+              orderSummary: null,
+              historicoServicos: novoHistorico,
+            },
+            ...(stageId ? { funnel_stage_id: stageId } : {}),
+            ...(funnelId ? { funnel_id: funnelId } : {}),
+          };
+        }
+
+        const safeUpdateLead = async (payload: Record<string, any>) => {
+          const { error } = await supabase.from('leads').update(payload).eq('id', leadRow.id);
+          if (error) {
+            const fallbackPayload = { ...payload };
+            delete fallbackPayload.order_summary;
+            delete fallbackPayload.service_name;
+            await supabase.from('leads').update(fallbackPayload).eq('id', leadRow.id);
+          }
+        };
+
         if (!aguardando) {
           // Mensagem que ja foi respondida por alguem da empresa: entra normalmente como ultima
           // mensagem (passo 1) e registra que existiu (pra nao ser "recuperada" de novo).
           // Se o lead estava concluido/arquivado e mandou mensagem, reativa na primeira etapa do funil.
-          await supabase.from('leads').update({
+          await safeUpdateLead({
             ...patchUltimaMensagem,
             ...patchUltimaMensagemDoCliente,
-            ...(isConcluidoOuArquivado ? {
-              archived: false,
-              status: 'ENTRADA',
-              ...(stageId ? { funnel_stage_id: stageId } : {}),
-              ...(funnelId ? { funnel_id: funnelId } : {}),
-            } : {}),
-          }).eq('id', leadRow.id);
+            ...(isConcluidoOuArquivado ? patchRetornoFunil : {}),
+          });
           return;
         }
 
         // 2) Aguardando resposta: alem da ultima mensagem, atualiza espera e mensagens não lidas.
         // REGRA: Quando um cliente cujo serviço/atendimento foi concluído manda mensagem novamente,
         // ele é reativado (sai de concluído/arquivado) e volta imediatamente para a PRIMEIRA ETAPA DO FUNIL ("ENTRADA").
-        const patchRetornoFunil = isConcluidoOuArquivado ? {
-          archived: false,
-          status: 'ENTRADA',
-          ...(stageId ? { funnel_stage_id: stageId } : {}),
-          ...(funnelId ? { funnel_id: funnelId } : {}),
-        } : {};
-
-        await supabase.from('leads').update({
+        await safeUpdateLead({
           ...patchUltimaMensagem,
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
@@ -1063,7 +1096,7 @@ export default function App() {
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
-        }).eq('id', leadRow.id);
+        });
         console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] (concluído/arquivado reativado: ${isConcluidoOuArquivado}).`);
       }
     };

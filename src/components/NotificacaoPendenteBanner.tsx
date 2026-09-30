@@ -460,6 +460,20 @@ export const NotificacoesPendentesBell = ({
         .eq('company_id', 'rafa-arts')
         .or(orClauses.join(','))
         .eq('status', 'pending');
+
+      // Também limpa waiting_since, unread e define last_message_direction no lead correspondente
+      if (ultimos8 && ultimos8.length >= 6) {
+        await supabase
+          .from('leads')
+          .update({
+            waiting_since: null,
+            unread: false,
+            last_message_direction: 'resolved',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('company_id', 'rafa-arts')
+          .ilike('phone', `%${ultimos8}%`);
+      }
     } catch (err) {
       console.error('Erro ao resolver notificacao pelo sino:', err);
     } finally {
@@ -486,6 +500,24 @@ export const NotificacoesPendentesBell = ({
         .update({ status: 'resolved', resolved_at: new Date().toISOString() })
         .eq('company_id', 'rafa-arts')
         .eq('status', 'pending');
+
+      const phonesParaLimpar = itens
+        .map(i => String(i.phone || '').replace(/\D/g, ''))
+        .filter(p => p.length >= 6);
+
+      for (const p of phonesParaLimpar) {
+        await supabase
+          .from('leads')
+          .update({
+            waiting_since: null,
+            unread: false,
+            last_message_direction: 'resolved',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('company_id', 'rafa-arts')
+          .ilike('phone', `%${p.slice(-8)}%`);
+      }
+
       setAberto(false);
     } catch (err) {
       console.error('Erro ao resolver todas as notificacoes:', err);

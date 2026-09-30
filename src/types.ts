@@ -195,7 +195,7 @@ export interface Lead extends BaseEntity {
   funnelStageId?: string;
   sourceType?: string;
   lastMessageText?: string;
-  lastMessageDirection?: 'incoming' | 'outgoing';
+  lastMessageDirection?: 'incoming' | 'outgoing' | 'resolved';
   // Horario ORIGINAL da ultima mensagem da conversa (recebida ou enviada) -- base da ordem da lista
   // de conversas (ver add_last_message_at_to_leads.sql). Nunca usar updatedAt pra ordenar conversas.
   lastMessageAt?: Timestamp | string;
@@ -210,6 +210,11 @@ export interface Lead extends BaseEntity {
   tags?: string[];
   tracking?: {
     orderSummary?: string;
+    historicoServicos?: Array<{
+      servico: string;
+      valor?: number | null;
+      concluidoEm?: string;
+    }>;
     utmSource?: string;
     utmCampaign?: string;
     utmMedium?: string;

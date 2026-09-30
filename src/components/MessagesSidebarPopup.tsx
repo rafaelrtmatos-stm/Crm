@@ -88,7 +88,9 @@ const mapearLeadDaLista = (r: any): Lead => ({
   status: r.status, archived: r.archived, unread: r.unread, muted: r.muted,
   createdAt: r.created_at, updatedAt: r.updated_at, photoUrl: r.photo_url || undefined,
   estimatedValue: r.estimated_value !== null && r.estimated_value !== undefined ? Number(r.estimated_value) : undefined,
-  orderSummary: r.order_summary || r.tracking?.orderSummary || undefined,
+  orderSummary: r.order_summary || r.service_name || r.tracking?.orderSummary || undefined,
+  serviceName: r.service_name || r.order_summary || r.tracking?.orderSummary || undefined,
+  tracking: r.tracking || undefined,
 } as any as Lead);
 
 // Monta a lista: mais recente primeiro (pela ultima mensagem) e UMA conversa por telefone.
@@ -498,7 +500,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   // Conversas ativas: quando um serviço/atendimento for concluído, ele sai da lista de mensagens
   const activeLeads = leads.filter(l => !l.archived && l.status !== 'CONCLUIDO' && conversaPermitida(l));
-  const unrepliedCount = activeLeads.filter(l => (l.waitingSince || l.unread)).length;
+  const unrepliedCount = activeLeads.filter(l => !!l.unread || (!!l.waitingSince && l.lastMessageDirection !== 'resolved')).length;
   const favoriteCount = activeLeads.filter(l => l.priority === 'alta').length;
   const groupCount = activeLeads.filter(l => groupPhones.has((l.phone || '').replace(/\D/g, ''))).length;
 
@@ -518,7 +520,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         case 'venda': return l.estimatedValue ?? 0;
       }
     };
-    const prioridade = (l: Lead) => (unreadFirst && (l.unread ?? l.waitingSince) ? 2 : 0) + (highlightFirst && l.priority === 'alta' ? 1 : 0);
+    const prioridade = (l: Lead) => (unreadFirst && (l.unread || (l.waitingSince && l.lastMessageDirection !== 'resolved')) ? 2 : 0) + (highlightFirst && l.priority === 'alta' ? 1 : 0);
     const sinal = sort.dir === 'asc' ? 1 : -1;
     return [...list].sort((a, b) => {
       const pd = prioridade(b) - prioridade(a);
@@ -538,7 +540,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         l.phone.includes(filter)
       )
       .filter(l => {
-        if (viewFilter === 'unread') return !!l.waitingSince || !!l.unread;
+        if (viewFilter === 'unread') return !!l.unread || (!!l.waitingSince && l.lastMessageDirection !== 'resolved');
         if (viewFilter === 'favorite') return l.priority === 'alta';
         if (viewFilter === 'group') return groupPhones.has((l.phone || '').replace(/\D/g, ''));
         return true;
@@ -641,7 +643,16 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
         const snakeKey = k.replace(/[A-Z]/g, m => `_${m.toLowerCase()}`);
         patchSnake[snakeKey] = v;
       });
+      if (patch.unread === false) {
+        patchSnake.waiting_since = null;
+        patchSnake.last_message_direction = 'resolved';
+      }
       await supabase.from('leads').update({ ...patchSnake, updated_at: new Date().toISOString() }).in('id', Array.from(selectedIds));
+      setLeads(prev => prev.map(l => selectedIds.has(l.id) ? {
+        ...l,
+        ...patch,
+        ...(patch.unread === false ? { waitingSince: undefined, lastMessageDirection: 'resolved' as any, unread: false } : {})
+      } : l));
       cancelSelection();
     } finally {
       setIsSavingAction(false);
@@ -1027,7 +1038,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
                 const isPinned = l.priority === 'alta' || (l as any).pinned;
                 const isMuted = l.muted;
                 const isGroup = groupPhones.has((l.phone || '').replace(/\D/g, ''));
-                const isUnread = !!l.waitingSince || !!l.unread || Number((l as any).unreadCount || 0) > 0;
+                const isUnread = !!l.unread || (!!l.waitingSince && l.lastMessageDirection !== 'resolved') || Number((l as any).unreadCount || 0) > 0;
                 const unreadCountNumber = Number((l as any).unreadCount || 0) > 0 
                   ? Number((l as any).unreadCount) 
                   : (isUnread ? 1 : 0);

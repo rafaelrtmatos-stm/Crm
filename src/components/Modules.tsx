@@ -3757,6 +3757,7 @@ export const ChatPanel = ({
   // 2) Caso contrário, usa conversation.waitingSince ou a primeira indicação disponível
   const effectiveWaitingSince = useMemo(() => {
     if (isLocallyResolved) return null;
+    if (conversation?.lastMessageDirection === 'resolved' && !conversation?.waitingSince) return null;
 
     if (messages && messages.length > 0) {
       const nonNoteMsgs = messages.filter(m => !m.isNote);
@@ -4314,13 +4315,22 @@ export const ChatPanel = ({
     if (!conversation?.id) return;
     setIsLocallyResolved(true);
     try {
-      const { error } = await supabase.from('leads').update({ waiting_since: null, last_message_direction: 'resolved' }).eq('id', conversation.id);
+      const { error } = await supabase.from('leads').update({
+        waiting_since: null,
+        unread: false,
+        last_message_direction: 'resolved',
+        updated_at: new Date().toISOString()
+      }).eq('id', conversation.id);
       if (error) {
         console.error('Erro ao marcar conversa como resolvida:', error);
         showAlert('Não foi possível marcar como resolvido.');
         return;
       }
-      onLeadPatched?.(conversation.id, { waitingSince: undefined, lastMessageDirection: 'resolved' as any });
+      onLeadPatched?.(conversation.id, {
+        waitingSince: undefined,
+        unread: false,
+        lastMessageDirection: 'resolved' as any
+      });
       if (conversation.phone) {
         const { data: notifs } = await supabase.from('crm_notifications').select('id').eq('company_id', currentCompany?.id || 'rafa-arts').eq('phone', conversation.phone).eq('status', 'pending');
         if (notifs?.length) {
@@ -5155,19 +5165,41 @@ export const ChatPanel = ({
     setIsSavingOrderInfo(true);
     try {
       const numVal = estimatedValueDraft !== '' ? Number(estimatedValueDraft) : null;
-      const trackingAtual = conversation.tracking || {};
+      const trackingAtual = (typeof conversation.tracking === 'object' && conversation.tracking !== null) ? conversation.tracking : {};
+      const trimmedSummary = orderSummaryDraft.trim();
+      const novoTracking = { ...trackingAtual, orderSummary: trimmedSummary || undefined };
+
       const patchData: any = {
-        orderSummary: orderSummaryDraft.trim() || undefined,
-        serviceName: orderSummaryDraft.trim() || undefined,
+        orderSummary: trimmedSummary || undefined,
+        serviceName: trimmedSummary || undefined,
         estimatedValue: numVal !== null && !isNaN(numVal) ? numVal : undefined,
+        tracking: novoTracking,
       };
 
-      await supabase.from('leads').update({
-        order_summary: orderSummaryDraft.trim() || null,
-        tracking: { ...trackingAtual, orderSummary: orderSummaryDraft.trim() },
-        estimated_value: numVal,
-        updated_at: new Date().toISOString()
-      }).eq('id', conversation.id);
+      // Tenta atualizar order_summary + tracking. Se der erro por coluna inexistente, salva com segurança no tracking (JSONB nativo).
+      let updateError: any = null;
+      try {
+        const { error } = await supabase.from('leads').update({
+          order_summary: trimmedSummary || null,
+          service_name: trimmedSummary || null,
+          tracking: novoTracking,
+          estimated_value: numVal,
+          updated_at: new Date().toISOString()
+        }).eq('id', conversation.id);
+        updateError = error;
+      } catch (e) {
+        updateError = e;
+      }
+
+      if (updateError) {
+        console.warn('Tentativa com order_summary falhou, salvando via tracking JSONB:', updateError);
+        const { error: errTracking } = await supabase.from('leads').update({
+          tracking: novoTracking,
+          estimated_value: numVal,
+          updated_at: new Date().toISOString()
+        }).eq('id', conversation.id);
+        if (errTracking) throw errTracking;
+      }
 
       onLeadPatched?.(conversation.id, patchData);
       showAlert('Serviço do lead salvo com sucesso!');
@@ -8204,6 +8236,40 @@ export const ChatPanel = ({
                      />
                    </div>
                  </div>
+
+                 {/* Histórico de Serviços Concluídos deste Lead */}
+                 {Array.isArray(conversation.tracking?.historicoServicos) && conversation.tracking.historicoServicos.length > 0 && (
+                   <div className="mt-3 pt-3 border-t border-amber-500/20">
+                     <div className="flex items-center gap-1.5 mb-2">
+                       <Clock size={12} className="text-amber-400" />
+                       <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wide">
+                         Histórico de Serviços Anteriores ({conversation.tracking.historicoServicos.length})
+                       </span>
+                     </div>
+                     <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar pr-1">
+                       {conversation.tracking.historicoServicos.map((item: any, idx: number) => (
+                         <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-white/5 text-xs">
+                           <div className="flex items-center gap-2 truncate">
+                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                             <span className="text-white font-medium truncate">{item.servico}</span>
+                           </div>
+                           <div className="flex items-center gap-2 shrink-0 ml-2">
+                             {item.valor !== null && item.valor !== undefined && (
+                               <span className="font-mono text-emerald-400 font-semibold text-[11px]">
+                                 R$ {Number(item.valor).toFixed(2).replace('.', ',')}
+                               </span>
+                             )}
+                             {item.concluidoEm && (
+                               <span className="text-[9px] text-white/40">
+                                 {new Date(item.concluidoEm).toLocaleDateString('pt-BR')}
+                               </span>
+                             )}
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+                 )}
                </div>
 
                <div className="flex items-center justify-between">
@@ -10699,12 +10765,14 @@ const KanbanCardLegacy = ({ lead, onClick, isSelected, isDragging, selectionMode
 
   const channelName = (lead.sourceType || 'WhatsApp');
   const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
-  const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
-  const effectiveWaitingSince = lead.waitingSince || (
-    lead.lastMessageDirection === 'incoming'
-      ? (lead.lastClientMessageAt || lead.lastMessageAt || lead.updatedAt)
-      : undefined
-  );
+  const unread = (lead as any).unreadCount || (lead.unread ? 1 : 0) || (lead.waitingSince && lead.lastMessageDirection !== 'resolved' ? 1 : 0);
+  const effectiveWaitingSince = (lead.lastMessageDirection === 'resolved' && !lead.waitingSince)
+    ? undefined
+    : (lead.waitingSince || (
+        lead.lastMessageDirection === 'incoming'
+          ? (lead.lastClientMessageAt || lead.lastMessageAt || lead.updatedAt)
+          : undefined
+      ));
   const isWaiting = Boolean(effectiveWaitingSince);
   const [cardClock, setCardClock] = useState(() => Date.now());
   useEffect(() => {
@@ -11034,12 +11102,14 @@ const KanbanCard = ({ lead, onClick, isSelected, isDragging, selectionMode, isCh
 
   const channelName = (lead.sourceType || 'WhatsApp');
   const isWpp = channelName.toLowerCase().includes('whats') || channelName.toLowerCase().includes('wpp');
-  const unread = (lead as any).unreadCount || (lead.waitingSince ? 1 : 0);
-  const effectiveWaitingSince = lead.waitingSince || (
-    lead.lastMessageDirection === 'incoming'
-      ? (lead.lastClientMessageAt || lead.lastMessageAt || lead.updatedAt)
-      : undefined
-  );
+  const unread = (lead as any).unreadCount || (lead.unread ? 1 : 0) || (lead.waitingSince && lead.lastMessageDirection !== 'resolved' ? 1 : 0);
+  const effectiveWaitingSince = (lead.lastMessageDirection === 'resolved' && !lead.waitingSince)
+    ? undefined
+    : (lead.waitingSince || (
+        lead.lastMessageDirection === 'incoming'
+          ? (lead.lastClientMessageAt || lead.lastMessageAt || lead.updatedAt)
+          : undefined
+      ));
   const isWaiting = Boolean(effectiveWaitingSince);
   const [cardClock, setCardClock] = useState(() => Date.now());
   useEffect(() => {
