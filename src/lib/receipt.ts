@@ -308,6 +308,17 @@ export function drawBadgeIcon(ctx: CanvasRenderingContext2D, kind: string, cx: n
       ctx.beginPath(); ctx.arc(cx - s * 0.45, cy + s * 0.4, s * 0.22, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(cx + s * 0.55, cy + s * 0.4, s * 0.22, 0, Math.PI * 2); ctx.stroke();
       break;
+    case 'ring':
+      ctx.beginPath();
+      ctx.arc(cx, cy - s * 0.1, s * 0.7, Math.PI, 0, false);
+      ctx.lineTo(cx + s * 0.85, cy + s * 0.5);
+      ctx.lineTo(cx - s * 0.85, cy + s * 0.5);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy + s * 0.65, s * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      break;
   }
   ctx.restore();
 }
@@ -770,7 +781,8 @@ export async function renderReceiptCanvas({
   ctx.fillText('Pagamento:', orderCardX + 22, currentY + 72);
   ctx.fillStyle = TEXT_WHITE;
   ctx.font = `800 10px ${FONT}`;
-  ctx.fillText((order.paymentMethod || 'PIX').toUpperCase(), orderCardX + 88, currentY + 72);
+  const pagamentoTexto = down > 0 ? (order.paymentMethod || 'PIX').toUpperCase() : 'PENDENTE';
+  ctx.fillText(pagamentoTexto, orderCardX + 88, currentY + 72);
 
   // Entrega: Data ou 'Sem entrega agendada'
   ctx.font = `700 10px ${FONT}`;

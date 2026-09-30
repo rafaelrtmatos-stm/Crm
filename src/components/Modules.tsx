@@ -5070,7 +5070,17 @@ export const ChatPanel = ({
     }
   };
 
-  const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare } = React.useContext(AppContext)!;
+  const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare, pendingReceiptAttachment, setPendingReceiptAttachment } = React.useContext(AppContext)!;
+
+  useEffect(() => {
+    if (pendingReceiptAttachment) {
+      setPendingImages(prev => [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, file: pendingReceiptAttachment.file, previewUrl: pendingReceiptAttachment.previewUrl }]);
+      if (pendingReceiptAttachment.caption) {
+        setNewMessage(pendingReceiptAttachment.caption);
+      }
+      setPendingReceiptAttachment(null);
+    }
+  }, [pendingReceiptAttachment]);
 
   // "Iniciar Venda": localiza se o cliente já existe pelo final do telefone (últimos 8 dígitos).
   // Se existir, preenche o nome completo da nota com o cadastro oficial e vincula pelo id,
@@ -6283,7 +6293,7 @@ export const ChatPanel = ({
   ).trim();
 
   const chatContent = (
-    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/3 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
+    <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden bg-white/5 border-white/10 relative h-full fixed md:static inset-0 z-50 md:z-auto rounded-none md:rounded-2xl border md:border-white/10 shadow-2xl">
       {/* Header - FIXO */}
       <div className="px-2 sm:px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02] flex-shrink-0 gap-2 sm:gap-3 min-h-[56px] w-full relative z-30">
         {/* ESQUERDA: Botão voltar estilo iOS (< 295) conforme IMG_7567 */}
@@ -6661,33 +6671,6 @@ export const ChatPanel = ({
         
         {/* DIREITA: Ações (flex-shrink: 0, não comprime o cliente) */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
-          {/* Ícones de Chamada Estilo WhatsApp: apenas fora do modo embedded e quando painel lateral fechado */}
-          {!isEmbedded && (
-            <>
-              <button
-                type="button"
-                onClick={() => showAlert('Chamada de vídeo via WhatsApp')}
-                className={cn(
-                  showDesktopSidebar ? "hidden 2xl:flex" : "flex",
-                  "w-7 h-7 sm:w-8 sm:h-8 rounded-lg items-center justify-center text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
-                )}
-                title="Chamada de vídeo"
-              >
-                <Video size={17} strokeWidth={1.75} />
-              </button>
-              <button
-                type="button"
-                onClick={() => showAlert('Ligação de voz via WhatsApp')}
-                className={cn(
-                  showDesktopSidebar ? "hidden 2xl:flex" : "flex",
-                  "w-7 h-7 sm:w-8 sm:h-8 rounded-lg items-center justify-center text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0 cursor-pointer"
-                )}
-                title="Ligação de voz"
-              >
-                <Phone size={16} strokeWidth={1.75} />
-              </button>
-            </>
-          )}
 
           {/* Botão Buscar - oculto se perfil lateral estiver aberto para dar espaço ao cliente */}
           <button
@@ -12706,7 +12689,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -15743,7 +15726,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     setEnviandoReciboWhatsApp(true);
     try {
-      // 1. Renderiza o canvas de alta resolução do recibo
+      // 1. Renderiza o canvas do recibo de forma leve e otimizada
       const canvas = await renderReceiptCanvas({
         order: { ...sale, customerPhone: rawPhone, customerName },
         companyName: currentCompany?.name || 'Rafa Arts Graphics',
@@ -15753,50 +15736,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         companyContact,
       });
 
-      // 2. Converte para Blob PNG e sobe no Storage
+      // 2. Converte para Blob PNG e coloca no card de texto (pendingImages + newMessage) via AppContext aguardando envio
       const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
-      let mediaUrl = '';
-
       if (blob) {
-        const caminho = `recibos/${cleanPhone}/${Date.now()}-recibo-${sale.id.slice(-8)}.png`;
-        const { error: upErr } = await supabase.storage.from('whatsapp-media').upload(caminho, blob, {
-          contentType: 'image/png',
-          upsert: false,
-        });
-        if (!upErr) {
-          const { data: pub } = supabase.storage.from('whatsapp-media').getPublicUrl(caminho);
-          mediaUrl = pub?.publicUrl || '';
-        } else {
-          console.warn('Falha no upload do recibo pro Storage:', upErr);
-        }
-      }
-
-      const senderRole = user?.isAdmin ? 'Adm' : 'Atendente';
-      const senderDisplay = user?.name ? `${user.name} (${senderRole})` : senderRole;
-
-      // 3. Dispara a imagem do recibo junto com a legenda completa via WhatsApp
-      let enviadoComSucesso = false;
-      if (mediaUrl) {
-        try {
-          const resp = await fetch('/api/whatsapp-send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-            body: JSON.stringify({
-              phone: cleanPhone,
-              text: legenda,
-              mediaUrl,
-              mediaType: 'image',
-              fileName: `Recibo-#${sale.id.slice(-8).toUpperCase()}.png`,
-              senderName: senderDisplay,
-            }),
-          });
-          const json = await resp.json().catch(() => ({}));
-          if (resp.ok && json.ok) {
-            enviadoComSucesso = true;
-          }
-        } catch (sendErr) {
-          console.error('Falha ao enviar recibo via API:', sendErr);
-        }
+        const file = new File([blob], `Recibo-${sale.id.slice(-8).toUpperCase()}.png`, { type: 'image/png' });
+        const previewUrl = URL.createObjectURL(blob);
+        setPendingReceiptAttachment({ file, previewUrl, caption: legenda });
       }
 
       // Se marcou para salvar este número na ficha do cliente no banco
@@ -15812,15 +15757,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setViewingReceiptSale(null);
       setIsSuccessModalOpen(false);
 
-      if (enviadoComSucesso) {
-        showAlert(`🧾 Recibo enviado com sucesso para ${customerName} (${rawPhone}) no WhatsApp!`);
-        await findOrCreateLeadAndOpenChat(cleanPhone, customerName, '');
-      } else {
-        // Fallback garantido: abre o chat com a legenda no rascunho
-        await findOrCreateLeadAndOpenChat(cleanPhone, customerName, legenda);
-      }
+      // Abre o chat do cliente com a imagem e a legenda prontas no card de texto
+      await openWhatsAppChat(cleanPhone, customerName, '');
     } catch (err: any) {
-      console.error('Erro ao gerar/enviar recibo:', err);
+      console.error('Erro ao gerar recibo para o chat:', err);
       setReceiptRecipientModal(null);
       setViewingReceiptSale(null);
       setIsSuccessModalOpen(false);

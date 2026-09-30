@@ -57,6 +57,8 @@ export interface AppContextType {
   setPendingOpenNotaNoPdv: (v: { saleId: string; aba: 'historico' | 'servicos' } | null) => void;
   pendingOpenLeadId: string | null;
   setPendingOpenLeadId: (id: string | null) => void;
+  pendingReceiptAttachment: { file: File; previewUrl: string; caption: string } | null;
+  setPendingReceiptAttachment: (v: { file: File; previewUrl: string; caption: string } | null) => void;
   // Mensagem exata que gerou a notificacao clicada: o ChatPanel rola ate ela e a destaca.
   pendingOpenMessageId: string | null;
   setPendingOpenMessageId: (id: string | null) => void;

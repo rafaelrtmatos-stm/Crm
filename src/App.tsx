@@ -731,6 +731,7 @@ export default function App() {
   const notifAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [prefilledCustomer, setPrefilledCustomer] = useState<{ id?: string, name: string, phone: string, leadId?: string, leadData?: any } | null>(null);
   const [pendingWhatsAppShare, setPendingWhatsAppShare] = useState<{ leadId: string; prefillMessage: string } | null>(null);
+  const [pendingReceiptAttachment, setPendingReceiptAttachment] = useState<{ file: File; previewUrl: string; caption: string } | null>(null);
 
   // Ponto único pra abrir uma conversa no WhatsApp Interno (aba Mensagens/Funil de Atendimento)
   // a partir de QUALQUER tela do CRM (Contratos, Orçamentos, Ficha do Cliente, Contatos, etc).
@@ -2966,6 +2967,8 @@ export default function App() {
     setPendingOpenNotaNoPdv,
     pendingOpenLeadId,
     setPendingOpenLeadId,
+    pendingReceiptAttachment,
+    setPendingReceiptAttachment,
     pendingOpenMessageId,
     setPendingOpenMessageId,
     notificacoesPendentes,
