@@ -856,18 +856,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!currentCompany) {
-      setUnrepliedLeadsCount(0);
-      return;
-    }
-    const loadCount = async () => {
-      const { data } = await supabase.from('leads').select('waiting_since, unread, last_message_direction, archived, status').eq('company_id', 'rafa-arts');
-      setUnrepliedLeadsCount((data || []).filter((r: any) => !r.archived && r.status !== 'CONCLUIDO' && (r.unread || (r.waiting_since !== null && r.waiting_since !== undefined && r.last_message_direction !== 'resolved'))).length);
-    };
-    loadCount();
-    const channel = supabase.channel('app-unreplied-count').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.rafa-arts` }, loadCount).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [currentCompany]);
+    setUnrepliedLeadsCount(notificacoesPendentes.length);
+  }, [notificacoesPendentes]);
 
   useEffect(() => {
     if (!currentCompany || !user) return;

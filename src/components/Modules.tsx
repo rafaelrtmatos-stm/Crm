@@ -5142,6 +5142,7 @@ export const ChatPanel = ({
       }
 
       setRootActiveTab?.('pos');
+      onClose?.();
     } catch (err) {
       console.error('Erro ao iniciar venda:', err);
       const fallbackName = clienteVinculado?.full_name || (!isPhoneLike(conversation.fullName) ? conversation.fullName : '') || conversation.contactName || conversation.name || 'Cliente';
@@ -5153,6 +5154,7 @@ export const ChatPanel = ({
         leadData: conversation,
       });
       setRootActiveTab?.('pos');
+      onClose?.();
     } finally {
       setIsStartingSale(false);
     }
@@ -8604,7 +8606,7 @@ const LEAD_SORT_OPTIONS: { key: LeadSortKey; label: string; defaultDir: 'asc' | 
 const LEAD_SORT_STORAGE_KEY = 'crm_lead_sort';
 
 export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | null, user: AppUser | null }) => {
-  const { pendingOpenLeadId, setPendingOpenLeadId, pendingWhatsAppShare, setPendingWhatsAppShare } = React.useContext(AppContext)!;
+  const { pendingOpenLeadId, setPendingOpenLeadId, pendingWhatsAppShare, setPendingWhatsAppShare, notificacoesPendentes } = React.useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [selectedFunnelId, setSelectedFunnelId] = useState<string>('');
@@ -10398,7 +10400,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
               fallbackFunnelId={selectedFunnelId}
               isColumnCollapsed={isColumnCollapsed}
               onToggleColumnCollapse={() => setIsColumnCollapsed(v => !v)}
-              unreadTotalCount={leads.filter(l => (l.waitingSince || l.unread)).length || 295}
+              unreadTotalCount={notificacoesPendentes.length}
               initialDraft={pendingWhatsAppShare?.leadId === selectedLead.id ? pendingWhatsAppShare.prefillMessage : undefined}
               onDraftConsumed={() => setPendingWhatsAppShare && setPendingWhatsAppShare(null)}
               onLeadPatched={(leadId, patch) => {
@@ -11269,7 +11271,7 @@ const GenericListView = ({ title, subtitle, columns, data, icon, onAdd, noHeader
 
 // --- MESSAGES ---
 export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { currentCompany: Company | null, user: AppUser | null, preselectedLeadId?: string }) => {
-  const { pendingWhatsAppShare, setPendingWhatsAppShare, pendingOpenLeadId, setPendingOpenLeadId } = React.useContext(AppContext)!;
+  const { pendingWhatsAppShare, setPendingWhatsAppShare, pendingOpenLeadId, setPendingOpenLeadId, notificacoesPendentes } = React.useContext(AppContext)!;
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [chatInitialDraft, setChatInitialDraft] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -11876,7 +11878,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         currentCompany={currentCompany}
         user={user}
         onClose={() => setSelectedChat(null)}
-        unreadTotalCount={leads.filter(l => (l.waitingSince || (l as any).unread)).length || 295}
+        unreadTotalCount={notificacoesPendentes.length}
         initialDraft={chatInitialDraft}
         onDraftConsumed={() => setChatInitialDraft('')}
         onLeadPatched={(leadId, patch) => {
@@ -15575,7 +15577,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         phone: prefilledCustomer.phone,
         channel: 'WhatsApp'
       });
-      setIsLinkedChatOpen(true);
+      // No mobile (< 768px), não abre a conversa na tela; abre direto apenas o terminal de vendas
+      const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+      setIsLinkedChatOpen(isDesktop);
     }
     setPrefilledCustomer(null);
     setActiveTab('venda');
@@ -17191,7 +17195,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [discountItemIndex, setDiscountItemIndex] = useState<number | null>(null);
   const [discountMode, setDiscountMode] = useState<'percentual' | 'valor' | 'preco'>('percentual');
-  const [discountInput, setDiscountInput] = useState<number | ''>('');
+  const [discountInput, setDiscountInput] = useState<number | string>('');
 
   const openItemDiscount = (index: number) => {
     setDiscountItemIndex(index);
@@ -17205,7 +17209,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const updated = [...prev];
       const item = updated[discountItemIndex];
       const original = item.precoOriginal ?? item.price;
-      const val = discountInput === '' ? 0 : Number(discountInput);
+      const parsedVal = typeof discountInput === 'string' ? parseFloat(discountInput.replace(',', '.')) : Number(discountInput);
+      const val = isNaN(parsedVal) ? 0 : parsedVal;
       const qty = item.quantity || 1;
 
       // Subtotal ORIGINAL da linha inteira (todas as unidades, considerando area se houver)
@@ -17268,7 +17273,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [saleDiscountValue, setSaleDiscountValue] = useState<number>(0);
   const [saleDiscountMode, setSaleDiscountMode] = useState<'percentual' | 'valor' | 'final'>('valor');
-  const [saleDiscountInput, setSaleDiscountInput] = useState<number | ''>('');
+  const [saleDiscountInput, setSaleDiscountInput] = useState<number | string>('');
   const [isSaleDiscountModalOpen, setIsSaleDiscountModalOpen] = useState<boolean>(false);
   // Credito acumulado do cliente (ex: troco de dinheiro que ele nao levou), abatido automaticamente
   // do total da venda quando aplicado aqui. Fonte da verdade e' clientes.saldo_credito.
@@ -17299,7 +17304,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // Aplica o desconto da venda a partir do modo escolhido (%, R$ de desconto, ou valor final desejado)
   const applySaleDiscountInput = () => {
-    const val = saleDiscountInput === '' ? 0 : Number(saleDiscountInput);
+    const parsedVal = typeof saleDiscountInput === 'string' ? parseFloat(saleDiscountInput.replace(',', '.')) : Number(saleDiscountInput);
+    const val = isNaN(parsedVal) ? 0 : parsedVal;
     let novoDesconto = 0;
     const baseTotal = activeRawTotal;
     if (saleDiscountMode === 'percentual') {
@@ -22022,12 +22028,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     )}
                     <input 
                       onFocus={(e: any) => e.target.select()}
-                      type="number"
-                      step="any"
-                      min={0}
+                      type="text"
                       inputMode="decimal"
                       value={saleDiscountInput}
-                      onChange={(e) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => setSaleDiscountInput(e.target.value)}
                       placeholder={saleDiscountMode === 'percentual' ? '% de desconto' : saleDiscountMode === 'valor' ? 'R$ de desconto' : 'R$ valor final'}
                       className="flex-1 min-w-[90px] h-7 bg-slate-900/80 border border-white/10 rounded-lg px-2 text-[10px] text-white focus:outline-none focus:border-primary-500 font-bold"
                     />
@@ -23437,17 +23441,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          <div className="space-y-4 p-2">
             <p className="text-xs text-white/50">Item: <span className="text-white font-bold">{cart[discountItemIndex].name}</span>{itemQty > 1 && <span className="text-white/40"> ({itemQty} unidades)</span>}</p>
             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-               <button onClick={() => setDiscountMode('percentual')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'percentual' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. %</button>
-               <button onClick={() => setDiscountMode('valor')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'valor' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Desc. R$</button>
-               <button onClick={() => setDiscountMode('preco')} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all", discountMode === 'preco' ? "bg-primary-500 text-slate-900" : "text-white/40")}>Editar Preço</button>
+               <button type="button" onClick={() => { setDiscountMode('percentual'); setDiscountInput(''); }} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer", discountMode === 'percentual' ? "bg-primary-500 text-slate-900 shadow-sm" : "text-white/40 hover:text-white/70")}>Desc. %</button>
+               <button type="button" onClick={() => { setDiscountMode('valor'); setDiscountInput(''); }} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer", discountMode === 'valor' ? "bg-primary-500 text-slate-900 shadow-sm" : "text-white/40 hover:text-white/70")}>Desc. R$</button>
+               <button type="button" onClick={() => { setDiscountMode('preco'); setDiscountInput(''); }} className={cn("flex-1 py-2 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer", discountMode === 'preco' ? "bg-primary-500 text-slate-900 shadow-sm" : "text-white/40 hover:text-white/70")}>Editar Preço</button>
             </div>
             <Input
               label={discountMode === 'percentual' ? 'Desconto (%)' : discountMode === 'valor' ? `Desconto (R$)${itemQty > 1 ? ' — total das ' + itemQty + ' unidades' : ''}` : `Novo Preço${itemQty > 1 ? ` (R$) — TOTAL das ${itemQty} unidades juntas` : ' (R$)'}`}
-              type="number"
-              step="any"
+              type="text"
+              inputMode="decimal"
               autoFocus
               value={discountInput}
-              onChange={(e: any) => setDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
+              onChange={(e: any) => setDiscountInput(e.target.value)}
             />
             <p className="text-[10px] text-white/30">
               {discountMode === 'preco'
@@ -23460,7 +23464,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </p>
             <div className="flex justify-end gap-3 pt-1">
                <Button variant="ghost" onClick={() => setDiscountItemIndex(null)}>Cancelar</Button>
-               <Button className="bg-primary-500 text-slate-900 border-none" onClick={applyItemDiscount}>{discountMode === 'preco' ? 'Salvar Preço' : 'Aplicar Desconto'}</Button>
+               <Button className="bg-primary-500 text-slate-900 border-none cursor-pointer" onClick={applyItemDiscount}>{discountMode === 'preco' ? 'Salvar Preço' : 'Aplicar Desconto'}</Button>
             </div>
          </div>
        </Modal>
@@ -23542,25 +23546,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     ? 'Valor do Desconto em Reais (R$)' 
                     : 'Valor Final Desejado para a Nota (R$)'
               }
-              type="number"
-              step="any"
-              min={0}
+              type="text"
               autoFocus
               inputMode="decimal"
               placeholder={saleDiscountMode === 'percentual' ? 'Ex: 10' : saleDiscountMode === 'valor' ? 'Ex: 15,00' : `Ex: ${(cartRawTotal * 0.9).toFixed(0)}`}
               value={saleDiscountInput}
-              onChange={(e: any) => setSaleDiscountInput(e.target.value === '' ? '' : Number(e.target.value))}
+              onChange={(e: any) => setSaleDiscountInput(e.target.value)}
             />
-            {saleDiscountMode === 'percentual' && saleDiscountInput !== '' && (
-              <p className="text-[10px] text-emerald-400 font-bold mt-1">
-                = R$ {((cartRawTotal * Number(saleDiscountInput)) / 100).toFixed(2).replace('.', ',')} de desconto
-              </p>
-            )}
-            {saleDiscountMode === 'final' && saleDiscountInput !== '' && (
-              <p className="text-[10px] text-emerald-400 font-bold mt-1">
-                = R$ {Math.max(0, cartRawTotal - Number(saleDiscountInput)).toFixed(2).replace('.', ',')} de desconto
-              </p>
-            )}
+            {saleDiscountMode === 'percentual' && saleDiscountInput !== '' && (() => {
+              const num = parseFloat(String(saleDiscountInput).replace(',', '.')) || 0;
+              return (
+                <p className="text-[10px] text-emerald-400 font-bold mt-1">
+                  = R$ {((cartRawTotal * num) / 100).toFixed(2).replace('.', ',')} de desconto
+                </p>
+              );
+            })()}
+            {saleDiscountMode === 'final' && saleDiscountInput !== '' && (() => {
+              const num = parseFloat(String(saleDiscountInput).replace(',', '.')) || 0;
+              return (
+                <p className="text-[10px] text-emerald-400 font-bold mt-1">
+                  = R$ {Math.max(0, cartRawTotal - num).toFixed(2).replace('.', ',')} de desconto
+                </p>
+              );
+            })()}
           </div>
 
           <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">

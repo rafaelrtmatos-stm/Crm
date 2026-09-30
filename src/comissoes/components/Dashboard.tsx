@@ -625,7 +625,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Featured Card de Previsão de Recebimento */}
         <div className="lg:col-span-1">
           <ReceiptForecastCard
-            baseSalary={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.salarioBase : (userSettings.modalidadeRemuneracao === 'meta' ? 0 : userSettings.baseSalary)}
+            baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : userSettings.baseSalary}
             totalCommission={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalComissao : weeklyStats.weeklyCommission}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction}

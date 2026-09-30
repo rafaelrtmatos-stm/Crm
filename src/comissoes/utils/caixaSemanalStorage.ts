@@ -345,20 +345,30 @@ function contarSemanasSalario(dataInicio: string, start: string, end: string): n
   const inicioEfetivo = dataInicio > start ? dataInicio : start;
   if (inicioEfetivo > end) return 0;
 
-  const d = new Date(`${inicioEfetivo}T00:00:00`);
-  const day = d.getDay(); // 0 = Dom ... 6 = Sáb
-  const diffToSaturday = -(day + 1);
-  const sabado = new Date(d);
-  sabado.setDate(d.getDate() + diffToSaturday);
+  const inicioDate = new Date(`${inicioEfetivo}T00:00:00`);
+  const fimDate = new Date(`${end}T00:00:00`);
+  const diffDays = Math.round((fimDate.getTime() - inicioDate.getTime()) / 86400000) + 1;
 
-  const fim = new Date(`${end}T00:00:00`);
+  // Se o período filtrado tem até 8 dias (ex.: "Hoje", "Ontem" ou "Esta Semana" de Sábado a Sexta/Sábado),
+  // o salário base semanal corresponde a EXATAMENTE 1 semana de trabalho (nunca dobra).
+  if (diffDays <= 8) {
+    return 1;
+  }
+
+  // Ciclo oficial de produção semanal: SÁBADO até SEXTA-FEIRA.
+  // diffToSaturday = -((day + 1) % 7) acha o sábado de início do ciclo corrente.
+  const day = inicioDate.getDay(); // 0 = Dom ... 6 = Sáb
+  const diffToSaturday = -((day + 1) % 7);
+  const sabado = new Date(inicioDate);
+  sabado.setDate(inicioDate.getDate() + diffToSaturday);
+
   let count = 0;
   const cursor = new Date(sabado);
-  while (cursor <= fim) {
+  while (cursor <= fimDate) {
     count++;
     cursor.setDate(cursor.getDate() + 7);
   }
-  return count;
+  return Math.max(1, count);
 }
 
 // --- Cálculo do resumo ---
@@ -443,7 +453,8 @@ export function calcularResumoNoIntervalo(
   const totalProducao = validServices.reduce((acc, s) => acc + (s.productionValue || 0), 0);
   const totalComissaoServicos = validServices.reduce((acc, s) => acc + (s.commissionValue || 0), 0);
 
-  const qtdSemanas = contarSemanasSalario(dataInicioReal, inicio, fim);
+  const diffDiasIntervalo = Math.abs(Math.round((new Date(`${fim}T00:00:00`).getTime() - new Date(`${inicio}T00:00:00`).getTime()) / 86400000)) + 1;
+  const qtdSemanas = diffDiasIntervalo <= 8 ? 1 : contarSemanasSalario(dataInicioReal, inicio, fim);
   const salarioBaseTotal = salarioBase * qtdSemanas;
 
   const remuneracao = calcularRemuneracaoSemanal(

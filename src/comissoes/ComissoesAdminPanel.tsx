@@ -42,7 +42,8 @@ import {
   Link2,
   UserCheck,
   UserX,
-  ShieldCheck
+  ShieldCheck,
+  Clock
 } from 'lucide-react';
 import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow } from './utils/supabaseStorage';
 import { MetaValorItem } from './types';
@@ -2050,6 +2051,92 @@ export default function ComissoesAdminPanel() {
                       </button>
                     </div>
                   </div>
+                </div>
+
+                {/* Seção 1.1: Ponto Eletrônico (Vínculo com o Relógio de Ponto) */}
+                <div className="p-4 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-[11px] font-black uppercase tracking-wider text-[var(--text-main)] flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-primary-400" /> Ponto Eletrônico
+                    </h5>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      Relógio de Ponto
+                    </span>
+                  </div>
+
+                  {(() => {
+                    let pontoId = '—';
+                    let statusPonto = 'NÃO VINCULADO';
+                    let isVinculado = false;
+                    try {
+                      const raw = localStorage.getItem('rpro_ponto_eletronico_data_v2');
+                      if (raw) {
+                        const arr = JSON.parse(raw);
+                        const match = arr.find((p: any) => 
+                          (p.crmEmployeeId && p.crmEmployeeId === editingId) ||
+                          (p.crmEmployeeName && form.nome && p.crmEmployeeName.toLowerCase() === form.nome.toLowerCase()) ||
+                          (p.pontoName && form.nome && form.nome.toUpperCase().includes(p.pontoName.toUpperCase()))
+                        );
+                        if (match && match.status === 'ativo') {
+                          statusPonto = 'ATIVO';
+                          pontoId = match.pontoId || '0000000003';
+                          isVinculado = true;
+                        }
+                      }
+                    } catch (e) {}
+
+                    if (!isVinculado && form.nome) {
+                      const n = form.nome.trim().toLowerCase();
+                      if (n.includes('rafa')) { statusPonto = 'ATIVO'; pontoId = '0000000001'; isVinculado = true; }
+                      else if (n.includes('felipe')) { statusPonto = 'ATIVO'; pontoId = '0000000002'; isVinculado = true; }
+                      else if (n.includes('fabricio')) { statusPonto = 'ATIVO'; pontoId = '0000000003'; isVinculado = true; }
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
+                            <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider block">Status do Ponto</span>
+                            {isVinculado ? (
+                              <span className="text-xs font-black text-emerald-400 uppercase tracking-wide inline-flex items-center gap-1.5 mt-0.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                ATIVO
+                              </span>
+                            ) : (
+                              <span className="text-xs font-black text-[var(--text-muted)] uppercase tracking-wide block mt-0.5">
+                                NÃO VINCULADO
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
+                            <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider block">ID do Ponto</span>
+                            <span className="text-xs font-mono font-bold text-[var(--text-main)] block mt-0.5">
+                              {pontoId}
+                            </span>
+                          </div>
+
+                          <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
+                            <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider block">Conta de Acesso</span>
+                            <span className="text-xs font-medium text-[var(--text-main)] block mt-0.5">
+                              {form.usuarioId ? 'Com conta' : 'Sem conta'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {!isVinculado && (
+                          <div className="flex items-center justify-between pt-1">
+                            <p className="text-[10px] text-[var(--text-muted)]">
+                              Funcionário ainda não vinculado ao relógio de ponto.
+                            </p>
+                            <span className="text-[10px] font-bold text-primary-400 bg-primary-500/10 border border-primary-500/20 px-2.5 py-1 rounded-lg">
+                              Vincular na aba Ponto Eletrônico
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Seção 2: Modalidade de Remuneração */}

@@ -56,8 +56,13 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
 
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [descontos, setDescontos] = useState<Desconto[]>([]);
-  const [userSettings, setUserSettings] = useState<UserSettings>({
-    userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
+  const [userSettings, setUserSettings] = useState<UserSettings>(() => {
+    if (presetColaborador) {
+      return colaboradorToUserSettings(presetColaborador);
+    }
+    return {
+      userName: '', userRole: '', baseSalary: 0, defaultCommissionRate: 10, weeklyGoal: 0, themePreference: 'dark',
+    };
   });
   const [loadingData, setLoadingData] = useState(false);
 
