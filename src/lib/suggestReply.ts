@@ -13,9 +13,10 @@ export async function suggestReplies(
   clientName?: string,
   userId?: string
 ): Promise<string[]> {
+  const effectiveUserId = userId || (typeof window !== 'undefined' ? localStorage.getItem('rpro_remembered_user_id') || 'admin-rafael' : '');
   const resp = await fetch('/api/ai/suggest-reply', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-user-id': userId || '' },
+    headers: { 'Content-Type': 'application/json', 'x-user-id': effectiveUserId },
     body: JSON.stringify({ clientMessage, history, clientName }),
   });
 

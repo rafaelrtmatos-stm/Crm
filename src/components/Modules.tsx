@@ -3873,7 +3873,11 @@ export const ChatPanel = ({
   const [isQuickRepliesModalOpen, setIsQuickRepliesModalOpen] = useState(false);
   const [quickRepliesSearch, setQuickRepliesSearch] = useState('');
   const quickRepliesBtnRef = useRef<HTMLButtonElement>(null);
-  const [quickRepliesPos, setQuickRepliesPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
+  const [quickRepliesPos, setQuickRepliesPos] = useState<{ bottom: number; left: number }>({ bottom: 80, left: 16 });
+  const suggestBtnRef = useRef<HTMLButtonElement>(null);
+  const melhorarBtnRef = useRef<HTMLButtonElement>(null);
+  const [suggestPos, setSuggestPos] = useState<{ bottom: number; left: number }>({ bottom: 80, left: 16 });
+  const [melhorarPos, setMelhorarPos] = useState<{ bottom: number; left: number }>({ bottom: 80, left: 140 });
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showQuickTemplates, setShowQuickTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -4147,6 +4151,13 @@ export const ChatPanel = ({
   const handleGenerateRobozinhoSuggestion = async () => {
     const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
     if (!lastIncoming) { showAlert('Ainda não tem mensagem do cliente nessa conversa pra sugerir uma resposta.'); return; }
+    if (suggestBtnRef.current) {
+      const r = suggestBtnRef.current.getBoundingClientRect();
+      setSuggestPos({
+        bottom: window.innerHeight - r.top + 8,
+        left: Math.max(12, Math.min(r.left, window.innerWidth - 380 - 12))
+      });
+    }
     setIsGeneratingSuggestion(true);
     try {
       const history: SuggestReplyHistoryItem[] = messages
@@ -4173,7 +4184,12 @@ export const ChatPanel = ({
           produtos,
           enabledPaymentMethods: configRow?.enabled_payment_methods || [],
         });
-        setNewMessage(suggestion);
+        if (suggestion) {
+          setRobozinhoSuggestions([suggestion]);
+          setShowRobozinhoSuggestions(true);
+        } else {
+          showAlert('Não foi possível gerar a sugestão agora.');
+        }
       } catch (fallbackErr) {
         console.error('Erro no fallback da sugestão:', fallbackErr);
         showAlert('Não foi possível gerar a sugestão agora.');
@@ -4196,9 +4212,9 @@ export const ChatPanel = ({
     try {
       const resultado = await assistWriting(texto, action, user?.id);
       setNewMessage(resultado);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro no assistente de escrita:', err);
-      showAlert('Não foi possível processar o texto.');
+      showAlert(err?.message || 'Não foi possível processar o texto.');
     } finally {
       setIsAssistingWriting(false);
     }
@@ -7528,13 +7544,23 @@ export const ChatPanel = ({
 
               {/* Chat Input - FIXO */}
               <div className="p-2 sm:p-2.5 bg-slate-950/90 border-t border-white/10 space-y-1.5 flex-shrink-0 backdrop-blur-xl">
-                {/* BARRA DE AÇÕES DE IA & RESPOSTAS RÁPIDAS */}
+                {/* BARRA DE AÇÕES DE IA (Sugerir resposta & Melhorar texto) */}
                 <div className="flex items-center gap-1.5 pb-0.5 overflow-x-auto no-scrollbar flex-nowrap">
                   {/* [Sugerir resposta] — Ação Principal */}
                   <div className="relative shrink-0">
                     <button
+                      ref={suggestBtnRef}
                       type="button"
-                      onClick={handleGenerateRobozinhoSuggestion}
+                      onClick={() => {
+                        if (suggestBtnRef.current) {
+                          const r = suggestBtnRef.current.getBoundingClientRect();
+                          setSuggestPos({
+                            bottom: window.innerHeight - r.top + 8,
+                            left: Math.max(12, Math.min(r.left, window.innerWidth - 380 - 12))
+                          });
+                        }
+                        handleGenerateRobozinhoSuggestion();
+                      }}
                       disabled={isGeneratingSuggestion}
                       className="text-[9.5px] font-black uppercase tracking-wider px-3 py-1 rounded-lg bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white shadow-md shadow-red-950/50 whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 active:scale-95 border border-red-500/40"
                       title="O Robozinho lê a última mensagem do cliente e o contexto recente da conversa e sugere 3 respostas pra você escolher"
@@ -7542,85 +7568,118 @@ export const ChatPanel = ({
                       {isGeneratingSuggestion ? <Loader2 size={11} className="animate-spin" /> : <Bot size={11} />}
                       <span>{isGeneratingSuggestion ? 'Pensando...' : 'Sugerir resposta'}</span>
                     </button>
-                    {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && (
+
+                    {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && typeof document !== 'undefined' && createPortal(
                       <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowRobozinhoSuggestions(false)} />
-                        <div className="absolute bottom-full mb-2 left-0 min-w-[280px] max-w-[360px] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl z-50 p-2 space-y-1">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 px-2 py-0.5">Sugestões de Resposta</p>
-                          {robozinhoSuggestions.map((sugestao, i) => (
+                        <div className="fixed inset-0 z-[99998] bg-black/40 backdrop-blur-xs" onClick={() => setShowRobozinhoSuggestions(false)} />
+                        <div 
+                          className="fixed w-[calc(100vw-24px)] sm:w-96 max-w-[380px] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[99999] p-3 space-y-2 animate-in fade-in zoom-in-95 duration-150"
+                          style={{ bottom: suggestPos.bottom, left: suggestPos.left }}
+                        >
+                          <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                            <div className="flex items-center gap-1.5">
+                              <Bot size={13} className="text-red-400" />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white">Sugestões de Resposta</span>
+                            </div>
                             <button
-                              key={i}
                               type="button"
-                              onClick={() => { setNewMessage(sugestao); setShowRobozinhoSuggestions(false); }}
-                              className="w-full text-left px-3 py-2 rounded-xl text-[10.5px] font-medium text-white/90 hover:bg-red-500/20 hover:text-white border border-transparent hover:border-red-500/30 transition-all leading-relaxed cursor-pointer"
+                              onClick={() => setShowRobozinhoSuggestions(false)}
+                              className="text-white/40 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer"
                             >
-                              {sugestao}
+                              <X size={12} />
                             </button>
-                          ))}
+                          </div>
+                          <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                            {robozinhoSuggestions.map((sugestao, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => { setNewMessage(sugestao); setShowRobozinhoSuggestions(false); }}
+                                className="w-full text-left p-2.5 rounded-xl text-[11px] font-medium text-white/90 hover:bg-red-500/20 hover:text-white border border-white/5 hover:border-red-500/30 transition-all leading-relaxed cursor-pointer"
+                              >
+                                {sugestao}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </>
+                      </>,
+                      document.body
                     )}
                   </div>
 
                   {/* [Melhorar] — Ação Secundária */}
                   <div className="relative shrink-0">
                     <button
-                      type="button"
-                      onClick={() => setShowWritingAssistMenu(v => !v)}
-                      disabled={isAssistingWriting || !newMessage.trim()}
-                      className="text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 disabled:opacity-40 active:scale-95"
-                      title="Ajustar o texto que você já escreveu (corrigir, deixar profissional, amigável, etc.)"
-                    >
-                      {isAssistingWriting ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                      <span>{isAssistingWriting ? 'Processando...' : 'Melhorar'}</span>
-                    </button>
-                    {showWritingAssistMenu && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowWritingAssistMenu(false)} />
-                        <div className="absolute bottom-full mb-2 left-0 min-w-[220px] bg-slate-900 border border-white/15 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-white/40 px-2 py-0.5">Aprimorar Texto</p>
-                          {WRITING_ASSIST_ACTIONS.map(({ action, label }) => (
-                            <button
-                              key={action}
-                              type="button"
-                              onClick={() => handleWritingAssist(action)}
-                              className="w-full text-left px-3 py-1.5 rounded-xl text-[10.5px] font-bold text-white/80 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* [Rápidas] — Ação Secundária com lista para CIMA */}
-                  <div className="relative shrink-0">
-                    <button
-                      ref={quickRepliesBtnRef}
+                      ref={melhorarBtnRef}
                       type="button"
                       onClick={() => {
-                        const r = quickRepliesBtnRef.current?.getBoundingClientRect();
-                        if (r) {
-                          setQuickRepliesPos({
+                        const texto = newMessage.trim();
+                        if (!texto) {
+                          showAlert('Digite uma mensagem primeiro no campo de texto para a IA melhorar ou corrigir!');
+                          return;
+                        }
+                        if (melhorarBtnRef.current) {
+                          const r = melhorarBtnRef.current.getBoundingClientRect();
+                          setMelhorarPos({
                             bottom: window.innerHeight - r.top + 8,
-                            left: Math.max(12, Math.min(r.left, window.innerWidth - 340 - 12))
+                            left: Math.max(12, Math.min(r.left, window.innerWidth - 260 - 12))
                           });
                         }
-                        setShowQuickReplies(v => !v);
-                        setQuickRepliesSearch('');
+                        setShowWritingAssistMenu(v => !v);
                       }}
+                      disabled={isAssistingWriting}
                       className={cn(
-                        "text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1 active:scale-95",
-                        showQuickReplies 
-                          ? "bg-red-500/20 text-red-300 border-red-500/40" 
-                          : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border-white/10"
+                        "text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 active:scale-95",
+                        !newMessage.trim()
+                          ? "bg-white/5 text-white/40 border-white/5 hover:bg-white/10"
+                          : showWritingAssistMenu
+                            ? "bg-purple-500/20 text-purple-300 border-purple-500/40"
+                            : "bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border-white/10"
                       )}
-                      title="Mensagens Rápidas (atalho / no chat)"
+                      title="Ajustar o texto que você já escreveu (corrigir, deixar profissional, amigável, etc.)"
                     >
-                      <Sparkles size={10} className={showQuickReplies ? "text-red-400" : "text-amber-400"} />
-                      <span>Rápidas</span>
+                      {isAssistingWriting ? <Loader2 size={10} className="animate-spin text-purple-400" /> : <Wand2 size={10} className="text-purple-400" />}
+                      <span>{isAssistingWriting ? 'Processando...' : 'Melhorar'}</span>
                     </button>
+
+                    {showWritingAssistMenu && typeof document !== 'undefined' && createPortal(
+                      <>
+                        <div className="fixed inset-0 z-[99998] bg-black/40 backdrop-blur-xs" onClick={() => setShowWritingAssistMenu(false)} />
+                        <div 
+                          className="fixed min-w-[220px] max-w-[280px] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[99999] p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+                          style={{ bottom: melhorarPos.bottom, left: melhorarPos.left }}
+                        >
+                          <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                            <div className="flex items-center gap-1.5">
+                              <Wand2 size={12} className="text-purple-400" />
+                              <p className="text-[10px] font-black uppercase tracking-widest text-white">Aprimorar Texto</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowWritingAssistMenu(false)}
+                              className="text-white/40 hover:text-white p-0.5 rounded cursor-pointer"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                          <div className="space-y-0.5">
+                            {WRITING_ASSIST_ACTIONS.map(({ action, label }) => (
+                              <button
+                                key={action}
+                                type="button"
+                                onClick={() => handleWritingAssist(action)}
+                                className="w-full text-left px-3 py-1.5 rounded-xl text-[10.5px] font-bold text-white/80 hover:bg-purple-500/20 hover:text-purple-200 transition-colors cursor-pointer"
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                  </div>
+                </div>
 
                     {showQuickReplies && typeof document !== 'undefined' && createPortal(
                       <>
@@ -7635,28 +7694,13 @@ export const ChatPanel = ({
                               <Sparkles size={12} className="text-amber-400" />
                               <span className="text-[10px] font-black uppercase tracking-wider text-white">Mensagens Rápidas</span>
                             </div>
-                            <div className="flex items-center gap-1">
-                              {isUserAdmin && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowQuickReplies(false);
-                                    setIsQuickRepliesModalOpen(true);
-                                  }}
-                                  className="text-[9px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 rounded cursor-pointer"
-                                  title="Editar mensagens e fotos salvas"
-                                >
-                                  Editar
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => setShowQuickReplies(false)}
-                                className="text-white/40 hover:text-white p-0.5 rounded"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowQuickReplies(false)}
+                              className="text-white/40 hover:text-white p-0.5 rounded cursor-pointer"
+                            >
+                              <X size={12} />
+                            </button>
                           </div>
 
                           {/* Campo de Busca Rápida */}
@@ -7745,46 +7789,26 @@ export const ChatPanel = ({
                             })()}
                           </div>
 
-                          {/* Rodapé direcionando para a aba Integrações / Modal (apenas Admin) */}
+                          {/* Rodapé: botão único para o Admin gerenciar as mensagens rápidas */}
                           {isUserAdmin && (
                             <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] text-white/40">
                               <span>Atalho <kbd className="font-mono text-white/70 bg-white/10 px-1 py-0.5 rounded">/</kbd></span>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowQuickReplies(false);
-                                    setIsQuickRepliesModalOpen(true);
-                                  }}
-                                  className="text-amber-400 hover:text-amber-300 hover:underline font-bold cursor-pointer"
-                                >
-                                  ⚙️ Gerenciar
-                                </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowQuickReplies(false);
-                                    if (typeof window !== 'undefined') {
-                                      localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
-                                      window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
-                                    }
-                                    if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
-                                  }}
-                                  className="text-red-400 hover:text-red-300 hover:underline font-bold cursor-pointer"
-                                  title="Abrir em tela cheia na aba Integrações"
-                                >
-                                  Integrações →
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowQuickReplies(false);
+                                  setIsQuickRepliesModalOpen(true);
+                                }}
+                                className="text-amber-400 hover:text-amber-300 hover:underline font-bold cursor-pointer flex items-center gap-1"
+                              >
+                                ⚙️ Gerenciar
+                              </button>
                             </div>
                           )}
                         </div>
                       </>,
                       document.body
                     )}
-                  </div>
-                </div>
 
                 {reenvioPendente && (
                   <div className="flex items-center gap-2 bg-rose-950/50 border border-rose-500/30 rounded-xl px-3 py-1.5">
@@ -8181,29 +8205,13 @@ export const ChatPanel = ({
                <div className="flex items-center justify-between gap-3">
                   <h3 className="text-xl font-bold text-white italic">Mensagens Salvas</h3>
                   {isUserAdmin && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsQuickRepliesModalOpen(true)}
-                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-                      >
-                        <Settings size={13} /> Gerenciar Respostas Rápidas
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (typeof window !== 'undefined') {
-                            localStorage.setItem('rpro_integracoes_tab', 'mensagens_rapidas');
-                            window.dispatchEvent(new CustomEvent('open-integracoes-tab', { detail: 'mensagens_rapidas' }));
-                          }
-                          if (setRootActiveTab) setRootActiveTab('robozinho_rafa');
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 text-xs font-bold transition-all cursor-pointer"
-                        title="Abrir tela cheia em Integrações"
-                      >
-                        Integrações →
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickRepliesModalOpen(true)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                    >
+                      <Settings size={13} /> Gerenciar Respostas Rápidas
+                    </button>
                   )}
                </div>
                <p className="text-xs text-white/40 italic">Clique em uma mensagem para preenchê-la no campo de envio.</p>
