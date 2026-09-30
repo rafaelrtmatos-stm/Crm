@@ -29,8 +29,15 @@ export interface ReceiptRenderInput {
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = reject;
+    img.onerror = () => {
+      // Se falhar com crossOrigin (ex: CORS de asset externo), tenta sem crossOrigin como fallback
+      const fallbackImg = new Image();
+      fallbackImg.onload = () => resolve(fallbackImg);
+      fallbackImg.onerror = reject;
+      fallbackImg.src = src;
+    };
     img.src = src;
   });
 }

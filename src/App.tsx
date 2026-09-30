@@ -748,9 +748,11 @@ export default function App() {
     if (!currentCompany) return;
     try {
       const { data: leadsRows } = await supabase.from('leads').select('id, phone, archived').eq('company_id', 'rafa-arts');
+      const ultimos8 = phoneDigits.slice(-8);
       const existing = (leadsRows || []).find((r: any) => {
         const p = (r.phone || '').replace(/\D/g, '');
-        return p && (p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
+        if (!p) return false;
+        return p === phoneDigits || (ultimos8.length >= 8 && (p.endsWith(ultimos8) || phoneDigits.endsWith(p.slice(-8))));
       });
 
       let leadId: string;
@@ -788,9 +790,24 @@ export default function App() {
           last_name: nameParts.slice(1).join(' ') || '',
           phone: phoneDigits,
           source_type: 'WhatsApp',
-        }).select().single();
-        if (error) throw error;
-        leadId = newLead.id;
+        }).select().maybeSingle();
+
+        if (error) {
+          // Se já existia um lead com esse telefone (conflito de chave única ou concorrência)
+          const { data: leadExistente } = await supabase
+            .from('leads')
+            .select('id')
+            .eq('company_id', 'rafa-arts')
+            .eq('phone', phoneDigits)
+            .maybeSingle();
+          if (leadExistente?.id) {
+            leadId = leadExistente.id;
+          } else {
+            leadId = `lead_${Date.now()}`;
+          }
+        } else {
+          leadId = newLead?.id || `lead_${Date.now()}`;
+        }
       }
 
       setPendingWhatsAppShare({ leadId, prefillMessage });

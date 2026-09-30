@@ -799,6 +799,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
 
   // Finalize Sale
   const handleFinalizeSale = async () => {
+    if (isSavingSale) return;
     if (cart.length === 0) {
       showAlert('O carrinho está vazio.');
       return;

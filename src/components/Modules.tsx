@@ -8837,7 +8837,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       if (pendingOpenLeadId === targetLeadId) setPendingOpenLeadId(null);
     } else {
       // Se a lista de leads local ainda não carregou ou o lead acabou de ser criado, busca direto no Supabase
-      supabase.from('leads').select('*').eq('id', targetLeadId).single().then(({ data, error }) => {
+      supabase.from('leads').select('*').eq('id', targetLeadId).maybeSingle().then(({ data, error }) => {
         if (data && !error) {
           const mapped = mapLeadRow(data);
           setLeads(prev => {
@@ -15887,17 +15887,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setEnviandoReciboWhatsApp(true);
     try {
       // 1. Renderiza o canvas do recibo de forma leve e otimizada
-      const canvas = await renderReceiptCanvas({
-        order: { ...sale, customerPhone: rawPhone, customerName },
-        companyName: currentCompany?.name || 'Rafa Arts Graphics',
-        customerPhone: rawPhone,
-        logoLightUrl,
-        logoDarkUrl,
-        companyContact,
-      });
+      let blob: Blob | null = null;
+      try {
+        const canvas = await renderReceiptCanvas({
+          order: { ...sale, customerPhone: rawPhone, customerName },
+          companyName: currentCompany?.name || 'Rafa Arts Graphics',
+          customerPhone: rawPhone,
+          logoLightUrl,
+          logoDarkUrl,
+          companyContact,
+        });
+        blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+      } catch (canvasErr) {
+        console.warn('Aviso: falha ao desenhar canvas do recibo, enviando texto detalhado:', canvasErr);
+      }
 
-      // 2. Converte para Blob PNG e coloca no card de texto (pendingImages + newMessage) via AppContext aguardando envio
-      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+      // 2. Converte para Blob PNG e coloca no card de texto via AppContext aguardando envio
       if (blob) {
         const file = new File([blob], `Recibo-${sale.id.slice(-8).toUpperCase()}.png`, { type: 'image/png' });
         const previewUrl = URL.createObjectURL(blob);
@@ -15918,13 +15923,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setIsSuccessModalOpen(false);
 
       // Abre o chat do cliente com a imagem e a legenda prontas no card de texto
-      await openWhatsAppChat(cleanPhone, customerName, '');
+      await openWhatsAppChat(cleanPhone, customerName, legenda);
+      showAlert('Recibo gerado com sucesso! A imagem e o texto já estão anexados no chat.');
     } catch (err: any) {
       console.error('Erro ao gerar recibo para o chat:', err);
       setReceiptRecipientModal(null);
       setViewingReceiptSale(null);
       setIsSuccessModalOpen(false);
-      await findOrCreateLeadAndOpenChat(cleanPhone, customerName, legenda);
+      try {
+        await openWhatsAppChat(cleanPhone, customerName, legenda);
+      } catch (errFallback) {
+        console.error('Falha ao abrir WhatsApp:', errFallback);
+        showAlert('Não foi possível abrir o WhatsApp do cliente.');
+      }
     } finally {
       setEnviandoReciboWhatsApp(false);
     }
