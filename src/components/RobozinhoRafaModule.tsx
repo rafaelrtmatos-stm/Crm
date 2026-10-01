@@ -26,6 +26,16 @@ import {
   ThumbsUp,
   ThumbsDown,
   Wand2,
+  Search,
+  BookOpen,
+  ToggleLeft,
+  ToggleRight,
+  Tag,
+  FileText,
+  XCircle,
+  RotateCcw,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { collection, query, where, orderBy, onSnapshot, addDoc, doc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -41,6 +51,17 @@ import {
   generateSuggestion,
 } from '../lib/robozinhoRafa';
 import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
+import {
+  RobozinhoMemoryBlock,
+  carregarMemoriaRobozinho,
+  salvarBlocosMemoria,
+  setAprendizadoAutomaticoAtivo,
+  getMemoryBlocksSync,
+  RobozinhoScripts,
+  DEFAULT_ROBOZINHO_SCRIPTS,
+  carregarScriptsRobozinho,
+  salvarScriptsRobozinho,
+} from '../lib/robozinhoMemoryStorage';
 
 // Robozinho Rafa — assistente de IA de atendimento da gráfica.
 //
@@ -54,7 +75,7 @@ import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestRepl
 // projeto (ex.: tabela `configuracoes`, company_id fixo 'rafa-arts').
 const COMPANY_ID = 'rafa-arts';
 
-type SubTab = 'sugestoes' | 'memoria' | 'historico' | 'configuracoes';
+type SubTab = 'memoria' | 'scripts' | 'testes' | 'historico' | 'configuracoes';
 
 // Campos estruturados da memória do cliente (regra: só dado estável sobre a
 // pessoa/negociação — nunca preço/estoque, que continuam vindo ao vivo do PDV).
@@ -98,7 +119,31 @@ const toMillis = (v: any): number => {
 };
 
 export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTab, setSubTab] = useState<SubTab>('sugestoes');
+  const [subTab, setSubTab] = useState<SubTab>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rpro_robozinho_subtab');
+      if (saved === 'sugestoes') return 'memoria';
+      if (saved && ['memoria', 'scripts', 'testes', 'historico', 'configuracoes'].includes(saved)) {
+        return saved as SubTab;
+      }
+    }
+    return 'memoria';
+  });
+
+  const handleSubTabChange = (t: SubTab) => {
+    setSubTab(t);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rpro_robozinho_subtab', t);
+    }
+  };
+
+  // --- Simulador / Teste do Robozinho (Ambiente Seguro sem grupos) ---
+  const [testInput, setTestInput] = useState('');
+  const [testClientName, setTestClientName] = useState('Cliente (Simulação)');
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResults, setTestResults] = useState<string[] | null>(null);
+  const [testDurationMs, setTestDurationMs] = useState<number | null>(null);
+  const [testCopiedIndex, setTestCopiedIndex] = useState<number | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [interactions, setInteractions] = useState<RobozinhoInteraction[]>([]);
   const [produtos, setProdutos] = useState<KnowledgeProduct[]>([]);
@@ -116,6 +161,125 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
   const [selectedOption, setSelectedOption] = useState<Record<string, number>>({});
   // Memória (conhecimento da empresa / do cliente / sugerido) — aba Memória.
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
+
+  // Memória em Blocos do Robozinho Rafa
+  const [memoryBlocks, setMemoryBlocks] = useState<RobozinhoMemoryBlock[]>([]);
+  const [autoLearnEnabled, setAutoLearnEnabled] = useState(true);
+  const [memorySearch, setMemorySearch] = useState('');
+  const [memoryCategoryFilter, setMemoryCategoryFilter] = useState<'todos' | 'precos' | 'empresa' | 'servicos' | 'geral'>('todos');
+  const [isEditingBlockModalOpen, setIsEditingBlockModalOpen] = useState(false);
+  const [blockForm, setBlockForm] = useState<Partial<RobozinhoMemoryBlock>>({
+    title: '',
+    content: '',
+    category: 'precos',
+  });
+
+  // Scripts & Diretrizes da Empresa (Informações da Empresa, Script Positivo, Script Negativo)
+  const [scripts, setScripts] = useState<RobozinhoScripts>(DEFAULT_ROBOZINHO_SCRIPTS);
+  const [isSavingScripts, setIsSavingScripts] = useState(false);
+
+  useEffect(() => {
+    carregarMemoriaRobozinho().then(({ blocks, autoLearn }) => {
+      setMemoryBlocks(blocks);
+      setAutoLearnEnabled(autoLearn);
+    });
+    carregarScriptsRobozinho().then(res => setScripts(res));
+
+    const handleMemoryUpdate = (e: any) => {
+      if (e?.detail?.blocks) setMemoryBlocks(e.detail.blocks);
+      if (typeof e?.detail?.autoLearn === 'boolean') setAutoLearnEnabled(e.detail.autoLearn);
+    };
+    const handleScriptsUpdate = (e: any) => {
+      if (e?.detail) setScripts(e.detail);
+    };
+    window.addEventListener('robozinho-memory-updated', handleMemoryUpdate);
+    window.addEventListener('robozinho-scripts-updated', handleScriptsUpdate);
+    return () => {
+      window.removeEventListener('robozinho-memory-updated', handleMemoryUpdate);
+      window.removeEventListener('robozinho-scripts-updated', handleScriptsUpdate);
+    };
+  }, []);
+
+  const handleSaveScripts = async () => {
+    setIsSavingScripts(true);
+    try {
+      await salvarScriptsRobozinho(scripts);
+      showAlert('Scripts e diretrizes da empresa salvos com sucesso!');
+    } catch (e) {
+      console.error(e);
+      showAlert('Não foi possível salvar os scripts.');
+    } finally {
+      setIsSavingScripts(false);
+    }
+  };
+
+  const handleResetScripts = async () => {
+    if (await showConfirm('Deseja restaurar as informações e scripts para o padrão da Rafa Arts?')) {
+      setScripts(DEFAULT_ROBOZINHO_SCRIPTS);
+      await salvarScriptsRobozinho(DEFAULT_ROBOZINHO_SCRIPTS);
+      showAlert('Scripts restaurados para o padrão com sucesso!');
+    }
+  };
+
+  const handleToggleAutoLearn = async () => {
+    const next = !autoLearnEnabled;
+    setAutoLearnEnabled(next);
+    await setAprendizadoAutomaticoAtivo(next);
+    showAlert(next ? 'Aprendizado com conversas ATIVADO! O Robozinho agora aprenderá orçamentos e regras informados no chat.' : 'Aprendizado com conversas DESATIVADO. O Robozinho usará apenas os blocos já salvos.');
+  };
+
+  const handleOpenNewBlockModal = () => {
+    setBlockForm({ title: '', content: '', category: 'precos' });
+    setIsEditingBlockModalOpen(true);
+  };
+
+  const handleOpenEditBlockModal = (block: RobozinhoMemoryBlock) => {
+    setBlockForm({ ...block });
+    setIsEditingBlockModalOpen(true);
+  };
+
+  const handleSaveBlock = async () => {
+    if (!blockForm.title?.trim() || !blockForm.content?.trim()) {
+      showAlert('Preencha o título e o conteúdo do bloco de memória.');
+      return;
+    }
+    const agora = new Date().toISOString();
+    let updated: RobozinhoMemoryBlock[];
+    if (blockForm.id) {
+      updated = memoryBlocks.map(b => b.id === blockForm.id ? {
+        ...b,
+        title: blockForm.title!.trim(),
+        content: blockForm.content!.trim(),
+        category: (blockForm.category as any) || 'precos',
+        updatedAt: agora,
+      } : b);
+      showAlert('Bloco de memória atualizado com sucesso!');
+    } else {
+      const novo: RobozinhoMemoryBlock = {
+        id: `block-${Date.now()}`,
+        title: blockForm.title!.trim(),
+        content: blockForm.content!.trim(),
+        category: (blockForm.category as any) || 'precos',
+        autoLearned: false,
+        source: 'Cadastrado Manualmente',
+        createdAt: agora,
+        updatedAt: agora,
+      };
+      updated = [novo, ...memoryBlocks];
+      showAlert('Novo bloco de memória criado com sucesso!');
+    }
+    setMemoryBlocks(updated);
+    await salvarBlocosMemoria(updated, autoLearnEnabled);
+    setIsEditingBlockModalOpen(false);
+  };
+
+  const handleDeleteBlock = async (id: string) => {
+    if (!(await showConfirm('Deseja realmente excluir este bloco de memória?'))) return;
+    const updated = memoryBlocks.filter(b => b.id !== id);
+    setMemoryBlocks(updated);
+    await salvarBlocosMemoria(updated, autoLearnEnabled);
+    showAlert('Bloco de memória removido.');
+  };
 
   // --- Leads aguardando resposta (mesma regra já usada no resto do sistema:
   // waitingSince preenchido = última mensagem é do cliente, ver ChatPanel e
@@ -249,10 +413,21 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
 
       let suggestions: string[];
       try {
-        suggestions = await suggestReplies(clientMessage, history, clientName, user?.id);
+        suggestions = await suggestReplies(
+          clientMessage,
+          history,
+          clientName,
+          user?.id,
+          user?.name,
+          memoryBlocks,
+          produtos,
+          scripts.companyInfo,
+          scripts.positiveScript,
+          scripts.negativeScript
+        );
       } catch (err) {
         console.error('Robozinho Rafa: Gemini indisponível, usando fallback:', err);
-        suggestions = [generateSuggestion({ clientMessage, clientName, produtos, enabledPaymentMethods: paymentMethods })];
+        suggestions = [generateSuggestion({ clientMessage, clientName, produtos, enabledPaymentMethods: paymentMethods, memoryBlocks })];
       }
 
       const { error } = await supabase.from('robozinho_interactions').insert({
@@ -431,9 +606,58 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
 
   if (!currentCompany) return null;
 
-  const TABS: { id: SubTab; label: string; icon: any }[] = [
-    { id: 'sugestoes', label: 'Sugestões', icon: Sparkles },
-    { id: 'memoria', label: 'Memória', icon: Brain },
+  const handleRunTest = async (msgToTest?: string) => {
+    const text = (msgToTest !== undefined ? msgToTest : testInput).trim();
+    if (!text) {
+      showAlert('Digite uma mensagem ou clique em um dos exemplos rápidos.');
+      return;
+    }
+    if (msgToTest !== undefined) setTestInput(msgToTest);
+    setTestLoading(true);
+    setTestResults(null);
+    setTestDurationMs(null);
+    const t0 = Date.now();
+    try {
+      const suggestions = await suggestReplies(
+        text,
+        [],
+        testClientName,
+        user?.id,
+        user?.name,
+        memoryBlocks,
+        produtos,
+        scripts.companyInfo,
+        scripts.positiveScript,
+        scripts.negativeScript
+      );
+      setTestResults(suggestions);
+      setTestDurationMs(Date.now() - t0);
+    } catch (err: any) {
+      console.warn('Erro ao testar Robozinho no simulador:', err);
+      const fallback = generateSuggestion({
+        clientMessage: text,
+        clientName: testClientName,
+        produtos,
+        enabledPaymentMethods: paymentMethods,
+        memoryBlocks,
+      });
+      setTestResults([fallback]);
+      setTestDurationMs(Date.now() - t0);
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const handleCopyTest = (text: string, index: number) => {
+    navigator.clipboard?.writeText(text);
+    setTestCopiedIndex(index);
+    setTimeout(() => setTestCopiedIndex(null), 2000);
+  };
+
+  const TABS: { id: SubTab; label: string; icon: any; badge?: number }[] = [
+    { id: 'memoria', label: 'Memória & Blocos', icon: Brain, badge: memoryBlocks.length },
+    { id: 'scripts', label: 'Scripts & Diretrizes', icon: FileText },
+    { id: 'testes', label: 'Testar Robozinho', icon: Sparkles },
     { id: 'historico', label: 'Histórico', icon: History },
     { id: 'configuracoes', label: 'Configurações', icon: Settings2 },
   ];
@@ -450,9 +674,14 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
             Assistente de IA de atendimento — sugere, nunca envia sozinho
           </p>
         </div>
-        {(pendentes.length + leadsSemSugestao.length) > 0 && (
-          <Badge variant="warning" className="animate-pulse">{pendentes.length + leadsSemSugestao.length} conversa(s) aguardando</Badge>
-        )}
+        <div className="flex items-center gap-2">
+          <Badge variant={autoLearnEnabled ? "success" : "outline"} className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1">
+            {autoLearnEnabled ? "Aprendizado: Ativo" : "Aprendizado: Pausado"}
+          </Badge>
+          <Badge variant="primary" className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1">
+            Modelo: Flash Lite (~1s)
+          </Badge>
+        </div>
       </div>
 
       {/* Sub-tabs — mesmo padrão de pílulas usado nos outros módulos, com
@@ -461,14 +690,22 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         {TABS.map(t => (
           <button
             key={t.id}
-            onClick={() => setSubTab(t.id)}
+            onClick={() => handleSubTabChange(t.id)}
             className={cn(
               "px-4 md:px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shrink-0 cursor-pointer",
-              subTab === t.id ? "bg-primary-500 text-slate-950 shadow-lg" : "text-white/40 hover:text-white"
+              subTab === t.id ? "bg-primary-500 text-slate-950 shadow-lg font-black" : "text-white/40 hover:text-white"
             )}
           >
             <t.icon size={14} />
-            {t.label}
+            <span>{t.label}</span>
+            {t.badge !== undefined && (
+              <span className={cn(
+                "px-1.5 py-0.5 rounded-full text-[9px] font-black tracking-tight",
+                subTab === t.id ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-white/60"
+              )}>
+                {t.badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -479,309 +716,454 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
         </div>
       ) : (
         <>
-          {subTab === 'sugestoes' && (
-            <div className="space-y-4">
-              {!config.isActive && (
-                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-2 text-amber-300 text-xs font-bold">
-                  <AlertCircle size={16} className="shrink-0" />
-                  O Robozinho Rafa está pausado em Configurações — nenhuma sugestão nova será gerada.
-                </div>
-              )}
-              {pendentes.length === 0 && leadsSemSugestao.length === 0 && (
-                <GlassCard className="p-8 text-center">
-                  <CheckCircle2 className="mx-auto text-emerald-400 mb-3" size={32} />
-                  <p className="text-sm font-bold text-white/60">Nenhuma conversa aguardando resposta no momento.</p>
-                </GlassCard>
-              )}
-
-              {/* Conversas aguardando resposta que ainda não tiveram sugestão gerada
-                  — o Gemini só é chamado quando o atendente clica no botão abaixo. */}
-              {leadsSemSugestao.map(lead => {
-                const clientName = lead.fullName || lead.contactName || lead.whatsappName || 'Cliente';
-                return (
-                  <GlassCard key={lead.id} className="p-5 space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center shrink-0">
-                          <MessageCircle size={14} className="text-primary-300" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-white truncate">{clientName}</p>
-                          <p className="text-[10px] text-white/40 uppercase tracking-wider">{lead.sourceType || 'WhatsApp'}</p>
-                        </div>
+          {subTab === 'testes' && (
+            <div className="space-y-6 max-w-4xl">
+              {/* Card de Apresentação do Simulador */}
+              <GlassCard className="p-5 border border-primary-500/30 bg-gradient-to-r from-primary-950/40 via-slate-900/60 to-slate-950/80">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border bg-primary-500/20 border-primary-500/40 text-primary-400 shadow-lg shadow-primary-950/50">
+                      <Sparkles size={22} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-sm font-black uppercase text-white tracking-wider">
+                          Simulador de Atendimento da Rafa Arts
+                        </h3>
+                        <Badge variant="primary" className="text-[9px] uppercase font-black tracking-widest px-2 py-0.5">
+                          Ambiente Seguro de Testes
+                        </Badge>
                       </div>
-                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
-                    </div>
-
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
-                      <p className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Mensagem do cliente</p>
-                      <p className="text-sm text-white/80">{lead.lastMessageText || '(sem texto)'}</p>
-                    </div>
-
-                    <Button
-                      icon={generatingLeadId === lead.id ? RefreshCw : Wand2}
-                      disabled={!config.isActive || generatingLeadId === lead.id}
-                      onClick={() => handleGerarSugestoes(lead)}
-                      className={generatingLeadId === lead.id ? '[&>svg]:animate-spin' : ''}
-                    >
-                      {generatingLeadId === lead.id ? 'Gerando sugestões…' : 'Gerar sugestões'}
-                    </Button>
-                  </GlassCard>
-                );
-              })}
-
-              {/* Sugestões já geradas — sempre 3 opções (ou 1, no fallback local),
-                  o atendente escolhe/edita e só ele decide enviar. */}
-              {pendentes.map(interaction => {
-                const options = interaction.presentedOptions && interaction.presentedOptions.length > 0
-                  ? interaction.presentedOptions
-                  : [interaction.suggestedText];
-                const chosenIndex = selectedOption[interaction.id] ?? 0;
-                const chosenText = options[chosenIndex] ?? options[0];
-                return (
-                  <GlassCard key={interaction.id} className="p-5 space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center shrink-0">
-                          <MessageCircle size={14} className="text-primary-300" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-white truncate">{interaction.clientName}</p>
-                          <p className="text-[10px] text-white/40 uppercase tracking-wider">{interaction.channel}</p>
-                        </div>
-                      </div>
-                      <Badge variant="warning" className="shrink-0 w-fit">Aguardando resposta</Badge>
-                    </div>
-
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
-                      <p className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1">Mensagem do cliente</p>
-                      <p className="text-sm text-white/80">{interaction.clientMessageText || '(sem texto)'}</p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <p className="text-[9px] font-black uppercase text-primary-300 tracking-widest flex items-center gap-1.5">
-                        <Sparkles size={11} /> Sugestões do Robozinho Rafa{options.length > 1 ? ` (${options.length})` : ''}
+                      <p className="text-xs text-white/60 leading-relaxed max-w-2xl">
+                        Simule perguntas de clientes para testar como o Robozinho Rafa responde em tempo real. Ele consulta suas <strong>Informações da Empresa</strong>, <strong>Script Positivo</strong>, <strong>Script Negativo</strong> e a <strong>Base de Memória</strong> salva.
                       </p>
-                      {editingId === interaction.id ? (
-                        <div className="bg-primary-500/10 border border-primary-500/20 rounded-2xl p-3">
-                          <textarea
-                            value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
-                            rows={4}
-                            autoFocus
-                            className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-primary-400 transition-all resize-none"
-                          />
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-2">
-                          {options.map((opt, idx) => (
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant="success" className="text-[9px] font-black uppercase tracking-widest px-2 py-1">
+                      IA Pronta (~1s)
+                    </Badge>
+                  </div>
+                </div>
+              </GlassCard>
+
+              {/* Caixa de Entrada do Teste */}
+              <GlassCard className="p-5 space-y-4 border border-white/10">
+                <div>
+                  <label className="text-xs font-black uppercase text-white/70 tracking-widest mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <MessageCircle size={14} className="text-primary-400" />
+                      Pergunta Simulada do Cliente
+                    </span>
+                    <span className="text-[10px] text-white/40 normal-case font-normal">
+                      Pressione Enter para testar
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <textarea
+                      value={testInput}
+                      onChange={(e) => setTestInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleRunTest();
+                        }
+                      }}
+                      rows={3}
+                      placeholder="Ex: Quanto tá o capacete personalizado? Vocês entregam hoje com urgência? Qual a chave PIX?"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-3.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400 resize-none leading-relaxed transition-all font-sans"
+                    />
+                  </div>
+                </div>
+
+                {/* Atalhos Rápidos para Teste com 1 clique */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5">
+                    <Wand2 size={12} className="text-primary-400" />
+                    Exemplos Prontos para Testar com 1 Clique:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'Capacete Personalizado', text: 'Quanto fica o capacete personalizado com pintura automotiva?' },
+                      { label: 'Entrega para Hoje (Urgência)', text: 'Consigo pegar um banner pronto hoje ainda com urgência?' },
+                      { label: 'Chave PIX e Sinal', text: 'Qual a chave PIX da loja para eu pagar o sinal de 50%?' },
+                      { label: 'Cartões de Visita', text: 'Quanto custa o cento de cartão de visita com verniz?' },
+                      { label: 'Caneca Personalizada', text: 'Quanto tá a caneca personalizada e qual o prazo?' },
+                      { label: 'Endereço e Retirada', text: 'Onde fica a loja para eu retirar o pedido?' },
+                    ].map((chip) => (
+                      <button
+                        key={chip.label}
+                        type="button"
+                        onClick={() => handleRunTest(chip.text)}
+                        disabled={testLoading}
+                        className="text-xs bg-white/5 hover:bg-primary-500/20 border border-white/10 hover:border-primary-500/40 text-white/80 hover:text-white px-3 py-1.5 rounded-xl transition-all font-medium text-left cursor-pointer"
+                      >
+                        + {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Botões de Ação */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/10">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Nome simulado:</span>
+                    <input
+                      type="text"
+                      value={testClientName}
+                      onChange={(e) => setTestClientName(e.target.value)}
+                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/30 outline-none focus:border-primary-400 w-44"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {testResults && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={RotateCcw}
+                        onClick={() => { setTestResults(null); setTestInput(''); }}
+                      >
+                        Limpar
+                      </Button>
+                    )}
+                    <Button
+                      icon={testLoading ? RefreshCw : Sparkles}
+                      onClick={() => handleRunTest()}
+                      disabled={testLoading || !testInput.trim()}
+                      className={testLoading ? '[&>svg]:animate-spin' : ''}
+                    >
+                      {testLoading ? 'Gerando Sugestões…' : 'Testar Resposta'}
+                    </Button>
+                  </div>
+                </div>
+              </GlassCard>
+
+              {/* Resultados do Teste */}
+              {testResults && (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase text-white/70 tracking-widest flex items-center gap-2">
+                      <Sparkles size={14} className="text-primary-400" />
+                      Sugestões Geradas pelo Robozinho Rafa ({testResults.length} opções)
+                    </h4>
+                    {testDurationMs !== null && (
+                      <Badge variant="success" className="text-[9px] font-mono font-bold tracking-wider">
+                        ⚡ {testDurationMs}ms (Gemini Flash Lite)
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {testResults.map((sug, idx) => {
+                      const labels = ['Opção 1: Direta e Cordial', 'Opção 2: Comercial & Resolutiva', 'Opção 3: Consultiva'];
+                      const isCopied = testCopiedIndex === idx;
+                      return (
+                        <GlassCard key={idx} className="p-4 border border-white/10 hover:border-primary-500/30 transition-all space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-primary-300">
+                              {labels[idx] || `Opção ${idx + 1}`}
+                            </span>
                             <button
-                              key={idx}
                               type="button"
-                              onClick={() => setSelectedOption(prev => ({ ...prev, [interaction.id]: idx }))}
+                              onClick={() => handleCopyTest(sug, idx)}
                               className={cn(
-                                "text-left rounded-2xl p-3 border transition-all",
-                                idx === chosenIndex
-                                  ? "bg-primary-500/15 border-primary-500/40"
-                                  : "bg-white/5 border-white/10 hover:border-white/20"
+                                "flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg transition-all border cursor-pointer",
+                                isCopied
+                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                  : "bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border-white/10"
                               )}
                             >
-                              <p className="text-sm text-white/90 whitespace-pre-wrap">{opt}</p>
+                              {isCopied ? <Check size={12} /> : <Copy size={12} />}
+                              {isCopied ? 'Copiado!' : 'Copiar'}
                             </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                          </div>
+                          <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">
+                            {sug}
+                          </p>
+                        </GlassCard>
+                      );
+                    })}
+                  </div>
 
+                  {/* Checklist de Verificação das Diretrizes */}
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs text-white/60">
+                    <span className="font-bold text-white/80">Diretrizes validadas no teste:</span>
                     <div className="flex flex-wrap items-center gap-2">
-                      {editingId === interaction.id ? (
-                        <>
-                          <Button
-                            icon={Save}
-                            disabled={busyId === interaction.id}
-                            onClick={() => handleEnviar(interaction, editText, 'edited')}
-                          >
-                            Salvar e Enviar
-                          </Button>
-                          <Button variant="secondary" onClick={() => { setEditingId(null); setEditText(''); }}>Cancelar</Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            icon={CheckCircle2}
-                            disabled={busyId === interaction.id}
-                            onClick={() => handleEnviar(interaction, chosenText, 'used')}
-                          >
-                            Usar Resposta
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            icon={Pencil}
-                            disabled={busyId === interaction.id}
-                            onClick={() => { setEditingId(interaction.id); setEditText(chosenText); }}
-                          >
-                            Editar
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            icon={Ban}
-                            disabled={busyId === interaction.id}
-                            onClick={() => handleIgnorar(interaction)}
-                          >
-                            Ignorar
-                          </Button>
-                        </>
-                      )}
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        <CheckCircle2 size={10} /> Script Positivo Ativo
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                        <XCircle size={10} /> Script Negativo Respeitado
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/30 px-2 py-0.5 rounded-full">
+                        <Brain size={10} /> {memoryBlocks.length} Blocos de Memória
+                      </span>
                     </div>
-                  </GlassCard>
-                );
-              })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {subTab === 'memoria' && (
-            <div className="space-y-8">
-              {/* --- Conhecimento da Empresa --- */}
-              <div>
-                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
-                  <Building2 size={14} className="text-primary-400" /> Conhecimento da Empresa
-                  <span className="text-white/30 font-normal normal-case">({conhecimentoEmpresa.length})</span>
-                </h3>
-                <p className="text-[10px] text-white/40 mb-3">
-                  Horários, políticas, procedimentos e outras informações estáveis — nunca preço, estoque ou disponibilidade (isso continua vindo ao vivo do PDV, mais abaixo).
-                </p>
-                <GlassCard className="p-4 space-y-3 mb-3">
-                  <input
-                    value={novoTitulo}
-                    onChange={(e) => setNovoTitulo(e.target.value)}
-                    placeholder="Título (opcional) — ex: Horário de funcionamento"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400"
-                  />
-                  <textarea
-                    value={novoConteudo}
-                    onChange={(e) => setNovoConteudo(e.target.value)}
-                    rows={2}
-                    placeholder="Conteúdo — ex: Funcionamos de segunda a sexta, das 8h às 18h."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400 resize-none"
-                  />
-                  <Button icon={Plus} disabled={!novoConteudo.trim()} onClick={handleAddConhecimentoEmpresa}>Adicionar</Button>
-                </GlassCard>
-                {conhecimentoEmpresa.length === 0 ? (
-                  <p className="text-xs text-white/30 italic">Nenhum conhecimento cadastrado ainda.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {conhecimentoEmpresa.map(k => (
-                      <div key={k.id} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          {k.titulo && <p className="text-xs font-bold text-white">{k.titulo}</p>}
-                          <p className="text-xs text-white/60 whitespace-pre-wrap">{k.conteudo}</p>
-                        </div>
-                        <button onClick={() => handleDeleteKnowledge(k)} className="text-white/30 hover:text-rose-400 transition-colors shrink-0" aria-label="Remover">
-                          <Trash2 size={14} />
-                        </button>
+            <div className="space-y-6">
+              {/* --- 1. CHAVE MASTER: APRENDIZADO COM AS CONVERSAS --- */}
+              <GlassCard className="p-4 sm:p-5 border border-primary-500/30 bg-gradient-to-r from-primary-950/40 via-slate-900/60 to-slate-950/80">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className={cn(
+                      "w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border transition-all",
+                      autoLearnEnabled 
+                        ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-950/50" 
+                        : "bg-white/5 border-white/10 text-white/40"
+                    )}>
+                      <Brain size={22} className={autoLearnEnabled ? "animate-pulse" : ""} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-sm font-black uppercase text-white tracking-wider">
+                          Aprendizado Contínuo com Conversas
+                        </h3>
+                        <Badge variant={autoLearnEnabled ? "success" : "outline"} className="text-[9px] uppercase font-black tracking-widest px-2 py-0.5">
+                          {autoLearnEnabled ? 'Ativado' : 'Desativado'}
+                        </Badge>
                       </div>
-                    ))}
+                      <p className="text-xs text-white/60 leading-relaxed max-w-2xl">
+                        {autoLearnEnabled 
+                          ? 'O Robozinho está aprendendo automaticamente com o que você responde no chat (orçamentos, preços de itens personalizados como capacetes, prazos e horários) e gravando em blocos de memória editáveis abaixo.'
+                          : 'O aprendizado contínuo está pausado. O Robozinho não salvará nenhuma informação nova automaticamente e consultará apenas os blocos de memória já cadastrados.'
+                        }
+                      </p>
+                    </div>
                   </div>
-                )}
-              </div>
 
-              {/* --- Memória do Cliente --- */}
-              <div>
-                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
-                  <UserRound size={14} className="text-primary-400" /> Memória do Cliente
-                </h3>
-                <GlassCard className="p-4 space-y-3">
-                  <select
-                    value={memoriaLeadId}
-                    onChange={(e) => setMemoriaLeadId(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-primary-400"
+                  <button
+                    type="button"
+                    onClick={handleToggleAutoLearn}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 border shadow-md active:scale-95",
+                      autoLearnEnabled
+                        ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400/50 shadow-emerald-950/50"
+                        : "bg-white/10 hover:bg-white/20 text-white/80 border-white/20"
+                    )}
                   >
-                    <option value="" className="bg-slate-900">Selecione um cliente…</option>
-                    {leads.map(l => (
-                      <option key={l.id} value={l.id} className="bg-slate-900">
-                        {l.fullName || l.contactName || l.whatsappName || l.phone}
-                      </option>
-                    ))}
-                  </select>
+                    {autoLearnEnabled ? (
+                      <>
+                        <ToggleRight size={18} className="text-white" />
+                        <span>Aprender: Ligado</span>
+                      </>
+                    ) : (
+                      <>
+                        <ToggleLeft size={18} className="text-white/40" />
+                        <span>Aprender: Desligado</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </GlassCard>
 
-                  {memoriaLeadId && (
-                    <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {([
-                          ['veiculo', 'Veículo'],
-                          ['interesse', 'Interesse'],
-                          ['cor', 'Cor'],
-                          ['orcamento', 'Orçamento'],
-                          ['objecao', 'Objeção'],
-                          ['etapa', 'Etapa'],
-                          ['preferenciaContato', 'Preferência de contato'],
-                        ] as const).map(([campo, label]) => (
-                          <div key={campo}>
-                            <label className="text-[9px] font-black uppercase text-white/30 tracking-widest mb-1 block">{label}</label>
-                            <input
-                              value={memoriaCampos[campo] || ''}
-                              onChange={(e) => setMemoriaCampos(prev => ({ ...prev, [campo]: e.target.value }))}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-primary-400"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <Button icon={Save} onClick={handleSaveMemoriaCliente}>Salvar Memória do Cliente</Button>
-                    </>
-                  )}
-                </GlassCard>
+              {/* --- 2. BARRA DE GESTÃO DOS BLOCOS DE MEMÓRIA --- */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                <div>
+                  <h3 className="text-sm font-black uppercase text-white tracking-widest flex items-center gap-2">
+                    <BookOpen size={16} className="text-primary-400" />
+                    Blocos de Memória Salvos
+                    <span className="text-xs text-white/40 font-normal">({memoryBlocks.length} itens)</span>
+                  </h3>
+                  <p className="text-[11px] text-white/40">
+                    Estes são os conhecimentos que o Robozinho consulta para estipular orçamentos e respostas no chat. Você pode editar qualquer bloco a qualquer momento.
+                  </p>
+                </div>
 
-                {memoriaClientes.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {memoriaClientes.map(k => (
-                      <div key={k.id} className="bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3">
-                        <p className="text-xs font-bold text-white truncate">{k.titulo}</p>
-                        <button onClick={() => setMemoriaLeadId(k.leadId || '')} className="text-[10px] text-primary-300 font-black uppercase tracking-widest shrink-0">Editar</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <Button icon={Plus} onClick={handleOpenNewBlockModal}>
+                    Novo Bloco
+                  </Button>
+                </div>
               </div>
 
-              {/* --- Conhecimentos Sugeridos --- */}
-              <div>
-                <h3 className="text-sm font-black uppercase text-white/60 tracking-widest mb-3 flex items-center gap-2">
-                  <Lightbulb size={14} className="text-primary-400" /> Conhecimentos Sugeridos
-                  <span className="text-white/30 font-normal normal-case">({conhecimentoSugerido.length})</span>
-                </h3>
-                <p className="text-[10px] text-white/40 mb-3">
-                  Sugestões aguardando revisão — só entram no Conhecimento da Empresa depois de aprovadas pelo atendente.
-                </p>
-                <GlassCard className="p-4 space-y-3 mb-3">
-                  <textarea
-                    value={novoSugerido}
-                    onChange={(e) => setNovoSugerido(e.target.value)}
-                    rows={2}
-                    placeholder="Ex: cliente perguntou sobre retirada no balcão aos sábados"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400 resize-none"
+              {/* Filtros e Busca */}
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={memorySearch}
+                    onChange={(e) => setMemorySearch(e.target.value)}
+                    placeholder="Buscar na memória (ex: capacete, horário, cartão)..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-white/30 outline-none focus:border-primary-400"
                   />
-                  <Button variant="secondary" icon={Plus} disabled={!novoSugerido.trim()} onClick={handleAddSugestaoConhecimento}>Sugerir Conhecimento</Button>
-                </GlassCard>
-                {conhecimentoSugerido.length === 0 ? (
-                  <p className="text-xs text-white/30 italic">Nenhuma sugestão pendente.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {conhecimentoSugerido.map(k => (
-                      <div key={k.id} className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
-                        <p className="text-xs text-white/70 whitespace-pre-wrap min-w-0">{k.conteudo}</p>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => handleApproveSugestao(k)} className="text-emerald-400 hover:text-emerald-300 transition-colors" aria-label="Aprovar">
-                            <ThumbsUp size={16} />
-                          </button>
-                          <button onClick={() => handleRejectSugestao(k)} className="text-white/30 hover:text-rose-400 transition-colors" aria-label="Rejeitar">
-                            <ThumbsDown size={16} />
-                          </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                  {(['todos', 'precos', 'empresa', 'servicos', 'geral'] as const).map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setMemoryCategoryFilter(cat)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer border",
+                        memoryCategoryFilter === cat
+                          ? "bg-primary-500/20 text-primary-300 border-primary-500/40"
+                          : "bg-white/5 text-white/50 border-white/5 hover:bg-white/10 hover:text-white"
+                      )}
+                    >
+                      {cat === 'todos' ? 'Todos' : cat === 'precos' ? 'Preços & Orçamentos' : cat === 'empresa' ? 'Empresa & Horários' : cat === 'servicos' ? 'Serviços' : 'Geral'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* --- 3. GRADE DOS BLOCOS DE MEMÓRIA --- */}
+              {(() => {
+                const filtrados = memoryBlocks.filter(b => {
+                  if (memoryCategoryFilter !== 'todos' && b.category !== memoryCategoryFilter) return false;
+                  if (!memorySearch.trim()) return true;
+                  const q = memorySearch.toLowerCase();
+                  return b.title.toLowerCase().includes(q) || b.content.toLowerCase().includes(q);
+                });
+
+                if (filtrados.length === 0) {
+                  return (
+                    <GlassCard className="p-8 text-center border-dashed border-white/10">
+                      <Brain size={32} className="mx-auto text-white/20 mb-2" />
+                      <p className="text-sm font-bold text-white/60 mb-1">Nenhum bloco de memória encontrado</p>
+                      <p className="text-xs text-white/40 mb-4 max-w-sm mx-auto">
+                        Crie um novo bloco com informações de orçamentos (ex: capacetes, brindes) ou mantenha o aprendizado ativo no chat.
+                      </p>
+                      <Button icon={Plus} onClick={handleOpenNewBlockModal}>
+                        Criar Primeiro Bloco
+                      </Button>
+                    </GlassCard>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {filtrados.map(block => (
+                      <GlassCard key={block.id} className="p-4 flex flex-col justify-between hover:border-white/20 transition-all group">
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-xs font-black uppercase text-white tracking-wide">
+                                {block.title}
+                              </h4>
+                              <span className={cn(
+                                "text-[8.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                                block.category === 'precos'
+                                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                                  : block.category === 'empresa'
+                                    ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                                    : "bg-purple-500/15 text-purple-400 border-purple-500/30"
+                              )}>
+                                {block.category === 'precos' ? 'Preço/Orçamento' : block.category === 'empresa' ? 'Empresa' : block.category === 'servicos' ? 'Serviço' : 'Geral'}
+                              </span>
+                              {block.autoLearned && (
+                                <span className="text-[8.5px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                  <Sparkles size={9} /> Aprendido via Chat
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditBlockModal(block)}
+                                className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                                title="Editar este bloco"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBlock(block.id)}
+                                className="p-1.5 rounded-lg text-white/40 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                title="Excluir este bloco"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-white/70 whitespace-pre-wrap leading-relaxed bg-black/20 p-2.5 rounded-xl border border-white/5">
+                            {block.content}
+                          </p>
                         </div>
-                      </div>
+
+                        <div className="pt-3 mt-1 border-t border-white/5 flex items-center justify-between text-[9px] text-white/30">
+                          <span>{block.source || 'Manual'}</span>
+                          <span>Atualizado {new Date(block.updatedAt).toLocaleDateString('pt-BR')}</span>
+                        </div>
+                      </GlassCard>
                     ))}
                   </div>
-                )}
-              </div>
+                );
+              })()}
+
+              {/* MODAL PARA CRIAR / EDITAR BLOCO */}
+              {isEditingBlockModalOpen && (
+                <Modal
+                  isOpen={isEditingBlockModalOpen}
+                  onClose={() => setIsEditingBlockModalOpen(false)}
+                  title={blockForm.id ? "Editar Bloco de Memória" : "Novo Bloco de Memória"}
+                >
+                  <div className="space-y-4 pt-2">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-white/40 tracking-wider block mb-1">
+                        Título do Assunto / Produto *
+                      </label>
+                      <input
+                        type="text"
+                        value={blockForm.title || ''}
+                        onChange={(e) => setBlockForm(prev => ({ ...prev, title: e.target.value }))}
+                        placeholder="Ex: Capacetes Personalizados, Banners, Horário"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-white/40 tracking-wider block mb-1">
+                        Categoria
+                      </label>
+                      <select
+                        value={blockForm.category || 'precos'}
+                        onChange={(e) => setBlockForm(prev => ({ ...prev, category: e.target.value as any }))}
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-primary-400"
+                      >
+                        <option value="precos">Preços & Orçamentos (Itens, Valores, Formas)</option>
+                        <option value="empresa">Empresa & Horários (Funcionamento, Regras, Local)</option>
+                        <option value="servicos">Serviços & Prazos (Técnicas, Acabamentos)</option>
+                        <option value="geral">Geral</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-white/40 tracking-wider block mb-1">
+                        Informação / Conteúdo para o Robozinho lembrar *
+                      </label>
+                      <textarea
+                        value={blockForm.content || ''}
+                        onChange={(e) => setBlockForm(prev => ({ ...prev, content: e.target.value }))}
+                        rows={4}
+                        placeholder="Ex: O capacete personalizado custa a partir de R$ 180,00 com pintura automotiva e verniz alto brilho. Prazo de 5 dias úteis."
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary-400 resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
+                      <Button variant="secondary" onClick={() => setIsEditingBlockModalOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button icon={Save} onClick={handleSaveBlock}>
+                        Salvar Bloco
+                      </Button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
 
               {/* --- Dados ao vivo do ERP (referência, nunca fica salvo na memória) --- */}
               <div>
@@ -829,6 +1211,156 @@ export const RobozinhoRafaModule = ({ currentCompany, user }: { currentCompany: 
                   <CalendarClock size={16} className="shrink-0" />
                   Prazos de produção são definidos por pedido e não têm um valor fixo cadastrado no ERP — o Robozinho Rafa nunca inventa uma data e sempre pede confirmação à produção.
                 </div>
+              </div>
+            </div>
+          )}
+
+          {subTab === 'scripts' && (
+            <div className="space-y-6 max-w-4xl">
+              {/* Cabeçalho explicativo */}
+              <GlassCard className="p-4 sm:p-5 border border-primary-500/30 bg-gradient-to-r from-primary-950/40 via-slate-900/60 to-slate-950/80">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border bg-primary-500/20 border-primary-500/40 text-primary-400 shadow-lg shadow-primary-950/50">
+                      <FileText size={22} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-sm font-black uppercase text-white tracking-wider">
+                          Diretrizes de Atendimento & Scripts da Empresa
+                        </h3>
+                        <Badge variant="primary" className="text-[9px] uppercase font-black tracking-widest px-2 py-0.5">
+                          Regras de IA
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-white/60 leading-relaxed max-w-2xl">
+                        Estas 3 seções definem a postura, as regras e proibições da sua empresa. O Robozinho Rafa lê essas diretrizes toda vez que você clica em <strong>"Sugerir resposta"</strong> no chat, garantindo que ele responda conforme a cultura da Rafa Arts.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={RotateCcw}
+                      onClick={handleResetScripts}
+                      title="Restaurar valores padrão recomendados"
+                    >
+                      Restaurar Padrão
+                    </Button>
+                    <Button
+                      size="sm"
+                      icon={Save}
+                      onClick={handleSaveScripts}
+                      disabled={isSavingScripts}
+                    >
+                      {isSavingScripts ? 'Salvando...' : 'Salvar Diretrizes'}
+                    </Button>
+                  </div>
+                </div>
+              </GlassCard>
+
+              {/* Card 1: Informações da Empresa */}
+              <GlassCard className="p-5 space-y-3 border border-white/10 hover:border-white/20 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center">
+                      <Building2 size={16} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-white tracking-wider">
+                        1. Informações da Empresa & Regras Oficiais
+                      </h4>
+                      <p className="text-[10px] text-white/40">
+                        Endereço físico, retirada/entrega, horários de atendimento, chave PIX e política de sinal de 50%.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <textarea
+                  value={scripts.companyInfo}
+                  onChange={(e) => setScripts(prev => ({ ...prev, companyInfo: e.target.value }))}
+                  rows={5}
+                  placeholder="Descreva endereço, chave PIX, horários e formas de pagamento da empresa..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/30 outline-none focus:border-blue-400 resize-y leading-relaxed font-sans"
+                />
+              </GlassCard>
+
+              {/* Card 2: Script Positivo */}
+              <GlassCard className="p-5 space-y-3 border border-emerald-500/20 hover:border-emerald-500/40 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
+                      <CheckCircle2 size={16} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                        2. Script Positivo
+                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.2 rounded">
+                          O que o Robozinho DEVE falar
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-white/40">
+                        Boas práticas, tom de voz cordial, chamar pelo nome, valorizar acabamento premium e pedir arte/medidas.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <textarea
+                  value={scripts.positiveScript}
+                  onChange={(e) => setScripts(prev => ({ ...prev, positiveScript: e.target.value }))}
+                  rows={6}
+                  placeholder="Ex: Cumprimente com simpatia, chame pelo nome, valorize a pintura automotiva e verniz alto brilho..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/30 outline-none focus:border-emerald-400 resize-y leading-relaxed font-sans"
+                />
+              </GlassCard>
+
+              {/* Card 3: Script Negativo */}
+              <GlassCard className="p-5 space-y-3 border border-rose-500/20 hover:border-rose-500/40 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+                      <XCircle size={16} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                        3. Script Negativo
+                        <span className="text-[9px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.2 rounded">
+                          Travas & O que NUNCA falar
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-white/40">
+                        Proibições absolutas: nunca prometer entrega urgente sem produção, nunca dar descontos não autorizados.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <textarea
+                  value={scripts.negativeScript}
+                  onChange={(e) => setScripts(prev => ({ ...prev, negativeScript: e.target.value }))}
+                  rows={6}
+                  placeholder="Ex: NUNCA prometa entrega para hoje, NUNCA dê desconto sem falar com o Rafael, NUNCA diga 'não fazemos'..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/30 outline-none focus:border-rose-400 resize-y leading-relaxed font-sans"
+                />
+              </GlassCard>
+
+              {/* Botão de Salvar no Rodapé */}
+              <div className="flex justify-end gap-3 pt-2">
+                <Button
+                  variant="secondary"
+                  icon={RotateCcw}
+                  onClick={handleResetScripts}
+                >
+                  Restaurar Padrão
+                </Button>
+                <Button
+                  icon={Save}
+                  onClick={handleSaveScripts}
+                  disabled={isSavingScripts}
+                >
+                  {isSavingScripts ? 'Salvando...' : 'Salvar Scripts & Diretrizes'}
+                </Button>
               </div>
             </div>
           )}

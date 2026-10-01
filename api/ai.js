@@ -19,14 +19,15 @@
 
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 
-// Modelos suportados em ordem de preferência. Se um modelo estiver sobrecarregado (503)
-// ou indisponível, cai automaticamente para o próximo.
+// Modelos suportados em ordem de velocidade e preferência. Os modelos flash-lite
+// respondem em menos de 1 segundo e não sofrem sobrecarga (503). Se houver instabilidade,
+// cai automaticamente para o próximo.
 const MODELOS = [
   process.env.GEMINI_MODEL,
-  'gemini-3.8-flash',
-  'gemini-3.6-flash',
+  'gemini-flash-lite-latest',
   'gemini-3.5-flash-lite',
   'gemini-flash-latest',
+  'gemini-3.8-flash',
 ].filter(Boolean);
 
 function getApiKey() {
@@ -86,9 +87,9 @@ async function handleAssist(req, res) {
         headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: `${ASSIST_REGRA_BASE} ${instrucao}\n\nTexto:\n${text}` }] }],
-          generationConfig: { temperature: 0.3 },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 600 },
         }),
-        signal: AbortSignal.timeout(15 * 1000),
+        signal: AbortSignal.timeout(8 * 1000),
       });
 
       if (!resposta.ok) {
@@ -125,24 +126,90 @@ async function handleAssist(req, res) {
 const SUGGEST_MAX_HISTORICO = 10;
 const SUGGEST_MAX_CHARS_MENSAGEM = 2000;
 
-const SUGGEST_INSTRUCAO = `Você é um assistente de atendimento via WhatsApp.
-Analise a mensagem atual e o contexto recente.
-Gere 3 respostas naturais e úteis para o atendente enviar ao cliente.
-Preserve o contexto da conversa.
-Não invente preços, prazos, estoque, descontos, serviços ou qualquer informação que não esteja no contexto.
-Se faltar uma informação, faça uma pergunta adequada ou diga que é necessário verificar.
-As respostas devem ser em português brasileiro.
-Não envie a mensagem. Apenas gere sugestões.
-A sugestão 1 deve ser natural e direta, a sugestão 2 mais comercial, a sugestão 3 mais consultiva -- mas não inclua rótulos como "Sugestão 1:" dentro do texto.
-Responda SOMENTE em JSON, no formato exato: {"suggestions": ["...", "...", "..."]}`;
+const SUGGEST_INSTRUCAO = `Você é um assistente de atendimento via WhatsApp da empresa Rafa Arts.
+DIREÇÃO DA COMUNICAÇÃO (MUITO IMPORTANTE):
+- O CLIENTE envia mensagens "de lá para cá" (recebidas por nós).
+- O ATENDENTE (você) envia mensagens "daqui para lá" (enviadas para o cliente).
+- A sua função é sugerir o que NÓS (atendente da Rafa Arts) devemos responder PARA O CLIENTE.
 
-function montarPromptSuggest({ clientMessage, history, clientName }) {
+REGRAS ABSOLUTAS:
+1. NUNCA responda como se você fosse o cliente. Você é SEMPRE o atendente/empresa respondendo.
+2. NUNCA se passe pelo cliente e NUNCA coloque palavras na boca do cliente.
+3. Se o nome do cliente for informado, cumprimente o cliente pelo nome dele (ex: "Olá, [Nome do Cliente]!"). NUNCA diga que o seu nome é o nome do cliente!
+4. Fale na primeira pessoa ("eu" ou "nós"), em tom cordial, prestativo e profissional, representando a Rafa Arts.
+5. Responda diretamente à última mensagem que o cliente enviou pra cá, aproveitando o contexto do histórico.
+6. Não invente preços, prazos ou promoções fora do contexto. Se faltar informação técnica, pergunte com gentileza ao cliente ou avise que vai verificar.
+7. As respostas devem ser em português brasileiro natural para WhatsApp.
+8. Gere exatamente 3 opções de resposta para o atendente escolher:
+   - Opção 1: Direta e cordial.
+   - Opção 2: Comercial e resolutiva.
+   - Opção 3: Mais consultiva ou com pergunta para dar continuidade.
+9. Responda SOMENTE em JSON, no formato exato: {"suggestions": ["...", "...", "..."]}`;
+
+function montarPromptSuggest({ clientMessage, history, clientName, attendantName, memoryBlocks, products, companyInfo, positiveScript, negativeScript }) {
   const historicoTexto = (history || [])
     .slice(-SUGGEST_MAX_HISTORICO)
-    .map((m) => `${m.direction === 'incoming' ? 'Cliente' : 'Atendente'}: ${String(m.text || '').slice(0, SUGGEST_MAX_CHARS_MENSAGEM)}`)
+    .map((m) => {
+      const label = m.direction === 'incoming' 
+        ? `[Cliente enviou pra cá]:` 
+        : `[Você/Atendente enviou pra lá]:`;
+      return `${label} ${String(m.text || '').slice(0, SUGGEST_MAX_CHARS_MENSAGEM)}`;
+    })
     .join('\n');
 
-  return `${SUGGEST_INSTRUCAO}\n\nMENSAGEM ATUAL:\n${clientMessage}\n\nHISTÓRICO RECENTE:\n${historicoTexto || '(sem histórico anterior)'}\n\nCLIENTE:\n${clientName || '(nome não disponível)'}`;
+  // Formata os blocos de memória aprendidos
+  const memoriaTexto = Array.isArray(memoryBlocks) && memoryBlocks.length > 0
+    ? memoryBlocks
+        .slice(0, 15)
+        .map((b) => `- [${b.title}]: ${b.content}`)
+        .join('\n')
+    : '(Nenhum bloco de memória específico cadastrado)';
+
+  // Formata os produtos do catálogo do PDV
+  const produtosTexto = Array.isArray(products) && products.length > 0
+    ? products
+        .slice(0, 25)
+        .map((p) => `- ${p.name}: R$ ${Number(p.price || 0).toFixed(2).replace('.', ',')}${p.stock > 0 ? ` (Estoque: ${p.stock})` : ''}`)
+        .join('\n')
+    : '(Consulte itens diretamente na conversa)';
+
+  const infoEmpresaTexto = (companyInfo || '').trim() || 'Rafa Arts — Comunicação Visual, Gráfica e Personalizados.';
+  const scriptPositivoTexto = (positiveScript || '').trim() || 'Seja cordial, prestativo e comercial. Valorize os acabamentos premium e convide o cliente a enviar arte ou medidas.';
+  const scriptNegativoTexto = (negativeScript || '').trim() || 'NUNCA prometa prazos de entrega urgentes sem falar com a produção. NUNCA dê descontos não autorizados. NUNCA diga apenas "não fazemos".';
+
+  return `${SUGGEST_INSTRUCAO}
+
+PAPÉIS NO ATENDIMENTO:
+- Quem está respondendo agora (Daqui pra lá): ${attendantName || 'Atendente'} (Rafa Arts)
+- Destinatário da resposta: ${clientName || 'Cliente'}
+
+🏢 INFORMAÇÕES & REGRAS OFICIAIS DA EMPRESA:
+${infoEmpresaTexto}
+
+✅ SCRIPT POSITIVO (DIRETRIZES DE OURO — O QUE VOCÊ DEVE FALAR E ENFATIZAR):
+${scriptPositivoTexto}
+
+⛔ SCRIPT NEGATIVO (TRAVAS & PROIBIÇÕES ABSOLUTAS — O QUE VOCÊ NUNCA DEVE DIZER OU PROMETER):
+${scriptNegativoTexto}
+
+BASE DE MEMÓRIA & CONHECIMENTO DO ROBOZINHO (Informações aprendidas e orçamentos salvos da empresa):
+${memoriaTexto}
+
+CATÁLOGO DE PRODUTOS & SERVIÇOS DO PDV (Valores oficiais de tabela):
+${produtosTexto}
+
+HISTÓRICO RECENTE DA CONVERSA:
+${historicoTexto || '(Sem mensagens anteriores)'}
+
+ÚLTIMA MENSAGEM DO CLIENTE (O cliente enviou isso pra cá e está aguardando sua resposta):
+"${clientMessage}"
+
+IMPORTANTE: 
+1. Respeite RIGOROSAMENTE o Script Negativo (não cometa nenhuma das proibições listadas).
+2. Siga as orientações do Script Positivo e as Informações da Empresa.
+3. Se a pergunta do cliente envolver produtos, serviços, orçamentos (ex: capacetes, cartões, banners, lonas, adesivos) ou dados da empresa (ex: horários, pagamentos, sinal de 50%), CONSULTE a Base de Memória e o Catálogo acima e já forneça os valores e condições corretos!
+
+Gere as 3 sugestões de resposta que VOCÊ (atendente) vai enviar PARA O CLIENTE:`;
 }
 
 function extrairSugestoes(texto) {
@@ -195,6 +262,12 @@ async function handleSuggestReply(req, res) {
   const clientMessage = String(req.body?.clientMessage || '').trim().slice(0, SUGGEST_MAX_CHARS_MENSAGEM);
   const history = Array.isArray(req.body?.history) ? req.body.history : [];
   const clientName = String(req.body?.clientName || '').trim().slice(0, 100);
+  const attendantName = String(req.body?.attendantName || '').trim().slice(0, 100);
+  const memoryBlocks = Array.isArray(req.body?.memoryBlocks) ? req.body.memoryBlocks : [];
+  const products = Array.isArray(req.body?.products) ? req.body.products : [];
+  const companyInfo = String(req.body?.companyInfo || '').slice(0, 3000);
+  const positiveScript = String(req.body?.positiveScript || '').slice(0, 3000);
+  const negativeScript = String(req.body?.negativeScript || '').slice(0, 3000);
 
   if (!clientMessage) {
     res.status(400).json({ error: 'Mensagem do cliente vazia.' });
@@ -208,10 +281,10 @@ async function handleSuggestReply(req, res) {
         method: 'POST',
         headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName }) }] }],
-          generationConfig: { temperature: 0.6, responseMimeType: 'application/json' },
+          contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName, attendantName, memoryBlocks, products, companyInfo, positiveScript, negativeScript }) }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 500, responseMimeType: 'application/json' },
         }),
-        signal: AbortSignal.timeout(15 * 1000),
+        signal: AbortSignal.timeout(8 * 1000),
       });
 
       if (!resposta.ok) {

@@ -172,11 +172,24 @@ export function generateSuggestion(params: {
   clientName?: string;
   produtos: KnowledgeProduct[];
   enabledPaymentMethods: string[];
+  memoryBlocks?: any[];
 }): string {
-  const { clientMessage, clientName, produtos, enabledPaymentMethods } = params;
+  const { clientMessage, clientName, produtos, enabledPaymentMethods, memoryBlocks } = params;
   const msg = normalize(clientMessage);
   const nome = clientName?.trim() ? clientName.trim().split(' ')[0] : '';
   const saud = nome ? `Olá, ${nome}! ` : 'Olá! ';
+
+  // Se houver blocos de memória salvos/aprendidos, verifica se algum responde ao assunto da mensagem
+  if (Array.isArray(memoryBlocks) && memoryBlocks.length > 0) {
+    const palavrasMsg = msg.split(/\s+/).filter(w => w.length >= 3 && !STOPWORDS.has(w));
+    const blocoMatch = memoryBlocks.find(b => {
+      const tit = normalize(b.title);
+      return palavrasMsg.some(w => tit.includes(w) || w.includes(tit));
+    });
+    if (blocoMatch && blocoMatch.content) {
+      return `${saud}${blocoMatch.content}`;
+    }
+  }
 
   const asksPrice = /(preco|preço|valor|quanto custa|orcamento|orçamento|quanto fica|quanto e|quanto é)/.test(msg);
   const asksStock = /(estoque|tem disponivel|disponivel|tem pronto|em estoque)/.test(msg);

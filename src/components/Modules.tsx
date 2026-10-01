@@ -279,6 +279,7 @@ import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
 import { transcribeAudioMessage, reprocessPendingTranscriptions } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
 import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
+import { getMemoryBlocksSync, detectarEAprenderDoChat, getScriptsRobozinhoSync } from '../lib/robozinhoMemoryStorage';
 import { assistWriting, WRITING_ASSIST_ACTIONS, type WritingAssistAction } from '../lib/writingAssistant';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem, buscarClientePorTelefone } from '../lib/clienteDedupe';
@@ -4164,7 +4165,39 @@ export const ChatPanel = ({
         .filter(m => m.text)
         .slice(-10)
         .map(m => ({ direction: m.direction === 'incoming' ? 'incoming' : 'outgoing', text: m.text }));
-      const suggestions = await suggestReplies(lastIncoming.text, history, conversation?.name, user?.id);
+
+      const memoryBlocks = getMemoryBlocksSync();
+      let productsMapped: any[] = [];
+      try {
+        const { data: prods } = await supabase
+          .from('produtos')
+          .select('name, sale_price, current_stock')
+          .eq('is_active', true)
+          .limit(30);
+        if (prods) {
+          productsMapped = prods.map((p: any) => ({
+            name: p.name,
+            price: Number(p.sale_price) || 0,
+            stock: Number(p.current_stock) || 0,
+          }));
+        }
+      } catch (prodErr) {
+        console.warn('Erro ao consultar produtos para sugestão:', prodErr);
+      }
+
+      const scripts = getScriptsRobozinhoSync();
+      const suggestions = await suggestReplies(
+        lastIncoming.text,
+        history,
+        conversation?.name,
+        user?.id,
+        user?.name,
+        memoryBlocks,
+        productsMapped,
+        scripts.companyInfo,
+        scripts.positiveScript,
+        scripts.negativeScript
+      );
       setRobozinhoSuggestions(suggestions);
       setShowRobozinhoSuggestions(true);
     } catch (err) {
@@ -4183,6 +4216,7 @@ export const ChatPanel = ({
           clientName: conversation?.name,
           produtos,
           enabledPaymentMethods: configRow?.enabled_payment_methods || [],
+          memoryBlocks: getMemoryBlocksSync(),
         });
         if (suggestion) {
           setRobozinhoSuggestions([suggestion]);
@@ -4654,6 +4688,19 @@ export const ChatPanel = ({
       await handleSendFile(lista[i].file, 'image', i === 0 ? legenda : '');
     }
     lista.forEach(p => URL.revokeObjectURL(p.previewUrl));
+
+    if (legenda && !isGroup) {
+      const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
+      if (lastIncoming?.text) {
+        detectarEAprenderDoChat({
+          clientMessage: lastIncoming.text,
+          attendantReply: legenda,
+          clientName: conversation?.name || conversation?.contactName || 'Cliente',
+          isGroup: !!isGroup,
+          phone: conversation?.phone,
+        }).catch(e => console.warn('Erro ao processar aprendizado do Robozinho:', e));
+      }
+    }
   };
   // Ao trocar de conversa (ou sair), descarta as prévias pendentes.
   useEffect(() => {
@@ -6140,6 +6187,20 @@ export const ChatPanel = ({
           lastMessageDirection: 'outgoing',
           lastMessageAt: new Date().toISOString(),
         });
+
+        // Aprendizado com Conversas (Robozinho): grava preços, orçamentos e regras caso o aprendizado esteja ativado (ignora 100% dos grupos)
+        if (!isGroup) {
+          const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
+          if (lastIncoming?.text) {
+            detectarEAprenderDoChat({
+              clientMessage: lastIncoming.text,
+              attendantReply: textoEnviado,
+              clientName: conversation?.name || conversation?.contactName || 'Cliente',
+              isGroup: false,
+              phone: conversation?.phone,
+            }).catch(e => console.warn('Erro ao processar aprendizado do Robozinho:', e));
+          }
+        }
         return;
       }
 
@@ -6169,6 +6230,20 @@ export const ChatPanel = ({
         lastMessageDirection: 'outgoing',
         lastMessageAt: new Date().toISOString(),
       });
+
+      // Aprendizado com Conversas (Robozinho): grava preços, orçamentos e regras caso o aprendizado esteja ativado (ignora grupos)
+      if (!isGroup) {
+        const lastIncomingOutros = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
+        if (lastIncomingOutros?.text) {
+          detectarEAprenderDoChat({
+            clientMessage: lastIncomingOutros.text,
+            attendantReply: textoEnviado,
+            clientName: conversation?.name || conversation?.contactName || 'Cliente',
+            isGroup: false,
+            phone: conversation?.phone,
+          }).catch(e => console.warn('Erro ao processar aprendizado do Robozinho:', e));
+        }
+      }
     } catch (err) {
       console.error('Falha ao enviar mensagem:', err);
       setReenvioPendente(textoEnviado);
