@@ -137,7 +137,7 @@ async function handleGroupParticipants(req, res) {
   }
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
-  const rawJid = String(req.body?.groupJid || req.body?.phone || '').trim();
+  const rawJid = String(req.body?.groupJid || req.body?.phone || req.query?.groupJid || req.query?.phone || '').trim();
   const jid = rawJid.endsWith('@g.us') ? rawJid : `${rawJid.replace(/\D/g, '')}@g.us`;
   if (!jid || jid === '@g.us') {
     res.status(400).json({ error: 'Faltou o JID do grupo.' });
@@ -146,10 +146,24 @@ async function handleGroupParticipants(req, res) {
 
   try {
     const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
-    const r = await fetch(`${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}?groupJid=${encodeURIComponent(jid)}`, {
+    let r = await fetch(`${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}?groupJid=${encodeURIComponent(jid)}`, {
       method: 'GET',
       headers: evoHeaders,
     });
+    // Algumas versões da Evolution API esperam POST com body { groupJid }
+    if (!r.ok && (r.status === 404 || r.status === 405 || r.status === 400)) {
+      try {
+        const rPost = await fetch(`${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}`, {
+          method: 'POST',
+          headers: evoHeaders,
+          body: JSON.stringify({ groupJid: jid }),
+        });
+        if (rPost.ok) r = rPost;
+      } catch (errPost) {
+        console.warn('Tentativa POST findGroupInfos falhou:', errPost);
+      }
+    }
+
     if (!r.ok) {
       res.status(200).json({ ok: false, status: r.status });
       return;
@@ -160,16 +174,46 @@ async function handleGroupParticipants(req, res) {
       return;
     }
 
-    const participants = (data.participants || []).map((p) => {
+    const rawParticipants = Array.isArray(data.participants) ? data.participants : (Array.isArray(data) ? data : []);
+    const participants = rawParticipants.map((p) => {
       const pId = typeof p === 'string' ? p : (p.id || p.jid || '');
-      const num = pId.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      const num = pId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+      const pName = typeof p === 'object' ? (p.name || p.pushName || p.notify || null) : null;
       return {
-        id: pId,
-        phoneNumber: num,
-        name: p.name || p.pushName || null,
+        id: pId || num,
+        phoneNumber: num || null,
+        name: pName,
         admin: (p.admin === 'admin' || p.admin === 'superadmin' || p.isAdmin) ? 'admin' : null,
       };
     });
+
+    // Enriquece com nomes salvos no CRM (tabela leads)
+    if (participants.length > 0) {
+      try {
+        const nums = participants.map((p) => p.phoneNumber).filter(Boolean);
+        if (nums.length > 0) {
+          const sRes = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&select=phone,contact_name,whatsapp_name,full_name&limit=300`, {
+            headers: supaHeaders,
+          });
+          if (sRes.ok) {
+            const leadsList = await sRes.json().catch(() => []);
+            const mapLead = new Map();
+            leadsList.forEach((l) => {
+              const ld = (l.phone || '').replace(/\D/g, '');
+              if (ld) mapLead.set(ld, l.contact_name || l.whatsapp_name || l.full_name);
+            });
+            participants.forEach((p) => {
+              if (p.phoneNumber) {
+                const foundName = mapLead.get(p.phoneNumber) || mapLead.get(p.phoneNumber.slice(-8));
+                if (foundName) p.name = foundName;
+              }
+            });
+          }
+        }
+      } catch (errLead) {
+        console.warn('Erro ao enriquecer participantes do grupo com nomes do CRM:', errLead);
+      }
+    }
 
     res.status(200).json({
       ok: true,
@@ -186,12 +230,12 @@ async function handleGroupParticipants(req, res) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
+  const rota = String(req.query?.rota || '');
+  if (req.method !== 'POST' && req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
 
-  const rota = String(req.query?.rota || '');
   if (rota === 'presence-subscribe') {
     await handlePresenceSubscribe(req, res);
     return;

@@ -759,6 +759,7 @@ export const CustomerContextSidebar = ({
   isGroup = false,
   groupParticipants = [],
   groupMedia = [],
+  groupDescription = null,
   onOpenMediaViewer,
   onStartSale,
   onOpenChatWithPhone,
@@ -813,6 +814,7 @@ export const CustomerContextSidebar = ({
   isGroup?: boolean;
   groupParticipants?: any[];
   groupMedia?: any[];
+  groupDescription?: string | null;
   onOpenMediaViewer?: (media: any) => void;
   onStartSale?: () => void;
   onOpenChatWithPhone?: (phone: string) => void;
@@ -958,20 +960,21 @@ export const CustomerContextSidebar = ({
                   <Users size={38} className="text-emerald-400" />
                 )}
               </div>
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center justify-center gap-1.5">
-                  <span>🥇</span>
-                  <span>{conversation.name || 'Rafa Arts'}</span>
-                  <span>🥇</span>
+              <div className="px-2">
+                <h3 className="text-base font-bold text-white leading-snug">
+                  {conversation.name || 'Grupo de WhatsApp'}
                 </h3>
-                <p className="text-xs text-white/50 mt-0.5">
-                  Grupo • {(groupParticipants || []).length} membros
-                </p>
-                <div className="flex items-center justify-center gap-1 text-[11px] text-white/60 mt-1">
-                  <span className="text-emerald-400 font-semibold">Sistema:</span>
-                  <span>pro.rafaartsgraphics.com.br</span>
-                  <Pencil size={10} className="text-emerald-400/80 cursor-pointer" />
+                <div className="flex items-center justify-center gap-2 mt-1">
+                  <span className="text-[9.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Grupo WhatsApp • {(groupParticipants || []).length} membros
+                  </span>
                 </div>
+                {groupDescription && (
+                  <div className="mt-2.5 p-2.5 bg-white/5 border border-white/10 rounded-xl text-left">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 block mb-0.5">Descrição do Grupo</span>
+                    <p className="text-xs text-white/80 whitespace-pre-wrap leading-relaxed">{groupDescription}</p>
+                  </div>
+                )}
               </div>
             </div>
 

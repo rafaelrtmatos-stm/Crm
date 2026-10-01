@@ -635,15 +635,60 @@ export default function App() {
       }
     });
   }, []);
-  const [activeTab, setActiveTabState] = useState<MainTab>(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('rpro_active_tab') : null;
-    const validTabs: MainTab[] = ['dashboard', 'crm', 'messages', 'pos', 'contacts', 'services', 'production', 'settings', 'comissoes', 'robozinho_rafa', 'clientes_espera', 'inventory', 'ponto'];
-    return (saved && validTabs.includes(saved as MainTab)) ? (saved as MainTab) : 'dashboard';
-  });
-  const setActiveTab = (tab: MainTab) => {
-    setActiveTabState(tab);
-    if (typeof window !== 'undefined') localStorage.setItem('rpro_active_tab', tab);
+  // Helper para garantir que atendentes e usuários não-admin nunca abram o Dashboard nem fiquem presos nele
+  const resolveValidTabForUser = (targetTab: MainTab, u: AppUser | null | undefined): MainTab => {
+    const validTabs: MainTab[] = ['crm', 'messages', 'pos', 'inventory', 'ponto', 'clientes_espera', 'production', 'comissoes', 'contacts', 'services', 'robozinho_rafa', 'settings', 'dashboard'];
+    if (!u || u.isAdmin) {
+      return (validTabs.includes(targetTab)) ? targetTab : 'dashboard';
+    }
+    if (Array.isArray(u.allowedTabs) && u.allowedTabs.length > 0) {
+      // Se targetTab for dashboard e não for permitido (ou para qualquer atendente), redireciona para a primeira aba permitida
+      if (targetTab !== 'dashboard' && u.allowedTabs.includes(targetTab) && validTabs.includes(targetTab)) {
+        return targetTab;
+      }
+      const firstAllowed = u.allowedTabs.find(t => t !== 'dashboard' && validTabs.includes(t as MainTab))
+        || u.allowedTabs.find(t => validTabs.includes(t as MainTab));
+      if (firstAllowed) return firstAllowed as MainTab;
+    }
+    return targetTab;
   };
+
+  const [activeTab, setActiveTabState] = useState<MainTab>(() => {
+    const saved = typeof window !== 'undefined' ? (localStorage.getItem('rpro_active_tab') as MainTab | null) : null;
+    const validTabs: MainTab[] = ['crm', 'messages', 'pos', 'inventory', 'ponto', 'clientes_espera', 'production', 'comissoes', 'contacts', 'services', 'robozinho_rafa', 'settings', 'dashboard'];
+    
+    // Evita abrir ou piscar o Dashboard se o usuário em cache não tiver permissão para ele
+    try {
+      if (typeof window !== 'undefined') {
+        const rawCached = localStorage.getItem('rpro_cached_user');
+        if (rawCached) {
+          const cachedUser = JSON.parse(rawCached);
+          if (cachedUser) {
+            return resolveValidTabForUser(saved || 'crm', cachedUser);
+          }
+        }
+      }
+    } catch { /* ignora */ }
+
+    return (saved && validTabs.includes(saved)) ? saved : 'dashboard';
+  });
+
+  const setActiveTab = (tab: MainTab) => {
+    const resolved = resolveValidTabForUser(tab, user);
+    setActiveTabState(resolved);
+    if (typeof window !== 'undefined') localStorage.setItem('rpro_active_tab', resolved);
+  };
+
+  // Aba efetiva calculada sincronamente a cada render: impede 100% qualquer frame de Dashboard para atendente
+  const effectiveTab = resolveValidTabForUser(activeTab, user);
+
+  // Garante que atendentes ou usuários restritos nunca fiquem presos nem vejam o Dashboard se não tiverem permissão
+  useEffect(() => {
+    if (effectiveTab !== activeTab) {
+      setActiveTabState(effectiveTab);
+      if (typeof window !== 'undefined') localStorage.setItem('rpro_active_tab', effectiveTab);
+    }
+  }, [effectiveTab, activeTab]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMessagePopupOpen, setIsMessagePopupOpen] = useState(false);
   const [preselectedLeadIdForMessages, setPreselectedLeadIdForMessages] = useState<string | undefined>();
@@ -675,10 +720,10 @@ export default function App() {
 
   // Limpa o preselectedLeadId quando sair da aba de mensagens
   useEffect(() => {
-    if (activeTab !== 'messages') {
+    if (effectiveTab !== 'messages') {
       setPreselectedLeadIdForMessages(undefined);
     }
-  }, [activeTab]);
+  }, [effectiveTab]);
 
   // Envio das vendas feitas offline (fila do aparelho): ao abrir o CRM/entrar, quando a internet volta
   // e de tempos em tempos. Fica AQUI (raiz, sempre montada) e nao no PDV: o caixa pode estar em outra
@@ -2426,6 +2471,10 @@ export default function App() {
         return;
       }
 
+      const initialTab = resolveValidTabForUser(activeTab, userData);
+      setActiveTabState(initialTab);
+      try { localStorage.setItem('rpro_active_tab', initialTab); } catch { /* ignora */ }
+
       setUser(userData);
       cacheUserOffline(userData);
       sessionStorage.setItem('rpro_logged_user_id', userData.id);
@@ -2587,6 +2636,10 @@ export default function App() {
                 window.location.href = 'https://pro.rafaartsgraphics.com.br/comissoes';
                 return;
               }
+              const initTab = resolveValidTabForUser(activeTab, uData);
+              setActiveTabState(initTab);
+              try { localStorage.setItem('rpro_active_tab', initTab); } catch { /* ignora */ }
+
               setUser(uData);
               cacheUserOffline(uData);
               const channel = supabase
@@ -2668,20 +2721,7 @@ export default function App() {
     // sem essa aba (ex: aba nova adicionada depois que o allowedTabs foi configurado)
     if (user?.isAdmin) return true;
 
-    // Controle de Ponto: visível no menu lateral
-    if (item.id === 'ponto') {
-      if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
-        return (
-          user.allowedTabs.includes('ponto') ||
-          user.allowedTabs.includes('comissoes') ||
-          canSeeFinanceiroTab(user, 'ponto') ||
-          true
-        );
-      }
-      return true;
-    }
-
-    // If user has specific allowedTabs, check it first
+    // Se o usuário tem allowedTabs definido, respeita estritamente cada aba (inclusive ponto)
     if (user && user.allowedTabs && Array.isArray(user.allowedTabs)) {
       if (item.id === 'inventory') {
         return (
@@ -2696,10 +2736,8 @@ export default function App() {
       return user.allowedTabs.includes(item.id);
     }
     
-    // Se nao tem admin nem allowedTabs definido, mostra so o Dashboard por padrao —
-    // Configuracoes e Integrações NUNCA devem aparecer de graça pra quem não é admin
-    if (item.id === 'settings' || item.id === 'robozinho_rafa') return false;
-    if (item.id === 'dashboard') return true;
+    // Se nao tem admin nem allowedTabs definido, Configuracoes, Integrações, Ponto e Dashboard NUNCA aparecem de graça
+    if (item.id === 'settings' || item.id === 'robozinho_rafa' || item.id === 'ponto' || item.id === 'dashboard') return false;
     
     // Otherwise check company active modules
     return currentCompany?.activeModules?.includes(item.id) ?? true;
@@ -2718,7 +2756,7 @@ export default function App() {
     return getPos(a.id) - getPos(b.id);
   }).filter(item => {
     // Item escondido pelo admin (exceto Opcoes, que sempre fica visivel pra admin nao se trancar fora)
-    if (!menuConfig || item.id === 'settings' || item.id === 'ponto') return true;
+    if (!menuConfig || item.id === 'settings') return true;
     const cfg = menuConfig.find(m => m.id === item.id);
     return cfg ? cfg.visible : true;
   });
@@ -2967,7 +3005,7 @@ export default function App() {
     companies,
     currentCompany,
     setCurrentCompany,
-    activeTab,
+    activeTab: effectiveTab,
     setActiveTab,
     isSidebarOpen,
     setIsSidebarOpen,
@@ -3020,7 +3058,7 @@ export default function App() {
     <AppContext.Provider value={contextValue}>
       <div className="app flex flex-col h-screen overflow-hidden relative">
         {/* Background Mesh — escondido na aba Comissões, que já tem fundo preto sólido próprio */}
-        <div className={cn("fixed inset-0 z-[-1] mesh-gradient", activeTab === 'comissoes' && "opacity-0")} />
+        <div className={cn("fixed inset-0 z-[-1] mesh-gradient", effectiveTab === 'comissoes' && "opacity-0")} />
 
         {simulatedUserId && (
           <div className="bg-amber-500 text-slate-950 font-black px-8 py-2 md:py-3 text-[10px] md:text-xs flex items-center justify-between shadow-xl relative z-50 animate-in slide-in-from-top duration-300">
@@ -3074,7 +3112,7 @@ export default function App() {
                     icon={item.icon}
                     label={item.label}
                     tab={item.id as MainTab}
-                    active={activeTab === item.id}
+                    active={effectiveTab === item.id}
                     badgeCount={item.id === 'messages' ? unrepliedLeadsCount : undefined}
                     onClick={() => {
                       if (item.id === 'messages') {
@@ -3107,22 +3145,24 @@ export default function App() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
           <Navbar />
-          <div className={cn("flex-1 custom-scrollbar", (activeTab === 'pos' || activeTab === 'crm') ? "px-1.5 pt-0.5 pb-1 sm:px-2.5 sm:pt-1 sm:pb-1.5 overflow-hidden flex flex-col min-h-0" : "p-4 md:p-8 overflow-y-auto")}>
-            <div className={cn((activeTab === 'pos' || activeTab === 'crm') ? "max-w-full h-full flex flex-col min-h-0" : "max-w-7xl mx-auto")}>
+          <div className={cn("flex-1 custom-scrollbar", (effectiveTab === 'pos' || effectiveTab === 'crm') ? "px-1.5 pt-0.5 pb-1 sm:px-2.5 sm:pt-1 sm:pb-1.5 overflow-hidden flex flex-col min-h-0" : "p-4 md:p-8 overflow-y-auto")}>
+            <div className={cn((effectiveTab === 'pos' || effectiveTab === 'crm') ? "max-w-full h-full flex flex-col min-h-0" : "max-w-7xl mx-auto")}>
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={activeTab}
+                  key={effectiveTab}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className={(activeTab === 'pos' || activeTab === 'crm') ? "h-full flex flex-col min-h-0" : undefined}
+                  className={(effectiveTab === 'pos' || effectiveTab === 'crm') ? "h-full flex flex-col min-h-0" : undefined}
                 >
-                  {activeTab === 'dashboard' && <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} setIsMessagePopupOpen={setIsMessagePopupOpen} />}
-                  {activeTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
-                  {activeTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} preselectedLeadId={preselectedLeadIdForMessages} />}
-                  {activeTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
-                  {activeTab === 'contacts' && (
+                  {effectiveTab === 'dashboard' && (!user || user.isAdmin || !user.allowedTabs || user.allowedTabs.includes('dashboard')) && (
+                    <DashboardModule user={user} currentCompany={currentCompany} pendingOrders={pendingOrders} setActiveTab={setActiveTab} setIsMessagePopupOpen={setIsMessagePopupOpen} />
+                  )}
+                  {effectiveTab === 'crm' && <CRMModule currentCompany={currentCompany} user={user} />}
+                  {effectiveTab === 'messages' && <MessagesModule currentCompany={currentCompany} user={user} preselectedLeadId={preselectedLeadIdForMessages} />}
+                  {effectiveTab === 'pos' && <ModuleErrorBoundary label="o PDV"><POSModule currentCompany={currentCompany} addPendingOrder={addPendingOrder} /></ModuleErrorBoundary>}
+                  {effectiveTab === 'contacts' && (
                     <ContactsModule
                       currentCompany={currentCompany}
                       onViewHistoryForClient={(clienteId: string, clienteName: string) => {
@@ -3139,18 +3179,18 @@ export default function App() {
                       }}
                     />
                   )}
-                  {activeTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
-                  {activeTab === 'inventory' && <ModuleErrorBoundary label="Estoque & Materiais"><InventoryModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
-                  {activeTab === 'ponto' && <ModuleErrorBoundary label="Controle de Ponto"><PontoApp /></ModuleErrorBoundary>}
-                  {activeTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
-                  {activeTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
-                  {activeTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
-                  {activeTab === 'comissoes' && (
+                  {effectiveTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {effectiveTab === 'inventory' && <ModuleErrorBoundary label="Estoque & Materiais"><InventoryModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {effectiveTab === 'ponto' && <ModuleErrorBoundary label="Controle de Ponto"><PontoApp /></ModuleErrorBoundary>}
+                  {effectiveTab === 'services' && <ServicesModule currentCompany={currentCompany} />}
+                  {effectiveTab === 'production' && <ProductionModule currentCompany={currentCompany} />}
+                  {effectiveTab === 'robozinho_rafa' && <ModuleErrorBoundary label="Integrações"><IntegracoesModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {effectiveTab === 'comissoes' && (
                     <ModuleErrorBoundary label="Financeiro">
                       <FinanceiroModule currentCompany={currentCompany} user={user} />
                     </ModuleErrorBoundary>
                   )}
-                  {activeTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
+                  {effectiveTab === 'settings' && <SettingsModule currentCompany={currentCompany} user={user} />}
                 </motion.div>
               </AnimatePresence>
             </div>

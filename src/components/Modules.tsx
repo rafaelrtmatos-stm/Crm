@@ -278,7 +278,7 @@ import { OFFICIAL_COMPANY, PUBLIC_SIGN_ORIGIN, getContractSignatureLink } from '
 import { signContractByCompany, generateSignatureId } from '../lib/otpUtils';
 import { transcribeAudioMessage, reprocessPendingTranscriptions } from '../lib/audioTranscription';
 import { generateSuggestion, type KnowledgeProduct } from '../lib/robozinhoRafa';
-import { suggestReplies, type SuggestReplyHistoryItem } from '../lib/suggestReply';
+import { suggestReplies, SUGGEST_ACTIONS_LIST, type SuggestReplyHistoryItem, type SuggestReplyAction } from '../lib/suggestReply';
 import { getMemoryBlocksSync, detectarEAprenderDoChat, getScriptsRobozinhoSync } from '../lib/robozinhoMemoryStorage';
 import { assistWriting, WRITING_ASSIST_ACTIONS, type WritingAssistAction } from '../lib/writingAssistant';
 import { validateCpfCnpj } from '../lib/validators';
@@ -378,14 +378,18 @@ function getDefaultModulePermissions(role: string): ModulePermissions {
       ALL_MODULE_IDS.forEach(m => { empty[m] = m === 'settings' ? viewOnly() : fullAccess(); });
       return empty;
     case 'atendente':
-      empty.dashboard = viewOnly();
+      empty.dashboard = noAccess();
       empty.pos = viewCreateEdit();
       empty.messages = viewCreateEdit();
       empty.clientes_espera = viewEdit();
       empty.contacts = viewCreateEdit();
       empty.crm = viewCreateEdit();
       empty.production = viewOnly();
-      empty.robozinho_rafa = viewCreateEdit();
+      empty.robozinho_rafa = noAccess();
+      empty.ponto = noAccess();
+      empty.comissoes = noAccess();
+      empty.inventory = noAccess();
+      empty.settings = noAccess();
       return empty;
     case 'operador': // Producao
       empty.dashboard = viewOnly();
@@ -3696,6 +3700,7 @@ export const ChatPanel = ({
   onToggleColumnCollapse,
   unreadTotalCount,
   isEmbedded,
+  onOpenChatWithPhone,
 }: { 
   conversation: any; 
   onClose?: () => void;
@@ -3709,6 +3714,7 @@ export const ChatPanel = ({
   onToggleColumnCollapse?: () => void;
   unreadTotalCount?: number;
   isEmbedded?: boolean;
+  onOpenChatWithPhone?: (phone: string) => void;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -4143,15 +4149,34 @@ export const ChatPanel = ({
   };
 
   // Botao "Sugestao do Robozinho" — le a ultima mensagem do cliente + contexto recente da
-  // conversa e pede 3 sugestoes de resposta ao Gemini (mecanismo principal). Se o Gemini falhar,
-  // cai pro fallback antigo por palavras-chave (generateSuggestion), sem travar o CRM.
+  // conversa e pede 3 sugestoes de resposta ao Gemini com categorias de acao (Follow-up, Orcamento,
+  // Agradecimento ou Geral). Se o Gemini falhar, cai pro fallback sem travar o CRM.
   // O atendente sempre escolhe/revisa antes de enviar (a IA nunca envia sozinha).
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
   const [robozinhoSuggestions, setRobozinhoSuggestions] = useState<string[]>([]);
   const [showRobozinhoSuggestions, setShowRobozinhoSuggestions] = useState(false);
-  const handleGenerateRobozinhoSuggestion = async () => {
+  const [showSuggestActionMenu, setShowSuggestActionMenu] = useState(false);
+  const [selectedSuggestAction, setSelectedSuggestAction] = useState<SuggestReplyAction>('followup');
+
+  const handleOpenSuggestMenu = () => {
     const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
     if (!lastIncoming) { showAlert('Ainda não tem mensagem do cliente nessa conversa pra sugerir uma resposta.'); return; }
+    if (suggestBtnRef.current) {
+      const r = suggestBtnRef.current.getBoundingClientRect();
+      setSuggestPos({
+        bottom: window.innerHeight - r.top + 8,
+        left: Math.max(12, Math.min(r.left, window.innerWidth - 380 - 12))
+      });
+    }
+    setShowSuggestActionMenu(v => !v);
+  };
+
+  const handleGenerateRobozinhoSuggestion = async (actionOverride?: SuggestReplyAction) => {
+    const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
+    if (!lastIncoming) { showAlert('Ainda não tem mensagem do cliente nessa conversa pra sugerir uma resposta.'); return; }
+    const actionToUse = actionOverride || selectedSuggestAction || 'general';
+    setSelectedSuggestAction(actionToUse);
+    setShowSuggestActionMenu(false);
     if (suggestBtnRef.current) {
       const r = suggestBtnRef.current.getBoundingClientRect();
       setSuggestPos({
@@ -4196,7 +4221,8 @@ export const ChatPanel = ({
         productsMapped,
         scripts.companyInfo,
         scripts.positiveScript,
-        scripts.negativeScript
+        scripts.negativeScript,
+        actionToUse
       );
       setRobozinhoSuggestions(suggestions);
       setShowRobozinhoSuggestions(true);
@@ -4531,8 +4557,10 @@ export const ChatPanel = ({
       });
   }, [isGroup, conversation?.phone]);
 
-  // Participantes do grupo
+  // Participantes e descrição do grupo
   const [groupParticipants, setGroupParticipants] = useState<any[]>([]);
+  const [groupDescription, setGroupDescription] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isGroup || !conversation?.phone) return;
     const digits = (conversation.phone || '').replace(/\D/g, '');
@@ -4549,6 +4577,7 @@ export const ChatPanel = ({
       .then(res => {
         if (res?.ok && Array.isArray(res.participants) && res.participants.length > 0) {
           setGroupParticipants(res.participants);
+          if (res.description) setGroupDescription(res.description);
           return;
         }
         throw new Error('fallback');
@@ -5290,6 +5319,10 @@ export const ChatPanel = ({
   };
 
   const handleOpenChatWithPhone = async (phone: string) => {
+    if (onOpenChatWithPhone) {
+      onOpenChatWithPhone(phone);
+      return;
+    }
     const digits = phone.replace(/\D/g, '');
     if (!digits) return;
     try {
@@ -6432,10 +6465,15 @@ export const ChatPanel = ({
           <div className="relative shrink-0">
             <button
               type="button"
-              onClick={() => { if (conversation.photoUrl) setIsPhotoOpen(true); }}
-              disabled={!conversation.photoUrl}
-              title={conversation.photoUrl ? 'Ver foto de perfil' : undefined}
-              className={cn("block rounded-full overflow-hidden", conversation.photoUrl ? "cursor-zoom-in" : "cursor-default")}
+              onClick={() => {
+                if (isGroup) {
+                  toggleDesktopSidebar();
+                } else if (conversation.photoUrl) {
+                  setIsPhotoOpen(true);
+                }
+              }}
+              title={isGroup ? 'Ver integrantes e informações do grupo' : (conversation.photoUrl ? 'Ver foto de perfil' : undefined)}
+              className={cn("block rounded-full overflow-hidden", isGroup ? "cursor-pointer" : (conversation.photoUrl ? "cursor-zoom-in" : "cursor-default"))}
             >
               <AvatarPhoto
                 photoUrl={conversation.photoUrl}
@@ -6657,8 +6695,12 @@ export const ChatPanel = ({
             // - Aberto: nome fica numa linha acima do card de etapa/status.
             const nomeClienteEl = (
               <h4 
-                className="font-bold text-xs sm:text-sm text-white truncate min-w-0 leading-tight" 
-                title={resolvedClientName}
+                onClick={isGroup ? toggleDesktopSidebar : undefined}
+                className={cn(
+                  "font-bold text-xs sm:text-sm text-white truncate min-w-0 leading-tight",
+                  isGroup && "cursor-pointer hover:text-emerald-300 transition-colors"
+                )} 
+                title={isGroup ? `Ver integrantes do grupo: ${resolvedClientName}` : resolvedClientName}
               >
                 {resolvedClientName}
               </h4>
@@ -6793,20 +6835,20 @@ export const ChatPanel = ({
             <span className="hidden md:inline">Buscar</span>
           </button>
 
-          {/* Botão Perfil */}
+          {/* Botão Perfil / Grupo */}
           <button
             type="button"
             onClick={toggleDesktopSidebar}
             className={cn(
               "flex items-center gap-1.5 px-2.5 sm:px-3 h-7 sm:h-8 rounded-lg border transition-all text-[10px] sm:text-[10.5px] font-bold shrink-0 shadow-sm active:scale-95 cursor-pointer",
               showDesktopSidebar 
-                ? "bg-red-500/20 text-red-300 border-red-500/40 shadow-sm" 
-                : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/10"
+                ? (isGroup ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm" : "bg-red-500/20 text-red-300 border-red-500/40 shadow-sm") 
+                : (isGroup ? "bg-emerald-500/10 text-emerald-300 hover:text-white hover:bg-emerald-500/20 border-emerald-500/30" : "bg-white/5 text-white/80 hover:text-white hover:bg-white/10 border-white/10")
             )}
-            title="Perfil do Contato"
+            title={isGroup ? "Integrantes e Informações do Grupo" : "Perfil do Contato"}
           >
-            <User size={13} />
-            <span className="inline">Perfil</span>
+            {isGroup ? <Users size={13} className="text-emerald-400" /> : <User size={13} />}
+            <span className="inline">{isGroup ? "Grupo" : "Perfil"}</span>
           </button>
 
           {/* Botão Resolvido (Alerta de Vácuo / Tempo de Espera) */}
@@ -7621,40 +7663,96 @@ export const ChatPanel = ({
               <div className="p-2 sm:p-2.5 bg-slate-950/90 border-t border-white/10 space-y-1.5 flex-shrink-0 backdrop-blur-xl">
                 {/* BARRA DE AÇÕES DE IA (Sugerir resposta & Melhorar texto) */}
                 <div className="flex items-center gap-1.5 pb-0.5 overflow-x-auto no-scrollbar flex-nowrap">
-                  {/* [Sugerir resposta] — Ação Principal */}
-                  <div className="relative shrink-0">
+                  {/* [Sugerir resposta] — Ação Principal com Categorias */}
+                  <div className="relative shrink-0 flex items-center">
                     <button
                       ref={suggestBtnRef}
                       type="button"
-                      onClick={() => {
-                        if (suggestBtnRef.current) {
-                          const r = suggestBtnRef.current.getBoundingClientRect();
-                          setSuggestPos({
-                            bottom: window.innerHeight - r.top + 8,
-                            left: Math.max(12, Math.min(r.left, window.innerWidth - 380 - 12))
-                          });
-                        }
-                        handleGenerateRobozinhoSuggestion();
-                      }}
+                      onClick={() => handleOpenSuggestMenu()}
                       disabled={isGeneratingSuggestion}
                       className="text-[9.5px] font-black uppercase tracking-wider px-3 py-1 rounded-lg bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white shadow-md shadow-red-950/50 whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 active:scale-95 border border-red-500/40"
-                      title="O Robozinho lê a última mensagem do cliente e o contexto recente da conversa e sugere 3 respostas pra você escolher"
+                      title="Escolha uma categoria (Follow-up, Orçamento, Agradecimento ou Geral) para o Robozinho sugerir 3 respostas ideais"
                     >
                       {isGeneratingSuggestion ? <Loader2 size={11} className="animate-spin" /> : <Bot size={11} />}
                       <span>{isGeneratingSuggestion ? 'Pensando...' : 'Sugerir resposta'}</span>
+                      <ChevronDown size={11} className={cn("transition-transform duration-200 opacity-80", showSuggestActionMenu ? "rotate-180" : "")} />
                     </button>
 
-                    {showRobozinhoSuggestions && robozinhoSuggestions.length > 0 && typeof document !== 'undefined' && createPortal(
+                    {/* MENU DE ESCOLHA DA CATEGORIA / AÇÃO */}
+                    {showSuggestActionMenu && typeof document !== 'undefined' && createPortal(
                       <>
-                        <div className="fixed inset-0 z-[99998] bg-black/40 backdrop-blur-xs" onClick={() => setShowRobozinhoSuggestions(false)} />
+                        <div className="fixed inset-0 z-[99998] bg-black/40 backdrop-blur-xs" onClick={() => setShowSuggestActionMenu(false)} />
                         <div 
-                          className="fixed w-[calc(100vw-24px)] sm:w-96 max-w-[380px] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[99999] p-3 space-y-2 animate-in fade-in zoom-in-95 duration-150"
+                          className="fixed w-[calc(100vw-24px)] sm:w-84 max-w-[350px] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[99999] p-3 space-y-2 animate-in fade-in zoom-in-95 duration-150"
                           style={{ bottom: suggestPos.bottom, left: suggestPos.left }}
                         >
                           <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
                             <div className="flex items-center gap-1.5">
                               <Bot size={13} className="text-red-400" />
-                              <span className="text-[10px] font-black uppercase tracking-wider text-white">Sugestões de Resposta</span>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white">Objetivo da Sugestão</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowSuggestActionMenu(false)}
+                              className="text-white/40 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+
+                          <p className="text-[10.5px] text-white/50 leading-tight">Escolha qual objetivo você deseja que o Robozinho prepare:</p>
+
+                          <div className="space-y-1.5">
+                            {SUGGEST_ACTIONS_LIST.map((actionItem) => {
+                              const isSelected = selectedSuggestAction === actionItem.id;
+                              return (
+                                <button
+                                  key={actionItem.id}
+                                  type="button"
+                                  onClick={() => handleGenerateRobozinhoSuggestion(actionItem.id)}
+                                  className={cn(
+                                    "w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer group flex flex-col gap-0.5",
+                                    isSelected
+                                      ? "bg-red-500/15 border-red-500/40 text-white shadow-xs"
+                                      : "bg-white/5 hover:bg-white/10 border-white/5 text-white/80 hover:text-white"
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      {actionItem.id === 'followup' && <RefreshCw size={12} className="text-amber-400 shrink-0" />}
+                                      {actionItem.id === 'quote' && <DollarSign size={12} className="text-emerald-400 shrink-0" />}
+                                      {actionItem.id === 'thanks' && <CheckCircle2 size={12} className="text-blue-400 shrink-0" />}
+                                      {actionItem.id === 'general' && <MessageSquare size={12} className="text-purple-400 shrink-0" />}
+                                      <span className="text-xs font-bold text-white group-hover:text-red-200">{actionItem.label}</span>
+                                    </div>
+                                    <span className={cn("text-[9px] font-black uppercase px-1.5 py-0.5 rounded border", actionItem.tagColor)}>
+                                      {actionItem.badge}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-white/50 group-hover:text-white/70 leading-snug pl-4">
+                                    {actionItem.description}
+                                  </p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+
+                    {/* MODAL DE SUGESTÕES GERADAS COM ABAS DE CATEGORIA NO TOPO */}
+                    {showRobozinhoSuggestions && typeof document !== 'undefined' && createPortal(
+                      <>
+                        <div className="fixed inset-0 z-[99998] bg-black/40 backdrop-blur-xs" onClick={() => setShowRobozinhoSuggestions(false)} />
+                        <div 
+                          className="fixed w-[calc(100vw-24px)] sm:w-96 max-w-[420px] bg-slate-900/98 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl z-[99999] p-3 space-y-2.5 animate-in fade-in zoom-in-95 duration-150"
+                          style={{ bottom: suggestPos.bottom, left: suggestPos.left }}
+                        >
+                          <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                            <div className="flex items-center gap-1.5">
+                              <Bot size={14} className="text-red-400" />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-white">Sugestões de Mensagem</span>
                             </div>
                             <button
                               type="button"
@@ -7664,17 +7762,74 @@ export const ChatPanel = ({
                               <X size={12} />
                             </button>
                           </div>
-                          <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
-                            {robozinhoSuggestions.map((sugestao, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => { setNewMessage(sugestao); setShowRobozinhoSuggestions(false); }}
-                                className="w-full text-left p-2.5 rounded-xl text-[11px] font-medium text-white/90 hover:bg-red-500/20 hover:text-white border border-white/5 hover:border-red-500/30 transition-all leading-relaxed cursor-pointer"
-                              >
-                                {sugestao}
-                              </button>
-                            ))}
+
+                          {/* Seletor Rápido de Categorias dentro do popup */}
+                          <div className="grid grid-cols-4 gap-1 p-0.5 bg-black/30 rounded-xl border border-white/5">
+                            {SUGGEST_ACTIONS_LIST.map((actionItem) => {
+                              const active = selectedSuggestAction === actionItem.id;
+                              return (
+                                <button
+                                  key={actionItem.id}
+                                  type="button"
+                                  onClick={() => {
+                                    if (selectedSuggestAction !== actionItem.id && !isGeneratingSuggestion) {
+                                      handleGenerateRobozinhoSuggestion(actionItem.id);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "px-1.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer text-center truncate",
+                                    active
+                                      ? "bg-red-600 text-white shadow-xs"
+                                      : "text-white/60 hover:text-white hover:bg-white/5"
+                                  )}
+                                  title={actionItem.description}
+                                >
+                                  {actionItem.id === 'followup' ? 'Follow-up' : actionItem.id === 'quote' ? 'Orçamento' : actionItem.id === 'thanks' ? 'Agradecer' : 'Geral'}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Lista das 3 Sugestões ou Spinner de troca rápida */}
+                          {isGeneratingSuggestion ? (
+                            <div className="py-8 flex flex-col items-center justify-center gap-2 text-center text-white/60">
+                              <Loader2 size={20} className="animate-spin text-red-400" />
+                              <p className="text-xs font-medium">Gerando sugestões com foco em {SUGGEST_ACTIONS_LIST.find(a => a.id === selectedSuggestAction)?.label}...</p>
+                            </div>
+                          ) : robozinhoSuggestions.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-white/40">
+                              Nenhuma sugestão disponível. Tente outra categoria acima.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                              {robozinhoSuggestions.map((sugestao, i) => (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={() => { setNewMessage(sugestao); setShowRobozinhoSuggestions(false); }}
+                                  className="w-full text-left p-2.5 rounded-xl text-[11px] font-medium text-white/90 hover:bg-red-500/20 hover:text-white border border-white/5 hover:border-red-500/30 transition-all leading-relaxed cursor-pointer group"
+                                >
+                                  <div className="flex items-center justify-between text-[9px] font-bold text-white/40 group-hover:text-red-300 mb-1">
+                                    <span>Opção {i + 1}</span>
+                                    <span className="opacity-0 group-hover:opacity-100 transition-opacity">Usar esta ↵</span>
+                                  </div>
+                                  <p>{sugestao}</p>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="pt-1 border-t border-white/5 flex items-center justify-between text-[9px] text-white/40">
+                            <span>Clique em uma opção para inserir</span>
+                            <button
+                              type="button"
+                              disabled={isGeneratingSuggestion}
+                              onClick={() => handleGenerateRobozinhoSuggestion(selectedSuggestAction)}
+                              className="text-red-400 hover:text-red-300 font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              <RefreshCw size={10} className={cn(isGeneratingSuggestion && "animate-spin")} />
+                              <span>Gerar outras</span>
+                            </button>
                           </div>
                         </div>
                       </>,
@@ -8548,6 +8703,11 @@ export const ChatPanel = ({
                 onClose={() => setShowDesktopSidebar(false)}
                 activeTab={sidebarActiveTab}
                 setActiveTab={setSidebarActiveTab}
+                isGroup={isGroup}
+                groupParticipants={groupParticipants}
+                groupMedia={groupMedia}
+                groupDescription={groupDescription}
+                onOpenChatWithPhone={handleOpenChatWithPhone}
                 conversation={conversation}
                 clienteVinculado={clienteVinculado}
                 isLoadingCliente={isLoadingCliente}
@@ -8612,6 +8772,11 @@ export const ChatPanel = ({
                 onClose={() => setShowDesktopSidebar(false)}
                 activeTab={sidebarActiveTab}
                 setActiveTab={setSidebarActiveTab}
+                isGroup={isGroup}
+                groupParticipants={groupParticipants}
+                groupMedia={groupMedia}
+                groupDescription={groupDescription}
+                onOpenChatWithPhone={handleOpenChatWithPhone}
                 conversation={conversation}
                 clienteVinculado={clienteVinculado}
                 isLoadingCliente={isLoadingCliente}
@@ -8669,6 +8834,11 @@ export const ChatPanel = ({
                 onClose={() => setShowDesktopSidebar(false)}
                 activeTab={sidebarActiveTab}
                 setActiveTab={setSidebarActiveTab}
+                isGroup={isGroup}
+                groupParticipants={groupParticipants}
+                groupMedia={groupMedia}
+                groupDescription={groupDescription}
+                onOpenChatWithPhone={handleOpenChatWithPhone}
                 conversation={conversation}
                 clienteVinculado={clienteVinculado}
                 isLoadingCliente={isLoadingCliente}
@@ -12167,6 +12337,38 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         unreadTotalCount={notificacoesPendentes.length}
         initialDraft={chatInitialDraft}
         onDraftConsumed={() => setChatInitialDraft('')}
+        onOpenChatWithPhone={async (phoneToOpen) => {
+          const digits = (phoneToOpen || '').replace(/\D/g, '');
+          if (!digits) return;
+          const found = leads.find(l => {
+            const ld = (l.phone || '').replace(/\D/g, '');
+            return ld && (ld === digits || digits.endsWith(ld) || ld.endsWith(digits));
+          });
+          if (found) {
+            setSelectedChat(found);
+            return;
+          }
+          const { data } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('company_id', 'rafa-arts')
+            .ilike('phone', `%${digits.slice(-8)}%`)
+            .limit(1);
+          if (data && data[0]) {
+            const mapped = mapLeadRow(data[0]);
+            setSelectedChat(mapped);
+          } else {
+            setSelectedChat({
+              id: `temp-${digits}`,
+              phone: digits,
+              name: phoneToOpen,
+              channel: 'WhatsApp',
+              sourceType: 'WhatsApp',
+              status: 'Novo',
+              messages: []
+            });
+          }
+        }}
         onLeadPatched={(leadId, patch) => {
           setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...patch } : l));
           setSelectedChat((prev: any) => (prev && prev.id === leadId) ? { ...prev, ...patch } : prev);
@@ -29360,7 +29562,21 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     const userRole = (u.role as any) || (u.isAdmin ? 'admin' : 'atendente');
     setEditedRole(userRole);
 
-    const initialPerms = u.modulePermissions || getDefaultModulePermissions(userRole);
+    const initialPerms: ModulePermissions = { ...getDefaultModulePermissions(userRole) };
+    if (u.modulePermissions) {
+      Object.assign(initialPerms, u.modulePermissions);
+    }
+    // Garante que todo módulo do sistema esteja presente e sincroniza a visibilidade com allowedTabs
+    if (Array.isArray(u.allowedTabs)) {
+      ALL_MODULE_IDS.forEach(mId => {
+        const isAllowed = u.allowedTabs!.includes(mId);
+        if (initialPerms[mId]) {
+          initialPerms[mId] = { ...initialPerms[mId], view: isAllowed };
+        } else {
+          initialPerms[mId] = isAllowed ? viewOnly() : noAccess();
+        }
+      });
+    }
     setEditedModulePermissions(initialPerms);
 
     const activeTabs = u.allowedTabs && u.allowedTabs.length > 0
@@ -29390,9 +29606,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         editedTabs.includes('inventory') ||
         editedPdvTabs.includes('estoque');
 
+      // Apenas módulos com view === true são incluídos nas abas permitidas
       const syncedTabs = Array.from(new Set([
-        ...(Object.entries(editedModulePermissions) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id),
-        ...editedTabs.filter(tabId => editedModulePermissions[tabId]?.view !== false),
+        ...(Object.entries(editedModulePermissions) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view === true).map(([id]) => id),
         ...(hasInventoryPerm ? ['inventory'] : [])
       ]));
 
@@ -29589,6 +29805,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     { id: 'crm', label: 'Funil Comercial CRM', badge: 'Vendas & Leads', desc: 'Pipeline visual de oportunidades, colunas do funil, agendamento de tarefas e status', icon: Kanban },
     { id: 'production', label: 'Fila de Produção Gráfica', badge: 'O.S. / Fábrica', desc: 'Ordens de serviço em fabricação, fila de impressão, corte, acabamento e expedição', icon: Layers },
     { id: 'inventory', label: 'Estoque & Materiais', badge: 'Almoxarifado', desc: 'Controle de matérias-primas e insumos, estoque atual, limite mínimo e movimentações', icon: Package },
+    { id: 'ponto', label: 'Controle de Ponto Eletrônico', badge: 'RH / Jornada', desc: 'Registro de ponto eletrônico, batidas de entrada/saída e espelho de jornada da equipe', icon: Clock },
     { id: 'comissoes', label: 'Painel de Comissões', badge: 'Colaboradores', desc: 'Extrato individual de produção, serviços realizados e cálculo mensal de comissão', icon: DollarSign },
     { id: 'robozinho_rafa', label: 'Robozinho IA & Integrações', badge: 'Automação', desc: 'Assistente virtual de IA, webhooks e conexões com WhatsApp/Instagram/Facebook', icon: Bot },
     { id: 'settings', label: 'Configurações Globais', badge: 'Administração', desc: 'Identidade da empresa, taxas de máquinas de cartão, regras de sistema e backups', icon: Settings },
@@ -30911,7 +31128,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                             <div className="border-t border-white/5 pt-3 sm:pt-4 grid grid-cols-2 gap-2 sm:gap-3 text-xs">
                               <div className="space-y-0.5 sm:space-y-1">
                                 <span className="text-[8px] sm:text-[9px] uppercase font-black text-white/30 tracking-widest block truncate">Módulos</span>
-                                <span className="block font-bold text-white text-xs sm:text-xs">{allowedCount} de 11</span>
+                                <span className="block font-bold text-white text-xs sm:text-xs">{allowedCount} de {MODULE_DEFINITIONS.length}</span>
                               </div>
                               <div className="space-y-0.5 sm:space-y-1">
                                 <span className="text-[8px] sm:text-[9px] uppercase font-black text-white/30 tracking-widest block truncate">Ações</span>

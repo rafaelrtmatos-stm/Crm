@@ -146,7 +146,30 @@ REGRAS ABSOLUTAS:
    - Opção 3: Mais consultiva ou com pergunta para dar continuidade.
 9. Responda SOMENTE em JSON, no formato exato: {"suggestions": ["...", "...", "..."]}`;
 
-function montarPromptSuggest({ clientMessage, history, clientName, attendantName, memoryBlocks, products, companyInfo, positiveScript, negativeScript }) {
+const SUGGEST_ACTION_INSTRUCTIONS = {
+  followup: `🎯 FOCO OBRIGATÓRIO DESTA AÇÃO: FOLLOW-UP DE ORÇAMENTO / RETOMADA DE CONTATO
+- Retome o contato de maneira atenciosa, cordial e comercialmente resolutiva.
+- Pergunte gentilmente se o cliente pôde avaliar o orçamento/proposta enviada anteriormente ou se ficou alguma dúvida técnica ou financeira.
+- Deixe claro que a produção da Rafa Arts está pronta para rodar o pedido com qualidade e agilidade assim que confirmado.
+- Ofereça opções práticas: tirar dúvidas, ajustar tamanhos/quantidades ou confirmar o pedido com sinal de 50%.`,
+
+  quote: `🎯 FOCO OBRIGATÓRIO DESTA AÇÃO: APRESENTAÇÃO / DETALHAMENTO DE ORÇAMENTO E VALORES
+- Apresente ou detalhe valores, produtos e serviços solicitados com clareza profissional.
+- Relembre as condições comerciais oficiais da Rafa Arts: entrada/sinal de 50% via PIX para início imediato da produção e o restante na entrega/retirada.
+- Destaque o acabamento, durabilidade dos materiais e convide o cliente a confirmar ou enviar a arte/medidas para darmos andamento.`,
+
+  thanks: `🎯 FOCO OBRIGATÓRIO DESTA AÇÃO: AGRADECIMENTO & PÓS-VENDA
+- Agradeça sinceramente pela confiança e pela parceria com a Rafa Arts.
+- Pergunte se o serviço/material atendeu perfeitamente às expectativas e se o cliente ficou satisfeito com o resultado.
+- Reforce que estamos sempre à total disposição para novas demandas, projetos ou materiais gráficos e de comunicação visual.`,
+
+  general: `🎯 FOCO OBRIGATÓRIO DESTA AÇÃO: RESPOSTA GERAL & ESCLARECER DÚVIDAS
+- Responda diretamente e com precisão à última dúvida ou mensagem do cliente.
+- Forneça informações objetivas sobre prazos, arte, acabamentos, localização ou pagamento, com tom simpático e comercial.`
+};
+
+function montarPromptSuggest({ clientMessage, history, clientName, attendantName, memoryBlocks, products, companyInfo, positiveScript, negativeScript, action }) {
+  const acaoInstrucao = SUGGEST_ACTION_INSTRUCTIONS[action] || SUGGEST_ACTION_INSTRUCTIONS.general;
   const historicoTexto = (history || [])
     .slice(-SUGGEST_MAX_HISTORICO)
     .map((m) => {
@@ -183,6 +206,8 @@ PAPÉIS NO ATENDIMENTO:
 - Quem está respondendo agora (Daqui pra lá): ${attendantName || 'Atendente'} (Rafa Arts)
 - Destinatário da resposta: ${clientName || 'Cliente'}
 
+${acaoInstrucao}
+
 🏢 INFORMAÇÕES & REGRAS OFICIAIS DA EMPRESA:
 ${infoEmpresaTexto}
 
@@ -208,6 +233,7 @@ IMPORTANTE:
 1. Respeite RIGOROSAMENTE o Script Negativo (não cometa nenhuma das proibições listadas).
 2. Siga as orientações do Script Positivo e as Informações da Empresa.
 3. Se a pergunta do cliente envolver produtos, serviços, orçamentos (ex: capacetes, cartões, banners, lonas, adesivos) ou dados da empresa (ex: horários, pagamentos, sinal de 50%), CONSULTE a Base de Memória e o Catálogo acima e já forneça os valores e condições corretos!
+4. Certifique-se de que as 3 sugestões atendam diretamente ao FOCO OBRIGATÓRIO DESTA AÇÃO especificado acima.
 
 Gere as 3 sugestões de resposta que VOCÊ (atendente) vai enviar PARA O CLIENTE:`;
 }
@@ -268,6 +294,7 @@ async function handleSuggestReply(req, res) {
   const companyInfo = String(req.body?.companyInfo || '').slice(0, 3000);
   const positiveScript = String(req.body?.positiveScript || '').slice(0, 3000);
   const negativeScript = String(req.body?.negativeScript || '').slice(0, 3000);
+  const action = String(req.body?.action || 'general').trim().toLowerCase();
 
   if (!clientMessage) {
     res.status(400).json({ error: 'Mensagem do cliente vazia.' });
@@ -281,7 +308,7 @@ async function handleSuggestReply(req, res) {
         method: 'POST',
         headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName, attendantName, memoryBlocks, products, companyInfo, positiveScript, negativeScript }) }] }],
+          contents: [{ parts: [{ text: montarPromptSuggest({ clientMessage, history, clientName, attendantName, memoryBlocks, products, companyInfo, positiveScript, negativeScript, action }) }] }],
           generationConfig: { temperature: 0.6, maxOutputTokens: 500, responseMimeType: 'application/json' },
         }),
         signal: AbortSignal.timeout(8 * 1000),
