@@ -13,8 +13,7 @@ import {
   Calendar,
   Sparkles
 } from 'lucide-react';
-import { GlassCard, Button, Badge } from './Modules';
-import { cn } from './SharedUI';
+import { GlassCard, Button, Badge, cn } from './SharedUI';
 import { SaleOrder } from '../types';
 
 interface DashboardMetasCardProps {
@@ -58,6 +57,41 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
 
+  // Soma dos salários fixos mínimos dos funcionários ativos para compor o Ponto de Equilíbrio
+  const folhaFixaMensal = useMemo(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      let total = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('rpro_colab_remun_') || key.includes('colab'))) {
+          try {
+            const data = JSON.parse(localStorage.getItem(key) || '{}');
+            const salario = Number(data.salarioBase || data.salario_base || 0);
+            if (salario > 0 && data.ativo !== false) {
+              total += salario;
+            }
+          } catch {}
+        }
+      }
+      if (total > 0) return total > 10000 ? total : total * 4;
+
+      const rawList = localStorage.getItem('rpro_colaboradores_list');
+      if (rawList) {
+        const list = JSON.parse(rawList);
+        if (Array.isArray(list)) {
+          const soma = list
+            .filter((c: any) => c.ativo !== false)
+            .reduce((acc: number, c: any) => acc + (Number(c.salarioBase || c.salario_base) || 0), 0);
+          if (soma > 0) return soma > 10000 ? soma : soma * 4;
+        }
+      }
+    } catch {}
+    return 0;
+  }, []);
+
+  const custoTotalFixoMensal = despesasFixasBaseMensal + folhaFixaMensal;
+
   const handleStartEdit = () => {
     setEditValue(metas[tab].toString());
     setIsEditing(true);
@@ -81,7 +115,6 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
     const margin = contributionMargin > 0 ? contributionMargin : 0.65;
 
     if (tab === 'diaria') {
-      // Vendas de hoje (00:00 até 23:59:59)
       const startToday = new Date(now);
       startToday.setHours(0, 0, 0, 0);
       const endToday = new Date(now);
@@ -95,7 +128,7 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
         })
         .reduce((acc, s) => acc + (s.total || 0), 0);
 
-      const custoFixoDia = despesasFixasBaseMensal / 30;
+      const custoFixoDia = custoTotalFixoMensal / 30;
       const be = custoFixoDia / margin;
 
       return {
@@ -106,8 +139,7 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
     }
 
     if (tab === 'semanal') {
-      // Ciclo oficial de Sábado a Sexta
-      const day = now.getDay(); // 0=Dom, 1=Seg, ..., 5=Sex, 6=Sab
+      const day = now.getDay();
       const diffToSaturday = day === 6 ? 0 : (day + 1);
       const startSab = new Date(now);
       startSab.setDate(now.getDate() - diffToSaturday);
@@ -125,7 +157,7 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
         })
         .reduce((acc, s) => acc + (s.total || 0), 0);
 
-      const custoFixoSemana = (despesasFixasBaseMensal / 30) * 7;
+      const custoFixoSemana = (custoTotalFixoMensal / 30) * 7;
       const be = custoFixoSemana / margin;
 
       return {
@@ -135,7 +167,6 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
       };
     }
 
-    // tab === 'mensal'
     const startMes = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
     const endMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
@@ -147,14 +178,14 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
       })
       .reduce((acc, s) => acc + (s.total || 0), 0);
 
-    const be = despesasFixasBaseMensal / margin;
+    const be = custoTotalFixoMensal / margin;
 
     return {
       realizado: faturamentoMes,
       breakeven: be,
       metaAlvo: metas.mensal,
     };
-  }, [tab, realSales, despesasFixasBaseMensal, contributionMargin, metas]);
+  }, [tab, realSales, custoTotalFixoMensal, contributionMargin, metas]);
 
   // Status e cálculos de progresso
   const isAbaixoBreakeven = realizado < breakeven;

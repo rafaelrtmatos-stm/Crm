@@ -16,7 +16,31 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Company, AppUser } from '../types';
-import { GlassCard, Button, Badge } from './Modules';
+
+const GlassCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
+  <div className={`bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl ${className}`}>
+    {children}
+  </div>
+);
+
+const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'danger'; children: React.ReactNode }> = ({ children, className = '', variant = 'primary', ...props }) => {
+  let baseClasses = "px-4 py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-2 cursor-pointer ";
+  if (variant === 'primary') baseClasses += "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20";
+  else if (variant === 'secondary') baseClasses += "bg-slate-800 hover:bg-slate-700 text-white";
+  else if (variant === 'outline') baseClasses += "border border-white/10 hover:bg-white/5 text-slate-300";
+  else if (variant === 'danger') baseClasses += "bg-rose-600 hover:bg-rose-500 text-white";
+  return (
+    <button className={`${baseClasses} ${className}`} {...props}>
+      {children}
+    </button>
+  );
+};
+
+const Badge: React.FC<{ children: React.ReactNode; className?: string; variant?: string }> = ({ children, className = '' }) => (
+  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${className}`}>
+    {children}
+  </span>
+);
 
 export interface DespesaFixaItem {
   id: string;

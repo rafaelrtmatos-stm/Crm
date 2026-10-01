@@ -1745,8 +1745,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
   const roiPercent = totalCost > 0 ? Math.max(0, ((totalRevenue - totalCost) / totalCost) * 100) : 210;
 
-  // Lucro Líquido Real = Faturamento Recebido no Período - Custos de Insumos - Despesas Fixas Proporcionais
-  const netProfit = Math.max(0, totalRevenue - totalCost - despesasFixasProporcional);
+  // Lucro Bruto e Lucro Líquido Real
+  const lucroBrutoSemDescontos = Math.max(0, totalRevenue - totalCost);
+  const netProfit = Math.max(0, totalRevenue - totalCost - despesasFixasProporcional - custoFuncionarios);
   const margemLiquidaReal = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '0';
 
   const totalSalesCount = filteredOrders.length;
@@ -2445,10 +2446,22 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                <div className={cn("absolute top-0 right-0 w-16 h-16 rounded-full -mr-8 -mt-8 transition-all group-hover:scale-125 opacity-30 group-hover:opacity-70", item.glow)} />
                <p className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider text-white/40 mb-1 leading-tight">{item.label}</p>
                <div className="flex flex-col items-start gap-0.5 mt-auto">
-                  <h5 className="text-xs sm:text-sm font-black text-white leading-tight">{item.val}</h5>
-                  <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight", item.color)}>
-                    {item.diff}
-                  </span>
+                  {item.label === 'Lucro Líquido Real' ? (
+                    <>
+                      <span className="text-[8px] font-bold text-white/50 whitespace-nowrap">Sem descontos: R$ {lucroBrutoSemDescontos.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <h5 className="text-xs sm:text-sm font-black text-emerald-300 leading-tight font-mono whitespace-nowrap">{item.val}</h5>
+                      <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
+                        {item.diff}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <h5 className="text-xs sm:text-sm font-black text-white leading-tight">{item.val}</h5>
+                      <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight", item.color)}>
+                        {item.diff}
+                      </span>
+                    </>
+                  )}
                </div>
             </GlassCard>
           ))}

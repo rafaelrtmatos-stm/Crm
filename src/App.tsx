@@ -512,7 +512,7 @@ const Navbar = () => {
                 >
                   <button 
                     onClick={logout}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-500/20 text-rose-400 transition-colors text-xs font-bold cursor-pointer border-0 bg-transparent"
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-rose-500/20 text-rose-400 transition-colors text-xs font-bold cursor-pointer border-0 bg-transparent whitespace-nowrap"
                   >
                     <LogOut size={16} />
                     Finalizar Sessão
