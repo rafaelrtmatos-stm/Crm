@@ -1922,7 +1922,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       </Modal>
 
       {/* Payment & Checkout Modal */}
-      <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} title="Finalizar Cobrança">
+      <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} title="Finalizar Cobrança" size="sm" className="max-w-md mx-auto rounded-2xl p-3 sm:p-4">
         <div className="space-y-4">
           <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
             <div>
@@ -2273,7 +2273,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       </Modal>
 
       {/* Receipt Modal */}
-      <Modal isOpen={isReceiptModalOpen} onClose={() => setIsReceiptModalOpen(false)} title="Comprovante de Venda">
+      <Modal isOpen={isReceiptModalOpen} onClose={() => setIsReceiptModalOpen(false)} title="Comprovante de Venda" size="sm" className="max-w-md mx-auto rounded-2xl p-3 sm:p-4">
         <div className="space-y-4">
           <div className="p-4 bg-white text-slate-900 rounded-xl font-mono text-xs space-y-2 border border-slate-200">
             <div className="text-center pb-2 border-b border-slate-300">
@@ -2322,7 +2322,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           isOpen={!!viewingOrcamentoPos}
           onClose={() => setViewingOrcamentoPos(null)}
           title={`Orçamento Nº ${viewingOrcamentoPos.numero || viewingOrcamentoPos.id?.slice(-6)}`}
-          size="md"
+          size="sm"
+          className="max-w-md mx-auto rounded-2xl p-3 sm:p-4"
         >
           <div className="space-y-4 p-1">
             {/* Format toggle: Detalhado vs Simples (Recibo) */}

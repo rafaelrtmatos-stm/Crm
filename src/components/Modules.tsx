@@ -1408,6 +1408,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
+  const [expandedLucroFat, setExpandedLucroFat] = useState(false);
+  const [expandedLucroQuit, setExpandedLucroQuit] = useState(false);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
   const [revenueChartType, setRevenueChartType] = useState<'line' | 'bar'>('line');
   const [realSales, setRealSales] = useState<SaleOrder[]>(() => {
@@ -1433,6 +1435,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     return () => { supabase.removeChannel(channel); };
   }, []);
   const [despesasFixasBaseMensal, setDespesasFixasBaseMensal] = useState<number>(() => getDespesasFixasTotalMensal());
+  const [showLucroFatDetails, setShowLucroFatDetails] = useState(false);
+  const [showLucroQuitDetails, setShowLucroQuitDetails] = useState(false);
   useEffect(() => {
     const handleUpdate = (e: any) => {
       if (e?.detail?.totalMensal) {
@@ -1749,6 +1753,29 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const lucroBrutoSemDescontos = Math.max(0, totalRevenue - totalCost);
   const netProfit = Math.max(0, totalRevenue - totalCost - despesasFixasProporcional - custoFuncionarios);
   const margemLiquidaReal = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '0';
+
+  const calcularCustoInsumosOrders = (orders: SaleOrder[]) => {
+    return orders
+      .filter(o => o.status !== 'canceled')
+      .reduce((acc, o) => {
+        let orderCost = 0;
+        o.items?.forEach(item => {
+          const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
+          const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : (item.price || 0) * 0.35;
+          orderCost += item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
+        });
+        orderCost += somaCustosExtras(o.extraCosts);
+        return acc + orderCost;
+      }, 0);
+  };
+
+  const custoInsumosFaturamento = calcularCustoInsumosOrders(filteredOrders);
+  const lucroLiquidoFaturamento = Math.max(0, faturamentoTotal - custoInsumosFaturamento - despesasFixasProporcional - custoFuncionarios);
+  const margemFaturamento = faturamentoTotal > 0 ? (lucroLiquidoFaturamento / faturamentoTotal) * 100 : 0;
+
+  const custoInsumosQuitadas = calcularCustoInsumosOrders(quitadasOrders);
+  const lucroLiquidoQuitada = Math.max(0, receitaQuitadas - custoInsumosQuitadas - despesasFixasProporcional - custoFuncionarios);
+  const margemQuitada = receitaQuitadas > 0 ? (lucroLiquidoQuitada / receitaQuitadas) * 100 : 0;
 
   const totalSalesCount = filteredOrders.length;
   const pendingEntries = realSales.filter(o => o.status === 'pending');
@@ -2429,13 +2456,24 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
               action: () => setActiveTab?.('inventory') 
             },
             { 
-              label: 'Lucro Líquido Real', 
-              val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
-              diff: `Margem: ${margemLiquidaReal}%`, 
+              label: 'Lucro — Faturamento', 
+              val: `R$ ${lucroLiquidoFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `Margem: ${margemFaturamento.toFixed(1)}%`, 
               color: 'text-emerald-300 font-black', 
               borderHover: 'hover:border-emerald-400 border-emerald-500/30 bg-emerald-500/5',
               glow: 'bg-emerald-500/20',
-              action: () => setIsRevenueModalOpen(true) 
+              action: () => setExpandedLucroFat(prev => !prev),
+              isExpanded: expandedLucroFat
+            },
+            { 
+              label: 'Lucro — Receita Quitada', 
+              val: `R$ ${lucroLiquidoQuitada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `Margem: ${margemQuitada.toFixed(1)}%`, 
+              color: 'text-teal-300 font-black', 
+              borderHover: 'hover:border-teal-400 border-teal-500/30 bg-teal-500/5',
+              glow: 'bg-teal-500/20',
+              action: () => setExpandedLucroQuit(prev => !prev),
+              isExpanded: expandedLucroQuit
             },
           ].map((item, i) => (
             <GlassCard 
@@ -2444,15 +2482,46 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
               className={cn("p-3.5 sm:p-4 border-white/5 flex flex-col justify-between transition-all cursor-pointer group relative overflow-hidden", item.borderHover)}
             >
                <div className={cn("absolute top-0 right-0 w-16 h-16 rounded-full -mr-8 -mt-8 transition-all group-hover:scale-125 opacity-30 group-hover:opacity-70", item.glow)} />
-               <p className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider text-white/40 mb-1 leading-tight">{item.label}</p>
+               <div className="flex items-center justify-between mb-1">
+                 <p className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider text-white/40 leading-tight">{item.label}</p>
+                 {(item.label === 'Lucro — Faturamento' || item.label === 'Lucro — Receita Quitada') && (
+                   <span className="text-[7px] text-white/30 underline lowercase">
+                     {item.isExpanded ? 'ocultar' : 'ver detalhes ▾'}
+                   </span>
+                 )}
+               </div>
                <div className="flex flex-col items-start gap-0.5 mt-auto">
-                  {item.label === 'Lucro Líquido Real' ? (
+                  {item.label === 'Lucro — Faturamento' ? (
                     <>
-                      <span className="text-[8px] font-bold text-white/50 whitespace-nowrap">Sem descontos: R$ {lucroBrutoSemDescontos.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       <h5 className="text-xs sm:text-sm font-black text-emerald-300 leading-tight font-mono whitespace-nowrap">{item.val}</h5>
                       <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
                         {item.diff}
                       </span>
+                      {item.isExpanded && (
+                        <div className="text-[7.5px] font-mono text-white/60 space-y-0.5 mt-2 pt-2 border-t border-white/10 w-full leading-tight animate-in fade-in duration-200">
+                          <div>Faturamento bruto: R$ {faturamentoTotal.toFixed(2).replace('.', ',')}</div>
+                          <div>(-) Insumos: R$ {custoInsumosFaturamento.toFixed(2).replace('.', ',')}</div>
+                          <div>(-) Desp. fixas: R$ {despesasFixasProporcional.toFixed(2).replace('.', ',')}</div>
+                          <div>(-) Funcionários: R$ {custoFuncionarios.toFixed(2).replace('.', ',')}</div>
+                          <div className="font-black text-emerald-300 pt-1 border-t border-white/5">= Lucro líquido</div>
+                        </div>
+                      )}
+                    </>
+                  ) : item.label === 'Lucro — Receita Quitada' ? (
+                    <>
+                      <h5 className="text-xs sm:text-sm font-black text-teal-300 leading-tight font-mono whitespace-nowrap">{item.val}</h5>
+                      <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
+                        {item.diff}
+                      </span>
+                      {item.isExpanded && (
+                        <div className="text-[7.5px] font-mono text-white/60 space-y-0.5 mt-2 pt-2 border-t border-white/10 w-full leading-tight animate-in fade-in duration-200">
+                          <div>Receita quitada: R$ {receitaQuitadas.toFixed(2).replace('.', ',')}</div>
+                          <div>(-) Insumos correspondentes: R$ {custoInsumosQuitadas.toFixed(2).replace('.', ',')}</div>
+                          <div>(-) Desp. fixas: R$ {despesasFixasProporcional.toFixed(2).replace('.', ',')}</div>
+                          <div>(-) Funcionários: R$ {custoFuncionarios.toFixed(2).replace('.', ',')}</div>
+                          <div className="font-black text-teal-300 pt-1 border-t border-white/5">= Lucro líquido real</div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>
@@ -16290,6 +16359,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     registeredName: string;
     country: { code: string; flag: string; name: string };
     saveToCustomerProfile: boolean;
+    previewUrl?: string;
+    file?: File;
+    caption?: string;
+    generatingPreview?: boolean;
   }
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
@@ -16587,7 +16660,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // Abre modal interativo SEMPRE perguntando para qual número enviar o recibo
   // (evita enviar para o número geral da empresa quando quem quer é um funcionário/encarregado)
-  const openSendReceiptModal = (sale: SaleOrder, defaultPhone?: string, defaultName?: string) => {
+  const openSendReceiptModal = async (sale: SaleOrder, defaultPhone?: string, defaultName?: string) => {
     const regPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim();
     const regName = (sale.customerName || selectedCustomer?.name || 'Cliente').trim();
 
@@ -16602,15 +16675,42 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
     }
 
+    const customerName = (defaultName || regName).trim();
+    const legenda = buildOrderShareMessage(sale, customerName);
+
     setReceiptRecipientModal({
       sale,
       phone: initialPhone,
-      recipientName: (defaultName || regName).trim(),
+      recipientName: customerName,
       registeredPhone: regPhone,
       registeredName: regName,
       country: matchedCountry,
       saveToCustomerProfile: false,
+      caption: legenda,
+      generatingPreview: true,
     });
+
+    try {
+      const canvas = await renderReceiptCanvas({
+        order: { ...sale, customerName },
+        companyName: currentCompany?.name || 'Rafa Arts Graphics',
+        customerPhone: initialPhone,
+        logoLightUrl,
+        logoDarkUrl,
+        companyContact,
+      });
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+      if (blob) {
+        const file = new File([blob], `Recibo-${sale.id.slice(-8).toUpperCase()}.png`, { type: 'image/png' });
+        const previewUrl = URL.createObjectURL(blob);
+        setReceiptRecipientModal(prev => prev ? { ...prev, file, previewUrl, generatingPreview: false } : null);
+      } else {
+        setReceiptRecipientModal(prev => prev ? { ...prev, generatingPreview: false } : null);
+      }
+    } catch (e) {
+      console.warn('Erro ao gerar preview do recibo no modal:', e);
+      setReceiptRecipientModal(prev => prev ? { ...prev, generatingPreview: false } : null);
+    }
   };
 
   const executeSendReceipt = async (
