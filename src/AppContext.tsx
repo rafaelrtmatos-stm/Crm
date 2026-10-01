@@ -15,6 +15,7 @@ export type MainTab =
   | 'robozinho_rafa'
   | 'clientes_espera'
   | 'inventory'
+  | 'agenda'
   | 'ponto';
 
 export interface AppContextType {

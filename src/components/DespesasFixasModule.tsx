@@ -43,63 +43,64 @@ const Badge: React.FC<{ children: React.ReactNode; className?: string; variant?:
   </span>
 );
 
-export interface DespesaFixaItem {
-  id: string;
-  nome: string;
-  categoria: 'instalacoes' | 'utilidades' | 'servicos' | 'software' | 'outros';
-  valor: number;
-  diaVencimento: number; // 1 a 31
-  pagoEsteMes?: boolean;
-  observacao?: string;
-  dataAtualizacao?: string;
-}
+import { 
+  type DespesaFixaItem, 
+  DEFAULT_DESPESAS_FIXAS, 
+  getDespesasFixasTotalMensal,
+  fetchDespesasFixas,
+  saveDespesaFixa,
+  deleteDespesaFixa,
+  togglePagoDespesaFixa,
+  subscribeToDespesasFixas,
+  updateDespesasFixasCache,
+  getCachedDespesasFixas,
+  STORAGE_KEY_DESPESAS_FIXAS as STORAGE_KEY
+} from '../lib/despesasFixasStorage';
 
-const STORAGE_KEY = 'rpro_despesas_fixas_list';
-
-export const DEFAULT_DESPESAS_FIXAS: DespesaFixaItem[] = [
-  { id: '1', nome: 'Aluguel & IPTU Comercial', categoria: 'instalacoes', valor: 2000.00, diaVencimento: 10, observacao: 'Ponto comercial principal' },
-  { id: '2', nome: 'Energia Elétrica', categoria: 'utilidades', valor: 650.00, diaVencimento: 15, observacao: 'Consumo maquinários e iluminação' },
-  { id: '3', nome: 'Água & Saneamento', categoria: 'utilidades', valor: 120.00, diaVencimento: 18, observacao: 'Taxa fixa e consumo' },
-  { id: '4', nome: 'Internet Fibra Óptica & Telefonia', categoria: 'utilidades', valor: 180.00, diaVencimento: 5, observacao: 'Plano dedicado' },
-  { id: '5', nome: 'Assessoria Contábil', categoria: 'servicos', valor: 450.00, diaVencimento: 20, observacao: 'Fechamento fiscal e folha' },
-  { id: '6', nome: 'Sistemas & Licenças em Nuvem', categoria: 'software', valor: 150.00, diaVencimento: 1, observacao: 'Softwares e hospedagem' },
-  { id: '7', nome: 'Limpeza, Manutenção & Insumos Gerais', categoria: 'instalacoes', valor: 250.00, diaVencimento: 25, observacao: 'Manutenção predial preventiva' },
-];
-
-export function getDespesasFixasTotalMensal(): number {
-  if (typeof window === 'undefined') return 3800;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.reduce((acc: number, item: DespesaFixaItem) => acc + (Number(item.valor) || 0), 0);
-      }
-    }
-  } catch (e) {
-    // fallback
-  }
-  return DEFAULT_DESPESAS_FIXAS.reduce((acc, item) => acc + item.valor, 0);
-}
+export type { DespesaFixaItem };
+export { DEFAULT_DESPESAS_FIXAS, getDespesasFixasTotalMensal };
 
 export const DespesasFixasModule: React.FC<{
   currentCompany: Company | null;
   user: AppUser | null;
 }> = ({ currentCompany, user }) => {
-  const [despesas, setDespesas] = useState<DespesaFixaItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  const companyId = currentCompany?.id || 'rafa-arts';
+  const [despesas, setDespesas] = useState<DespesaFixaItem[]>(() => getCachedDespesasFixas());
+  const [loading, setLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline'>('synced');
+
+  // Carregar dados reais do Supabase na inicialização
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+    fetchDespesasFixas(companyId)
+      .then((items) => {
+        if (isMounted) {
+          setDespesas(items);
+          setSyncStatus('synced');
         }
-      } catch (e) {
-        // ignore
+      })
+      .catch((err) => {
+        console.warn('Erro ao carregar despesas fixas do Supabase:', err);
+        if (isMounted) setSyncStatus('offline');
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    // Inscrição em tempo real para sincronizar entre todos os computadores
+    const unsubscribe = subscribeToDespesasFixas(companyId, (items) => {
+      if (isMounted) {
+        setDespesas(items);
+        setSyncStatus('synced');
       }
-    }
-    return DEFAULT_DESPESAS_FIXAS;
-  });
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [companyId]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DespesaFixaItem | null>(null);
@@ -112,15 +113,10 @@ export const DespesasFixasModule: React.FC<{
   const [diaVencimento, setDiaVencimento] = useState('10');
   const [observacao, setObservacao] = useState('');
 
-  // Salvar no localStorage e disparar evento global
-  const saveDespesas = (novaLista: DespesaFixaItem[]) => {
+  // Salvar no estado local, cache e disparar evento global para o Dashboard
+  const saveDespesasLocal = (novaLista: DespesaFixaItem[]) => {
     setDespesas(novaLista);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(novaLista));
-      window.dispatchEvent(new CustomEvent('rpro-despesas-fixas-updated', {
-        detail: { totalMensal: novaLista.reduce((acc, item) => acc + item.valor, 0) }
-      }));
-    }
+    updateDespesasFixasCache(novaLista);
   };
 
   const totalMensal = useMemo(() => {
@@ -154,32 +150,46 @@ export const DespesasFixasModule: React.FC<{
     setDeleteId(id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteId) return;
-    const filtered = despesas.filter(d => d.id !== deleteId);
-    saveDespesas(filtered);
+    const targetId = deleteId;
     setDeleteId(null);
+
+    // Otimista: remove localmente
+    const filtered = despesas.filter(d => d.id !== targetId);
+    saveDespesasLocal(filtered);
+
+    setSyncStatus('saving');
+    const ok = await deleteDespesaFixa(targetId);
+    setSyncStatus(ok ? 'synced' : 'offline');
   };
 
-  const handleTogglePago = (id: string) => {
-    const updated = despesas.map(d => {
-      if (d.id === id) {
-        return { ...d, pagoEsteMes: !d.pagoEsteMes };
-      }
-      return d;
-    });
-    saveDespesas(updated);
+  const handleTogglePago = async (id: string) => {
+    const item = despesas.find(d => d.id === id);
+    if (!item) return;
+
+    const novoPago = !item.pagoEsteMes;
+    const updated = despesas.map(d => (d.id === id ? { ...d, pagoEsteMes: novoPago } : d));
+    saveDespesasLocal(updated);
+
+    setSyncStatus('saving');
+    const ok = await togglePagoDespesaFixa(id, novoPago);
+    setSyncStatus(ok ? 'synced' : 'offline');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome.trim() || !valor) return;
 
     const valorNum = parseFloat(valor.replace(',', '.')) || 0;
     const diaNum = Math.min(31, Math.max(1, parseInt(diaVencimento) || 10));
 
+    setSyncStatus('saving');
+    setIsModalOpen(false);
+
     if (editingItem) {
-      const updated = despesas.map(d => {
+      // Atualização otimista
+      const updatedList = despesas.map(d => {
         if (d.id === editingItem.id) {
           return {
             ...d,
@@ -193,10 +203,28 @@ export const DespesasFixasModule: React.FC<{
         }
         return d;
       });
-      saveDespesas(updated);
+      saveDespesasLocal(updatedList);
+
+      const saved = await saveDespesaFixa({
+        id: editingItem.id,
+        nome: nome.trim(),
+        categoria,
+        valor: valorNum,
+        diaVencimento: diaNum,
+        observacao: observacao.trim(),
+        pagoEsteMes: editingItem.pagoEsteMes,
+      }, companyId);
+
+      if (saved) {
+        setDespesas(prev => prev.map(d => d.id === editingItem.id ? saved : d));
+      }
+      setSyncStatus('synced');
     } else {
+      // Novo item com ID temporário otimista
+      const tempId = `temp-${Date.now()}`;
       const newItem: DespesaFixaItem = {
-        id: Date.now().toString(),
+        id: tempId,
+        companyId,
         nome: nome.trim(),
         categoria,
         valor: valorNum,
@@ -205,10 +233,23 @@ export const DespesasFixasModule: React.FC<{
         pagoEsteMes: false,
         dataAtualizacao: new Date().toISOString(),
       };
-      saveDespesas([...despesas, newItem]);
-    }
+      saveDespesasLocal([...despesas, newItem]);
 
-    setIsModalOpen(false);
+      const saved = await saveDespesaFixa({
+        nome: nome.trim(),
+        categoria,
+        valor: valorNum,
+        diaVencimento: diaNum,
+        observacao: observacao.trim(),
+        pagoEsteMes: false,
+      }, companyId);
+
+      if (saved) {
+        setDespesas(prev => prev.map(d => d.id === tempId ? saved : d));
+        updateDespesasFixasCache(despesas.map(d => d.id === tempId ? saved : d));
+      }
+      setSyncStatus('synced');
+    }
   };
 
   const getCategoriaBadge = (cat: DespesaFixaItem['categoria']) => {
@@ -236,8 +277,22 @@ export const DespesasFixasModule: React.FC<{
               <Building2 size={22} />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">Despesas Fixas</h1>
-              <p className="text-xs text-white/50 font-bold uppercase tracking-wider">Custos operacionais mensais da empresa</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-black text-white italic tracking-tight uppercase">Despesas Fixas</h1>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1 border ${
+                  syncStatus === 'saving' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse' :
+                  syncStatus === 'offline' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' :
+                  'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    syncStatus === 'saving' ? 'bg-amber-400' :
+                    syncStatus === 'offline' ? 'bg-rose-400' :
+                    'bg-emerald-400'
+                  }`} />
+                  {syncStatus === 'saving' ? 'Salvando...' : syncStatus === 'offline' ? 'Offline (Cache)' : 'Nuvem Supabase Ativa'}
+                </span>
+              </div>
+              <p className="text-xs text-white/50 font-bold uppercase tracking-wider">Custos operacionais mensais salvos no banco de dados e sincronizados</p>
             </div>
           </div>
         </div>

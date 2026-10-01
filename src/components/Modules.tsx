@@ -1744,7 +1744,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         .reduce((acc, c) => acc + c.valor, 0);
 
   const contributionMargin = totalRevenue > 0 ? (Math.max(0, totalRevenue - totalCost) / totalRevenue) : 0.65;
-  const breakevenPoint = contributionMargin > 0 ? (despesasFixasProporcional / contributionMargin) : despesasFixasProporcional / 0.65;
+  const custoFixoTotalProporcional = despesasFixasProporcional + custoFuncionarios;
+  const breakevenPoint = contributionMargin > 0 ? (custoFixoTotalProporcional / contributionMargin) : custoFixoTotalProporcional / 0.65;
 
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
   const roiPercent = totalCost > 0 ? Math.max(0, ((totalRevenue - totalCost) / totalCost) * 100) : 210;
@@ -4247,6 +4248,166 @@ export const ChatPanel = ({
   }, [conversation?.funnelId, fallbackFunnelId]);
 
   const effectiveFunnelId = conversation?.funnelId || fallbackFunnelId || detectedFunnelId;
+
+  // --- Mensagens Agendadas para este Lead / Conversa ---
+  const [scheduledMessages, setScheduledMessages] = useState<any[]>([]);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [scheduleTime, setScheduleTime] = useState('09:00');
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+
+  const loadScheduledMessages = useCallback(async () => {
+    if (!conversation?.phone && !conversation?.id) {
+      setScheduledMessages([]);
+      return;
+    }
+    const cleanPhone = (conversation?.phone || '').replace(/\D/g, '');
+    const ultimos8 = cleanPhone.slice(-8);
+    try {
+      let q = supabase
+        .from('crm_scheduled_messages')
+        .select('*')
+        .eq('company_id', currentCompany?.id || 'rafa-arts')
+        .eq('status', 'scheduled');
+
+      if (conversation?.id) {
+        q = q.or(`lead_id.eq.${conversation.id},phone.ilike.%${ultimos8 || cleanPhone}%`);
+      } else if (ultimos8) {
+        q = q.ilike('phone', `%${ultimos8}%`);
+      }
+
+      const { data } = await q.order('scheduled_for', { ascending: true });
+      setScheduledMessages(data || []);
+    } catch (e) {
+      console.warn('Erro ao carregar crm_scheduled_messages:', e);
+    }
+  }, [conversation?.id, conversation?.phone, currentCompany?.id]);
+
+  useEffect(() => {
+    loadScheduledMessages();
+    const ch = supabase
+      .channel(`sched-msg-${conversation?.id || 'all'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_scheduled_messages' }, loadScheduledMessages)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [conversation?.id, loadScheduledMessages]);
+
+  // Worker em segundo plano que dispara mensagens cujo horário chegou
+  useEffect(() => {
+    const checkScheduled = async () => {
+      const nowIso = new Date().toISOString();
+      try {
+        const { data: dueMessages } = await supabase
+          .from('crm_scheduled_messages')
+          .select('*')
+          .eq('status', 'scheduled')
+          .lte('scheduled_for', nowIso)
+          .limit(3);
+
+        if (dueMessages && dueMessages.length > 0) {
+          for (const msg of dueMessages) {
+            try {
+              const resp = await fetch('/api/whatsapp-send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+                body: JSON.stringify({
+                  phone: msg.phone,
+                  text: msg.text,
+                  senderName: msg.created_by || user?.name || 'Sistema',
+                  leadId: msg.lead_id || null,
+                }),
+              });
+              if (resp.ok) {
+                await supabase.from('crm_scheduled_messages').update({
+                  status: 'sent',
+                  sent_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }).eq('id', msg.id);
+                loadScheduledMessages();
+              } else {
+                const errJson = await resp.json().catch(() => ({}));
+                await supabase.from('crm_scheduled_messages').update({
+                  status: 'failed',
+                  error_message: errJson.error || 'Falha no envio',
+                  updated_at: new Date().toISOString(),
+                }).eq('id', msg.id);
+                setReenvioPendente(msg.text);
+                loadScheduledMessages();
+              }
+            } catch (err: any) {
+              await supabase.from('crm_scheduled_messages').update({
+                status: 'failed',
+                error_message: err?.message || 'Erro de conexão',
+                updated_at: new Date().toISOString(),
+              }).eq('id', msg.id);
+              setReenvioPendente(msg.text);
+              loadScheduledMessages();
+            }
+          }
+        }
+      } catch (e) {}
+    };
+
+    const interval = setInterval(checkScheduled, 20000);
+    checkScheduled();
+    return () => clearInterval(interval);
+  }, [user?.id, user?.name, loadScheduledMessages]);
+
+  const handleScheduleMessage = async () => {
+    if (!newMessage.trim() || !conversation?.phone) {
+      showAlert('Digite uma mensagem antes de agendar.');
+      return;
+    }
+    const scheduledDateTime = new Date(`${scheduleDate}T${scheduleTime}:00`);
+    if (scheduledDateTime.getTime() <= Date.now()) {
+      showAlert('Escolha um horário futuro para o agendamento.');
+      return;
+    }
+
+    setIsSavingSchedule(true);
+    try {
+      const { error } = await supabase.from('crm_scheduled_messages').insert([{
+        company_id: currentCompany?.id || 'rafa-arts',
+        lead_id: conversation.id || null,
+        phone: conversation.phone,
+        text: newMessage.trim(),
+        scheduled_for: scheduledDateTime.toISOString(),
+        status: 'scheduled',
+        created_by: user?.name || null
+      }]);
+      if (error) throw error;
+      setNewMessage('');
+      setIsScheduleModalOpen(false);
+      showAlert('Mensagem agendada com sucesso!');
+      loadScheduledMessages();
+    } catch (err: any) {
+      console.error('Erro ao agendar mensagem:', err);
+      showAlert('Não foi possível agendar a mensagem.');
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
+  const handleCancelScheduledMessage = async (msgId: string) => {
+    try {
+      await supabase.from('crm_scheduled_messages').update({ status: 'canceled', updated_at: new Date().toISOString() }).eq('id', msgId);
+      setScheduledMessages(prev => prev.filter(m => m.id !== msgId));
+      showAlert('Agendamento cancelado.');
+    } catch (e) {
+      showAlert('Erro ao cancelar.');
+    }
+  };
+
+  const handleEditScheduledMessage = async (msg: any) => {
+    setNewMessage(msg.text);
+    const d = new Date(msg.scheduled_for);
+    setScheduleDate(d.toISOString().split('T')[0]);
+    setScheduleTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+    await supabase.from('crm_scheduled_messages').delete().eq('id', msg.id);
+    setScheduledMessages(prev => prev.filter(m => m.id !== msg.id));
+    chatInputRef.current?.focus();
+    showAlert('Mensagem carregada para edição. Você pode reenviar agora ou reagendar.');
+  };
   const [currentStageId, setCurrentStageId] = useState<string | undefined>(conversation?.funnelStageId);
   useEffect(() => {
     setCurrentStageId(conversation?.funnelStageId);
@@ -4716,9 +4877,31 @@ export const ChatPanel = ({
         lastMessageDirection: 'resolved' as any
       });
       if (conversation.phone) {
-        const { data: notifs } = await supabase.from('crm_notifications').select('id').eq('company_id', currentCompany?.id || 'rafa-arts').eq('phone', conversation.phone).eq('status', 'pending');
-        if (notifs?.length) {
-          await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
+        const raw = String(conversation.phone).trim();
+        const clean = raw.replace(/\D/g, '');
+        const ultimos8 = clean.slice(-8);
+        const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
+        if (ultimos8 && ultimos8.length >= 6) {
+          orClauses.push(`phone.ilike.%${ultimos8}%`);
+        }
+        try {
+          const { data: notifs } = await supabase
+            .from('crm_notifications')
+            .select('id')
+            .eq('company_id', currentCompany?.id || 'rafa-arts')
+            .or(orClauses.join(','))
+            .eq('status', 'pending');
+          if (notifs?.length) {
+            await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
+          }
+          await supabase
+            .from('crm_notifications')
+            .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
+            .eq('company_id', currentCompany?.id || 'rafa-arts')
+            .or(orClauses.join(','))
+            .eq('status', 'pending');
+        } catch (e) {
+          console.warn('Erro ao resolver crm_notifications:', e);
         }
       }
       limparNotificacaoPendente();
@@ -8456,9 +8639,21 @@ export const ChatPanel = ({
                     )}
 
                 {reenvioPendente && (
-                  <div className="flex items-center gap-2 bg-rose-950/50 border border-rose-500/30 rounded-xl px-3 py-1.5">
-                    <AlertCircle size={12} className="text-rose-400 shrink-0" />
-                    <span className="flex-1 text-[10px] font-bold text-rose-300 truncate">Falha ao enviar: "{reenvioPendente}"</span>
+                  <div className="flex items-center gap-2 bg-rose-950/50 border border-rose-500/30 rounded-xl px-3 py-1.5 animate-in fade-in">
+                    <AlertCircle size={13} className="text-rose-400 shrink-0" />
+                    <span className="flex-1 text-[10.5px] font-bold text-rose-300 truncate">Falha ao enviar: "{reenvioPendente}"</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMessage(reenvioPendente);
+                        setReenvioPendente(null);
+                        chatInputRef.current?.focus();
+                      }}
+                      className="shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                      title="Editar texto para reenviar"
+                    >
+                      Editar Texto
+                    </button>
                     <button type="button" onClick={() => handleSendMessage(reenvioPendente)} className="shrink-0 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-500 transition-colors cursor-pointer">
                       Reenviar
                     </button>
@@ -8467,6 +8662,45 @@ export const ChatPanel = ({
                     </button>
                   </div>
                 )}
+
+                {/* Mensagens Agendadas para esta Conversa (Visíveis o tempo todo) */}
+                {scheduledMessages.map((sched) => {
+                  const d = new Date(sched.scheduled_for);
+                  const dataFmt = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                  const horaFmt = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <div
+                      key={sched.id}
+                      className="flex items-center gap-2 bg-purple-950/40 border border-purple-500/30 rounded-xl px-3 py-1.5 animate-in fade-in"
+                    >
+                      <CalendarClock size={13} className="text-purple-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[9.5px] font-black uppercase text-purple-300 mr-1.5">
+                          Agendada ({dataFmt} às {horaFmt}):
+                        </span>
+                        <span className="text-[10px] text-white/80 truncate">
+                          "{sched.text}"
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleEditScheduledMessage(sched)}
+                        className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-purple-200 transition-colors cursor-pointer"
+                        title="Editar mensagem agendada"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCancelScheduledMessage(sched.id)}
+                        className="shrink-0 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer p-0.5"
+                        title="Cancelar envio agendado"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
                 {enviandoTexto && (
                   <div className="flex items-center gap-1.5 px-3 text-[9px] font-bold text-white/40">
                     <Loader2 size={10} className="animate-spin" /> Enviando mensagem...
@@ -8598,8 +8832,30 @@ export const ChatPanel = ({
                       rows={1}
                     />
 
-                    {/* Botões [🎤] ou [ENVIAR] */}
-                    <div className="flex items-center pb-0.5 pr-0.5 shrink-0">
+                    {/* Botões [🎤] ou [ENVIAR] + [Agendar 🕒] */}
+                    <div className="flex items-center pb-0.5 pr-0.5 shrink-0 gap-1">
+                      {conversation?.phone && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!newMessage.trim()) {
+                              showAlert('Digite uma mensagem primeiro para agendar o envio.');
+                              return;
+                            }
+                            setIsScheduleModalOpen(true);
+                          }}
+                          className={cn(
+                            "w-8.5 h-8.5 rounded-xl flex items-center justify-center transition-all cursor-pointer",
+                            newMessage.trim()
+                              ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/40 shadow-sm"
+                              : "text-white/30 hover:text-white/60 hover:bg-white/5"
+                          )}
+                          title="Agendar envio desta mensagem com data e hora"
+                        >
+                          <CalendarClock size={16} />
+                        </button>
+                      )}
+
                       {newMessage.trim() === '' && pendingImages.length === 0 ? (
                         <button 
                           type="button"
@@ -8625,6 +8881,66 @@ export const ChatPanel = ({
                       )}
                     </div>
                   </div>
+
+                  {/* Modal de Agendamento de Mensagem */}
+                  {isScheduleModalOpen && (
+                    <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in">
+                      <div className="w-full max-w-sm bg-slate-900 border border-purple-500/30 rounded-2xl p-5 shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                          <div className="flex items-center gap-2 text-purple-300 font-black text-xs uppercase tracking-wider">
+                            <CalendarClock size={16} />
+                            <span>Agendar Envio de Mensagem</span>
+                          </div>
+                          <button onClick={() => setIsScheduleModalOpen(false)} className="text-white/40 hover:text-white cursor-pointer">
+                            <X size={16} />
+                          </button>
+                        </div>
+
+                        <div className="bg-white/5 rounded-xl p-3 border border-white/10 text-xs text-white/80 max-h-24 overflow-y-auto custom-scrollbar italic">
+                          "{newMessage}"
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[9.5px] font-black uppercase text-white/50 mb-1">Data de Envio</label>
+                            <input
+                              type="date"
+                              value={scheduleDate}
+                              onChange={(e) => setScheduleDate(e.target.value)}
+                              className="w-full h-9 bg-slate-950 border border-white/15 rounded-xl px-2 text-xs text-white outline-none focus:border-purple-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9.5px] font-black uppercase text-white/50 mb-1">Horário</label>
+                            <input
+                              type="time"
+                              value={scheduleTime}
+                              onChange={(e) => setScheduleTime(e.target.value)}
+                              className="w-full h-9 bg-slate-950 border border-white/15 rounded-xl px-2 text-xs text-white outline-none focus:border-purple-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setIsScheduleModalOpen(false)}
+                            className="px-3 py-1.5 text-xs text-white/50 hover:text-white cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSavingSchedule}
+                            onClick={handleScheduleMessage}
+                            className="px-4 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase tracking-wider shadow-md transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSavingSchedule ? 'Agendando...' : 'Confirmar Agendamento'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -9376,7 +9692,61 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
-  const activeStages = useMemo(() => stages.filter(s => s.isActive !== false), [stages]);
+
+  // Regras de Acesso e Privacidade por Etapa do Funil
+  const [editingPermissionsStage, setEditingPermissionsStage] = useState<FunnelStage | null>(null);
+  const [stageVisibilidade, setStageVisibilidade] = useState<'todos' | 'admin_only' | 'restrito'>('todos');
+  const [stageAllowedUsers, setStageAllowedUsers] = useState<string[]>([]);
+  const [colaboradoresList, setColaboradoresList] = useState<{ id: string; nome: string }[]>([]);
+
+  useEffect(() => {
+    supabase.from('colaboradores').select('id, nome').eq('ativo', true).then(({ data }) => {
+      if (data) setColaboradoresList(data);
+    });
+  }, []);
+
+  const handleOpenStagePermissions = (stage: FunnelStage) => {
+    setEditingPermissionsStage(stage);
+    setStageVisibilidade((stage as any).visibilidade || 'todos');
+    setStageAllowedUsers(Array.isArray((stage as any).allowed_users) ? (stage as any).allowed_users : []);
+  };
+
+  const handleSaveStagePermissions = async () => {
+    if (!editingPermissionsStage) return;
+    try {
+      const { error } = await supabase.from('funnel_stages').update({
+        visibilidade: stageVisibilidade,
+        allowed_users: stageAllowedUsers,
+        updated_at: new Date().toISOString()
+      }).eq('id', editingPermissionsStage.id);
+
+      if (error) throw error;
+      setStages(prev => prev.map(s => s.id === editingPermissionsStage.id ? { ...s, visibilidade: stageVisibilidade, allowed_users: stageAllowedUsers } as any : s));
+      setEditingPermissionsStage(null);
+      showAlert('Regras de acesso da etapa salvas com sucesso!');
+    } catch (e: any) {
+      showAlert(`Erro ao salvar permissões: ${e.message}`);
+    }
+  };
+
+  const activeStages = useMemo(() => {
+    return stages.filter(s => {
+      if (s.isActive === false) return false;
+      // Administrador sempre vê todas as etapas
+      if (user?.isAdmin || (user?.role as any) === 'admin' || (user?.role as any) === 'master') {
+        return true;
+      }
+      const visibilidade = (s as any).visibilidade || 'todos';
+      if (visibilidade === 'todos') return true;
+      if (visibilidade === 'admin_only') return false;
+      if (visibilidade === 'restrito') {
+        const allowed = Array.isArray((s as any).allowed_users) ? (s as any).allowed_users : [];
+        if (!allowed.length) return false;
+        return allowed.includes(user?.id) || allowed.includes(user?.name);
+      }
+      return true;
+    });
+  }, [stages, user]);
   const effectiveSelectedStageId = (selectedStageId && activeStages.some(s => s.id === selectedStageId))
     ? selectedStageId
     : (activeStages.find(s => s.isInitial || s.order === 0)?.id || activeStages[0]?.id || null);
@@ -10571,6 +10941,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                       isAdmin={user?.isAdmin}
                       onSetStageColor={handleSetStageColor}
                       onRenameStage={startRenameStage}
+                      onOpenPermissions={handleOpenStagePermissions}
                       onCollapse={selectedLead ? () => setIsColumnCollapsed(true) : undefined}
                     />
                   </div>
@@ -10962,13 +11333,22 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
                   <div className="flex items-center justify-between px-1">
                     <span className="text-[9px] font-black uppercase tracking-wider text-white/50">Cor da Etapa</span>
                     {user?.isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => { setShowColorPickerStageId(null); startRenameStage(currentStageObj); }}
-                        className="text-[9px] text-red-400 hover:underline font-bold"
-                      >
-                        Renomear
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setShowColorPickerStageId(null); handleOpenStagePermissions(currentStageObj); }}
+                          className="text-[9px] text-purple-400 hover:underline font-bold cursor-pointer"
+                        >
+                          🔒 Acesso
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShowColorPickerStageId(null); startRenameStage(currentStageObj); }}
+                          className="text-[9px] text-red-400 hover:underline font-bold cursor-pointer"
+                        >
+                          Renomear
+                        </button>
+                      </div>
                     )}
                   </div>
                   <div className="grid grid-cols-6 gap-2">
@@ -11312,6 +11692,116 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
            </div>
         </div>
       </Modal>
+
+      {/* Modal de Permissões e Regras de Visibilidade da Etapa */}
+      {editingPermissionsStage && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md bg-slate-900 border border-purple-500/30 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2 text-purple-300 font-black text-sm uppercase tracking-wider">
+                <Lock size={16} />
+                <span>Privacidade da Etapa: {editingPermissionsStage.name}</span>
+              </div>
+              <button onClick={() => setEditingPermissionsStage(null)} className="text-white/40 hover:text-white cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-white/60 leading-relaxed">
+              Defina quem na equipe pode visualizar esta etapa e os contatos que estão nela. Usuários sem permissão não verão essa coluna no funil.
+            </p>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="visibilidade"
+                  checked={stageVisibilidade === 'todos'}
+                  onChange={() => setStageVisibilidade('todos')}
+                  className="accent-purple-500"
+                />
+                <div>
+                  <p className="text-xs font-bold text-white">Todos os Usuários</p>
+                  <p className="text-[10px] text-white/40">Visível para toda a equipe que tem acesso ao Funil CRM</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="visibilidade"
+                  checked={stageVisibilidade === 'admin_only'}
+                  onChange={() => setStageVisibilidade('admin_only')}
+                  className="accent-purple-500"
+                />
+                <div>
+                  <p className="text-xs font-bold text-purple-300">Apenas Administradores</p>
+                  <p className="text-[10px] text-white/40">Oculto para todos os atendentes comuns</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="visibilidade"
+                  checked={stageVisibilidade === 'restrito'}
+                  onChange={() => setStageVisibilidade('restrito')}
+                  className="accent-purple-500"
+                />
+                <div>
+                  <p className="text-xs font-bold text-white">Usuários Selecionados</p>
+                  <p className="text-[10px] text-white/40">Apenas colaboradores específicos marcados abaixo</p>
+                </div>
+              </label>
+            </div>
+
+            {stageVisibilidade === 'restrito' && (
+              <div className="space-y-2 pt-2 border-t border-white/10">
+                <p className="text-[10px] font-black uppercase text-white/40">Selecione os colaboradores autorizados:</p>
+                <div className="max-h-40 overflow-y-auto custom-scrollbar space-y-1 bg-black/30 p-2 rounded-xl border border-white/5">
+                  {colaboradoresList.map(c => {
+                    const isChecked = stageAllowedUsers.includes(c.id) || stageAllowedUsers.includes(c.nome);
+                    return (
+                      <label key={c.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white/5 cursor-pointer text-xs text-white">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setStageAllowedUsers(prev => [...prev, c.id, c.nome]);
+                            } else {
+                              setStageAllowedUsers(prev => prev.filter(x => x !== c.id && x !== c.nome));
+                            }
+                          }}
+                          className="accent-purple-500 rounded"
+                        />
+                        <span>{c.nome}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setEditingPermissionsStage(null)}
+                className="px-4 py-2 rounded-xl text-white/50 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveStagePermissions}
+                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-purple-950/40 active:scale-95 transition-all cursor-pointer"
+              >
+                Salvar Regras
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -11333,6 +11823,7 @@ const KanbanColumnLegacy = ({
   isAdmin,
   onSetStageColor,
   onRenameStage,
+  onOpenPermissions,
   onCollapse,
 }: {
   key?: any, 
@@ -11347,6 +11838,7 @@ const KanbanColumnLegacy = ({
   isAdmin?: boolean,
   onSetStageColor?: (stageId: string, color: string) => void,
   onRenameStage?: (stage: FunnelStage) => void,
+  onOpenPermissions?: (stage: FunnelStage) => void,
   onCollapse?: () => void,
 }) => {
   const { setNodeRef } = useSortable({ id: stage.id, data: { type: 'column', stageId: stage.id } });
@@ -11378,15 +11870,26 @@ const KanbanColumnLegacy = ({
               <div className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl p-2.5 z-50 w-52 space-y-2">
                 <div className="flex items-center justify-between px-1">
                   <span className="text-[9px] font-black uppercase tracking-wider text-white/50">Cor da Etapa</span>
-                  {onRenameStage && (
-                    <button
-                      type="button"
-                      onClick={() => { setShowColorPicker(false); onRenameStage(stage); }}
-                      className="text-[9px] text-red-400 hover:underline font-bold"
-                    >
-                      Renomear
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {onOpenPermissions && (
+                      <button
+                        type="button"
+                        onClick={() => { setShowColorPicker(false); onOpenPermissions(stage); }}
+                        className="text-[9px] text-purple-400 hover:underline font-bold cursor-pointer"
+                      >
+                        🔒 Acesso
+                      </button>
+                    )}
+                    {onRenameStage && (
+                      <button
+                        type="button"
+                        onClick={() => { setShowColorPicker(false); onRenameStage(stage); }}
+                        className="text-[9px] text-red-400 hover:underline font-bold cursor-pointer"
+                      >
+                        Renomear
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-6 gap-2">
                   {FUNNEL_STAGE_COLORS.map(c => (
@@ -12198,20 +12701,76 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     }
   ];
 
-  // Tira do vacuo (limpa waiting_since) -- um lead ou todos os que estao aguardando.
+  // Tira do vacuo (limpa waiting_since), marca como lida e resolve a notificação no sino
   const handleResolveLead = async (leadId: string) => {
-    const { error } = await supabase.from('leads').update({ waiting_since: null }).eq('id', leadId);
+    const lead = leads.find(l => l.id === leadId);
+    const { error } = await supabase.from('leads').update({
+      waiting_since: null,
+      unread: false,
+      last_message_direction: 'resolved',
+      updated_at: new Date().toISOString()
+    }).eq('id', leadId);
     if (error) { showAlert('Não foi possível marcar como resolvido.'); return; }
-    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, waitingSince: undefined } : l));
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, waitingSince: undefined, unread: false, lastMessageDirection: 'resolved' as any } : l));
+
+    if (lead?.phone) {
+      const raw = String(lead.phone).trim();
+      const clean = raw.replace(/\D/g, '');
+      const ultimos8 = clean.slice(-8);
+      const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
+      if (ultimos8 && ultimos8.length >= 6) {
+        orClauses.push(`phone.ilike.%${ultimos8}%`);
+      }
+      try {
+        const { data: notifs } = await supabase
+          .from('crm_notifications')
+          .select('id')
+          .eq('company_id', currentCompany?.id || 'rafa-arts')
+          .or(orClauses.join(','))
+          .eq('status', 'pending');
+        if (notifs?.length) {
+          await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
+        }
+        await supabase
+          .from('crm_notifications')
+          .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
+          .eq('company_id', currentCompany?.id || 'rafa-arts')
+          .or(orClauses.join(','))
+          .eq('status', 'pending');
+      } catch (e) {
+        console.warn('Erro ao resolver notificações do lead:', e);
+      }
+    }
   };
 
   const handleResolveAll = async () => {
     const ids = leads.filter(l => l.waitingSince && conversaVisivel(l)).map(l => l.id);
     if (ids.length === 0) return;
-    if (!(await showConfirm(`Marcar ${ids.length} conversa(s) como resolvida(s)?\n\nO alerta de vácuo some. Se o cliente mandar outra mensagem, ele volta.`))) return;
-    const { error } = await supabase.from('leads').update({ waiting_since: null }).in('id', ids);
+    if (!(await showConfirm(`Marcar ${ids.length} conversa(s) como resolvida(s)?\n\nO alerta de vácuo some, a notificação no sino é limpa e a conversa é marcada como lida.`))) return;
+    const { error } = await supabase.from('leads').update({
+      waiting_since: null,
+      unread: false,
+      last_message_direction: 'resolved',
+      updated_at: new Date().toISOString()
+    }).in('id', ids);
     if (error) { showAlert('Não foi possível resolver todas as conversas.'); return; }
-    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, waitingSince: undefined } : l));
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, waitingSince: undefined, unread: false, lastMessageDirection: 'resolved' as any } : l));
+
+    try {
+      const phones = leads
+        .filter(l => ids.includes(l.id) && l.phone)
+        .map(l => String(l.phone).replace(/\D/g, ''))
+        .filter(p => p.length >= 6);
+
+      for (const p of phones) {
+        await supabase
+          .from('crm_notifications')
+          .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
+          .eq('company_id', currentCompany?.id || 'rafa-arts')
+          .ilike('phone', `%${p.slice(-8)}%`)
+          .eq('status', 'pending');
+      }
+    } catch (e) {}
   };
 
   const handleSyncWhatsApp = async () => {

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { GlassCard, Button, Badge, cn } from './SharedUI';
 import { SaleOrder } from '../types';
+import { supabase } from '../supabase';
 
 interface DashboardMetasCardProps {
   realSales: SaleOrder[];
@@ -56,9 +57,33 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [folhaSupabase, setFolhaSupabase] = useState<number>(0);
+
+  // Carrega folha salarial real dos colaboradores ativos no Supabase
+  useEffect(() => {
+    const loadFolha = async () => {
+      try {
+        const { data } = await supabase
+          .from('colaboradores')
+          .select('salario_base, ativo')
+          .eq('ativo', true);
+
+        if (data && data.length > 0) {
+          const soma = data.reduce((acc, c: any) => acc + (Number(c.salario_base) || 0), 0);
+          if (soma > 0) {
+            setFolhaSupabase(soma > 10000 ? soma : soma * 4);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar salários de colaboradores para o Ponto de Equilíbrio:', err);
+      }
+    };
+    loadFolha();
+  }, []);
 
   // Soma dos salários fixos mínimos dos funcionários ativos para compor o Ponto de Equilíbrio
   const folhaFixaMensal = useMemo(() => {
+    if (folhaSupabase > 0) return folhaSupabase;
     if (typeof window === 'undefined') return 0;
     try {
       let total = 0;
@@ -88,7 +113,7 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
       }
     } catch {}
     return 0;
-  }, []);
+  }, [folhaSupabase]);
 
   const custoTotalFixoMensal = despesasFixasBaseMensal + folhaFixaMensal;
 
@@ -97,10 +122,28 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
     setIsEditing(true);
   };
 
+  // Cálculo bidirecional: alterando diária, semanal ou mensal calcula as outras duas
+  // Proporção oficial de operação: 6 dias úteis por semana e 26 dias operacionais no mês
   const handleSaveEdit = () => {
     const val = parseFloat(editValue.replace(',', '.')) || 0;
     if (val > 0) {
-      const updated = { ...metas, [tab]: val };
+      let updated = { ...metas };
+      if (tab === 'diaria') {
+        const diaria = val;
+        const semanal = Math.round(val * 6);
+        const mensal = Math.round(val * 26);
+        updated = { diaria, semanal, mensal };
+      } else if (tab === 'semanal') {
+        const semanal = val;
+        const diaria = Math.round((val / 6) * 100) / 100;
+        const mensal = Math.round((val / 6) * 26);
+        updated = { diaria, semanal, mensal };
+      } else {
+        const mensal = val;
+        const diaria = Math.round((val / 26) * 100) / 100;
+        const semanal = Math.round(((val / 26) * 6) * 100) / 100;
+        updated = { diaria, semanal, mensal };
+      }
       setMetas(updated);
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_METAS_KEY, JSON.stringify(updated));
@@ -109,10 +152,14 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
     setIsEditing(false);
   };
 
-  // 1. Apuração das vendas para cada período
-  const { realizado, breakeven, metaAlvo } = useMemo(() => {
+  // 1. Apuração das vendas e lucro líquido real para cada período
+  const { realizado, breakeven, metaAlvo, custoFixoPeriodo, lucroRealizado, lucroProjetadoMeta } = useMemo(() => {
     const now = new Date();
     const margin = contributionMargin > 0 ? contributionMargin : 0.65;
+
+    let faturamentoPeriodo = 0;
+    let custoPeriodo = custoTotalFixoMensal;
+    let metaPeriodo = metas.mensal;
 
     if (tab === 'diaria') {
       const startToday = new Date(now);
@@ -120,7 +167,7 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
       const endToday = new Date(now);
       endToday.setHours(23, 59, 59, 999);
 
-      const faturamentoHoje = realSales
+      faturamentoPeriodo = realSales
         .filter(s => s.status !== 'canceled')
         .filter(s => {
           const d = new Date(s.createdAt);
@@ -128,17 +175,10 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
         })
         .reduce((acc, s) => acc + (s.total || 0), 0);
 
-      const custoFixoDia = custoTotalFixoMensal / 30;
-      const be = custoFixoDia / margin;
-
-      return {
-        realizado: faturamentoHoje,
-        breakeven: be,
-        metaAlvo: metas.diaria,
-      };
-    }
-
-    if (tab === 'semanal') {
+      // 26 dias úteis de trabalho no mês
+      custoPeriodo = custoTotalFixoMensal / 26;
+      metaPeriodo = metas.diaria;
+    } else if (tab === 'semanal') {
       const day = now.getDay();
       const diffToSaturday = day === 6 ? 0 : (day + 1);
       const startSab = new Date(now);
@@ -149,7 +189,7 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
       endSex.setDate(startSab.getDate() + 6);
       endSex.setHours(23, 59, 59, 999);
 
-      const faturamentoSemana = realSales
+      faturamentoPeriodo = realSales
         .filter(s => s.status !== 'canceled')
         .filter(s => {
           const d = new Date(s.createdAt);
@@ -157,33 +197,36 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
         })
         .reduce((acc, s) => acc + (s.total || 0), 0);
 
-      const custoFixoSemana = (custoTotalFixoMensal / 30) * 7;
-      const be = custoFixoSemana / margin;
+      // Ciclo de 6 dias úteis por semana
+      custoPeriodo = (custoTotalFixoMensal / 26) * 6;
+      metaPeriodo = metas.semanal;
+    } else {
+      const startMes = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const endMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-      return {
-        realizado: faturamentoSemana,
-        breakeven: be,
-        metaAlvo: metas.semanal,
-      };
+      faturamentoPeriodo = realSales
+        .filter(s => s.status !== 'canceled')
+        .filter(s => {
+          const d = new Date(s.createdAt);
+          return d >= startMes && d <= endMes;
+        })
+        .reduce((acc, s) => acc + (s.total || 0), 0);
+
+      custoPeriodo = custoTotalFixoMensal;
+      metaPeriodo = metas.mensal;
     }
 
-    const startMes = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    const endMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
-    const faturamentoMes = realSales
-      .filter(s => s.status !== 'canceled')
-      .filter(s => {
-        const d = new Date(s.createdAt);
-        return d >= startMes && d <= endMes;
-      })
-      .reduce((acc, s) => acc + (s.total || 0), 0);
-
-    const be = custoTotalFixoMensal / margin;
+    const be = custoPeriodo / margin;
+    const lReal = (faturamentoPeriodo * margin) - custoPeriodo;
+    const lProj = (metaPeriodo * margin) - custoPeriodo;
 
     return {
-      realizado: faturamentoMes,
+      realizado: faturamentoPeriodo,
       breakeven: be,
-      metaAlvo: metas.mensal,
+      metaAlvo: metaPeriodo,
+      custoFixoPeriodo: custoPeriodo,
+      lucroRealizado: lReal,
+      lucroProjetadoMeta: lProj,
     };
   }, [tab, realSales, custoTotalFixoMensal, contributionMargin, metas]);
 
@@ -403,6 +446,40 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
              "✨ Ponto de Equilíbrio coberto! Rumo à Meta de Lucro!"}
           </span>
           <span>R$ {metaAlvo.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+        </div>
+      </div>
+
+      {/* Seção Exclusiva: Lucro Líquido Real no Bolso (Descontando Custos Fixos e Salários dos Funcionários) */}
+      <div className="pt-2 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-3 relative z-10">
+        <div className="p-3 rounded-xl bg-slate-950/60 border border-white/10 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[9.5px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span>💰</span> Lucro Real Estimado na Meta
+            </span>
+            <span className="text-[9px] font-bold text-white/40">Após Insumos, Luz, Aluguel e Salários</span>
+          </div>
+          <p className="text-base sm:text-lg font-black text-emerald-300 font-mono">
+            R$ {lucroProjetadoMeta.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <p className="text-[9px] text-white/50 font-medium">
+            Descontando <strong className="text-white/80">R$ {custoFixoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> de custos fixos + folha de colaboradores do período.
+          </p>
+        </div>
+
+        <div className="p-3 rounded-xl bg-slate-950/60 border border-white/10 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[9.5px] font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+              <span>⚖️</span> Lucro Líquido Real Atual
+            </span>
+            <span className="text-[9px] font-bold text-white/40">Realizado {tab === 'diaria' ? 'Hoje' : tab === 'semanal' ? 'na Semana' : 'no Mês'}</span>
+          </div>
+          <p className={cn("text-base sm:text-lg font-black font-mono", lucroRealizado >= 0 ? "text-emerald-400" : "text-rose-400")}>
+            {lucroRealizado >= 0 ? '+' : '-'} R$ {Math.abs(lucroRealizado).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <div className="flex items-center justify-between text-[9px] text-white/50">
+            <span>Sincronia Bilateral:</span>
+            <span className="font-mono text-white/70">Dia R$ {metas.diaria.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} | Sem R$ {metas.semanal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} | Mês R$ {metas.mensal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</span>
+          </div>
         </div>
       </div>
     </GlassCard>

@@ -43,7 +43,8 @@ import {
   ShieldCheck,
   Key,
   Bot,
-  Calculator
+  Calculator,
+  CalendarDays
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
@@ -101,6 +102,7 @@ import {
   SettingsModule,
   ClientesEsperaModule
 } from './components/Modules';
+import { AgendaModule } from './components/AgendaModule';
 import { MessagesSidebarPopup, carregarInfoGrupos } from './components/MessagesSidebarPopup';
 import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, marcarNotificacoesResolvidas, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
@@ -666,7 +668,7 @@ export default function App() {
   }, []);
   // Helper para garantir que atendentes e usuários não-admin nunca abram o Dashboard nem fiquem presos nele
   const resolveValidTabForUser = (targetTab: MainTab, u: AppUser | null | undefined): MainTab => {
-    const validTabs: MainTab[] = ['crm', 'messages', 'pos', 'inventory', 'ponto', 'clientes_espera', 'production', 'comissoes', 'contacts', 'services', 'robozinho_rafa', 'settings', 'dashboard'];
+    const validTabs: MainTab[] = ['crm', 'messages', 'pos', 'inventory', 'ponto', 'clientes_espera', 'production', 'comissoes', 'contacts', 'services', 'robozinho_rafa', 'settings', 'dashboard', 'agenda'];
     if (!u || u.isAdmin) {
       return (validTabs.includes(targetTab)) ? targetTab : 'dashboard';
     }
@@ -684,7 +686,7 @@ export default function App() {
 
   const [activeTab, setActiveTabState] = useState<MainTab>(() => {
     const saved = typeof window !== 'undefined' ? (localStorage.getItem('rpro_active_tab') as MainTab | null) : null;
-    const validTabs: MainTab[] = ['crm', 'messages', 'pos', 'inventory', 'ponto', 'clientes_espera', 'production', 'comissoes', 'contacts', 'services', 'robozinho_rafa', 'settings', 'dashboard'];
+    const validTabs: MainTab[] = ['crm', 'messages', 'pos', 'inventory', 'ponto', 'clientes_espera', 'production', 'comissoes', 'contacts', 'services', 'robozinho_rafa', 'settings', 'dashboard', 'agenda'];
     
     // Evita abrir ou piscar o Dashboard se o usuário em cache não tiver permissão para ele
     try {
@@ -2737,6 +2739,7 @@ export default function App() {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'crm', label: 'Funil CRM', icon: Target },
+    { id: 'agenda', label: 'Agenda & Serviços', icon: CalendarDays },
     { id: 'messages', label: 'Conversas', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'inventory', label: 'Estoque & Materiais', icon: Package },
@@ -3212,6 +3215,18 @@ export default function App() {
                     />
                   )}
                   {effectiveTab === 'clientes_espera' && <ModuleErrorBoundary label="Clientes em Espera"><ClientesEsperaModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
+                  {effectiveTab === 'agenda' && (
+                    <ModuleErrorBoundary label="Agenda">
+                      <AgendaModule
+                        user={user}
+                        company={currentCompany}
+                        onOpenLead={(leadId) => {
+                          setPendingOpenLeadId(leadId);
+                          setActiveTab('crm');
+                        }}
+                      />
+                    </ModuleErrorBoundary>
+                  )}
                   {effectiveTab === 'inventory' && <ModuleErrorBoundary label="Estoque & Materiais"><InventoryModule currentCompany={currentCompany} user={user} /></ModuleErrorBoundary>}
                   {effectiveTab === 'ponto' && <ModuleErrorBoundary label="Controle de Ponto"><PontoApp /></ModuleErrorBoundary>}
                   {effectiveTab === 'services' && <ServicesModule currentCompany={currentCompany} />}

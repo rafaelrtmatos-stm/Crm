@@ -185,14 +185,13 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
       .neq('status', 'canceled')
       .is('deleted_at', null)
-      .neq('service_status', 'produto_entregue')
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
 
-    // Regra de Produção: aparecem apenas notas lançadas para produção OU notas onde colaboradores já puxaram itens
+    // Regra de Produção: aparecem notas lançadas para produção OU notas onde colaboradores já puxaram itens
+    // (Mesmo que o produto já tenha sido entregue fisicamente ao cliente, a nota fica disponível para o colaborador comissionar seus itens)
     const todasVendas = ((vendasData || []) as NotaAgendada[]).filter(v =>
-      (Boolean(v.service_status && String(v.service_status).trim() !== '') || notasComItensPuxadosIds.has(v.id)) &&
-      v.service_status !== 'produto_entregue'
+      Boolean(v.service_status && String(v.service_status).trim() !== '') || notasComItensPuxadosIds.has(v.id)
     );
     const todasVendasIds = new Set(todasVendas.map(v => v.id));
 
@@ -208,7 +207,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
         .order('created_at', { ascending: false });
 
       orcamentosNotas = (orcData || [])
-        .filter((o: any) => !o.venda_id && (o.status === 'em_producao' || (o.service_status && o.service_status !== 'produto_entregue')))
+        .filter((o: any) => !o.venda_id && (o.status === 'em_producao' || Boolean(o.service_status && String(o.service_status).trim() !== '')))
         .map((o: any) => ({
           id: o.id,
           customer_name: o.customer_name ? `${o.customer_name} [Orçamento #${o.numero || ''}]` : `Orçamento #${o.numero || ''}`,
