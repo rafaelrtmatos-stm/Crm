@@ -26,6 +26,7 @@ import {
   addDaysISO,
 } from '../utils/caixaSemanalStorage';
 import { supabase } from '../../supabase';
+import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -240,6 +241,49 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [colaboradorId]);
 
+
+  // Receita da loja no ciclo semanal de Sábado a Sexta (apenas notas 100% quitadas/recebidas)
+  const [receitaLojaSemana, setReceitaLojaSemana] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const bounds = getWorkWeekBounds(weekOffset);
+    supabase
+      .from('vendas')
+      .select('total, status, down_payment, created_at')
+      .gte('created_at', bounds.start)
+      .lte('created_at', bounds.end)
+      .is('deleted_at', null)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const total = (data || [])
+          .filter((v: any) => {
+            if (v.status === 'canceled') return false;
+            const tot = Number(v.total) || 0;
+            const down = Number(v.down_payment) || 0;
+            return tot > 0 && (v.status === 'completed' || down >= tot);
+          })
+          .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
+        setReceitaLojaSemana(total);
+      });
+    return () => { cancelled = true; };
+  }, [weekOffset]);
+
+  const metaCalculada = useMemo(() => {
+    if (userSettings.modalidadeRemuneracao !== 'meta') return null;
+    return calcularRemuneracaoSemanal(
+      {
+        modalidade: 'meta',
+        salarioBase: 0,
+        comissaoPadraoPercentual: 0,
+        metaPercentual: userSettings.metaPercentual || 0,
+        metasValores: userSettings.metasValores,
+        metaValorMinimo: userSettings.metaValorMinimo,
+        faturamentoGeral: receitaLojaSemana,
+      },
+      receitaLojaSemana,
+      0
+    );
+  }, [userSettings, receitaLojaSemana]);
 
   const todayFormatted = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -626,9 +670,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="lg:col-span-1">
           <ReceiptForecastCard
             baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : userSettings.baseSalary}
-            totalCommission={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalComissao : weeklyStats.weeklyCommission}
+            totalCommission={userSettings.modalidadeRemuneracao === 'meta' ? (metaCalculada?.comissaoEfetiva ?? 0) : (period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalComissao : weeklyStats.weeklyCommission)}
             weeklyGoal={userSettings.weeklyGoal}
-            totalProduction={period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction}
+            totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
             totalDiscounts={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalDescontos : (resumoSemanaAtual?.totalDescontos ?? 0)}
             totalPaid={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalPago : (resumoSemanaAtual?.totalPago ?? 0)}
             previousBalance={saldoAnteriorAoPeriodo}
@@ -650,10 +694,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="flex justify-between items-start mb-4">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  PRODUÇÃO ({period.toUpperCase()})
+                  {userSettings.modalidadeRemuneracao === 'meta' ? 'RECEITA QUITADA DA LOJA' : `PRODUÇÃO (${period.toUpperCase()})`}
                 </span>
                 <div className="text-3xl sm:text-4xl font-black text-[var(--text-main)] font-mono mt-1">
-                  {formatCurrency(displayStats.totalProduction)}
+                  {formatCurrency(userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : displayStats.totalProduction)}
                 </div>
               </div>
               <div className="p-3.5 rounded-xl bg-red-500/10 text-[var(--accent-red)]">
@@ -661,8 +705,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
-              <span>Serviços no Período: <strong className="text-[var(--text-main)]">{displayStats.totalCount}</strong></span>
-              <span className="text-[var(--accent-red)] font-semibold">Produção Ativa</span>
+              <span>{userSettings.modalidadeRemuneracao === 'meta' ? 'Ciclo Semanal:' : 'Serviços no Período:'} <strong className="text-[var(--text-main)]">{userSettings.modalidadeRemuneracao === 'meta' ? 'Sábado a Sexta' : displayStats.totalCount}</strong></span>
+              <span className="text-[var(--accent-red)] font-semibold">{userSettings.modalidadeRemuneracao === 'meta' ? '100% Quitadas' : 'Produção Ativa'}</span>
             </div>
           </div>
 
@@ -673,13 +717,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   {userSettings.modalidadeRemuneracao === 'meta'
-                    ? `META ALCANÇADA (${period.toUpperCase()})`
-                    : userSettings.modalidadeRemuneracao === 'faturamento_geral'
-                    ? `COMISSÃO (${period.toUpperCase()})`
+                    ? `DEGRAU ATINGIDO (SEMANA)`
                     : `COMISSÃO (${period.toUpperCase()})`}
                 </span>
                 <div className="text-3xl sm:text-4xl font-black text-[var(--accent-red)] font-mono mt-1">
-                  {formatCurrency(displayStats.totalCommission)}
+                  {formatCurrency(userSettings.modalidadeRemuneracao === 'meta' ? (metaCalculada?.comissaoEfetiva ?? 0) : displayStats.totalCommission)}
                 </div>
               </div>
               <div className="p-3.5 rounded-xl bg-gradient-red text-white shadow-red-glow">
@@ -688,12 +730,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
               <span>
-                {userSettings.modalidadeRemuneracao === 'meta' ? 'Total Meta da Semana: ' : 'Acumulado Semana: '}
-                <strong className="text-emerald-400 font-bold">{formatCurrency(weeklyStats.weeklyCommission)}</strong>
+                {userSettings.modalidadeRemuneracao === 'meta' ? 'Meta Loja da Semana: ' : 'Acumulado Semana: '}
+                <strong className="text-emerald-400 font-bold">
+                  {userSettings.modalidadeRemuneracao === 'meta' ? formatCurrency(metaCalculada?.comissaoEfetiva ?? 0) : formatCurrency(weeklyStats.weeklyCommission)}
+                </strong>
               </span>
               <span className="text-[var(--text-muted)]">
                 {userSettings.modalidadeRemuneracao === 'meta' ? (
-                  <span className="text-emerald-400 font-bold">Faixa Semanal</span>
+                  <span className="text-emerald-400 font-bold">{metaCalculada?.metaAtingidaNome || 'Faixa Semanal'}</span>
                 ) : userSettings.modalidadeRemuneracao === 'fixo' ? (
                   <span className="text-blue-400 font-bold">Fixo</span>
                 ) : (

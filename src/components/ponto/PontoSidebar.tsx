@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -49,35 +49,53 @@ export function PontoSidebar({
     { id: 'configuracoes', label: 'Configurações', icon: Settings },
   ];
 
+  // Fecha o popup ao pressionar a tecla Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onCloseMobile();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onCloseMobile]);
+
   const handleSelect = (tab: PontoNavTab) => {
     onSelectTab(tab);
-    if (window.innerWidth < 1024) {
-      onCloseMobile();
-    }
+    onCloseMobile();
   };
 
   return (
     <>
-      {/* Overlay no mobile */}
+      {/* Overlay Backdrop com desfoque e escurecimento (Mobile e Desktop) */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-xs"
+          className="fixed inset-0 bg-black/70 z-50 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
           onClick={onCloseMobile}
         />
       )}
 
+      {/* Gaveta / Popup Lateral Flutuante */}
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-50 w-64 bg-slate-900/95 border-r border-white/10 text-white flex flex-col justify-between transition-transform duration-300 ease-in-out shrink-0 select-none backdrop-blur-xl ${
-          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        className={`fixed top-0 bottom-0 left-0 z-50 w-72 max-w-[85vw] bg-slate-900/98 border-r border-white/15 text-white flex flex-col justify-between transition-all duration-300 ease-in-out shrink-0 select-none backdrop-blur-2xl shadow-2xl shadow-black/80 ${
+          isOpen ? 'translate-x-0 opacity-100 pointer-events-auto' : '-translate-x-full opacity-0 pointer-events-none'
         }`}
       >
         <div>
-          {/* Cabeçalho apenas no mobile para fechar a gaveta */}
-          <div className="p-3 flex items-center justify-between lg:hidden border-b border-white/10">
-            <span className="text-xs font-bold text-white/60 uppercase tracking-wider">Menu</span>
+          {/* Cabeçalho do Popup do Menu */}
+          <div className="p-4 flex items-center justify-between border-b border-white/10 bg-slate-950/60">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm">
+                <Clock size={18} />
+              </div>
+              <div>
+                <span className="text-xs font-black text-white uppercase tracking-wider block">Menu do Ponto</span>
+                <span className="text-[10px] text-white/40 block">Selecione o módulo</span>
+              </div>
+            </div>
             <button
               onClick={onCloseMobile}
-              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
               title="Fechar menu"
             >
               <X size={18} />
@@ -116,7 +134,7 @@ export function PontoSidebar({
         </div>
 
         {/* Rodapé Usuário Logado */}
-        <div className="p-4 border-t border-white/10 bg-slate-950/40 flex items-center justify-between">
+        <div className="p-4 border-t border-white/10 bg-slate-950/60 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <AvatarPhoto
               photoUrl={userPhoto}
@@ -130,7 +148,7 @@ export function PontoSidebar({
             </div>
           </div>
           <button
-            title="Sair do Ponto"
+            title="Fechar menu"
             onClick={onCloseMobile}
             className="p-1.5 text-white/40 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
           >

@@ -110,6 +110,7 @@ import { ModuleErrorBoundary } from './components/SharedUI';
 import { PrecificacaoModule } from './components/PrecificacaoModule';
 import { MateriasPrimasModule } from './components/MateriasPrimasModule';
 import { MaquinasModule } from './components/MaquinasModule';
+import { DespesasFixasModule } from './components/DespesasFixasModule';
 import { PontoApp } from './components/ponto/PontoApp';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
 import { SEM_CRM_MESSAGES } from './lib/flags';
@@ -161,30 +162,40 @@ const SidebarItem = ({
 // 1. Funcionários (colaboradores e comissões)
 // 2. Matérias-Primas (Cadastro de insumos e matérias-primas: custo por unidade, unidade de medida, observação)
 // 3. Máquinas (Cadastro e custos operacionais com cálculo automático de depreciação, manutenção, cabeça, energia e tinta)
-// 4. Precificação (Motor de Precificação Inteligente com formação automática de preços baseada em insumos, máquinas, energia, aluguel, equipe e comissões).
+// 5. Despesas Fixas (Gestão de contas mensais e custos fixos operacionais: Aluguel, Luz, Água, Internet, Contador, etc.)
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTabSalvo, setSubTabState] = useState<'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
+  const [subTabSalvo, setSubTabState] = useState<'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('rpro_financeiro_subtab');
-      if (saved && ['funcionarios', 'ponto', 'materias_primas', 'maquinas', 'precificacao'].includes(saved)) {
-        return saved as 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao';
+      if (saved && ['despesas_fixas', 'funcionarios', 'ponto', 'materias_primas', 'maquinas', 'precificacao'].includes(saved)) {
+        return saved as 'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao';
       }
     }
-    return 'funcionarios';
+    return 'despesas_fixas';
   });
 
-  const setSubTab = (tab: 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao') => {
+  const setSubTab = (tab: 'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao') => {
     setSubTabState(tab);
     if (typeof window !== 'undefined') {
       localStorage.setItem('rpro_financeiro_subtab', tab);
     }
   };
 
+  useEffect(() => {
+    const handleSwitch = (e: any) => {
+      if (e?.detail?.subTab) {
+        setSubTab(e.detail.subTab);
+      }
+    };
+    window.addEventListener('rpro_switch_financeiro_subtab', handleSwitch);
+    return () => window.removeEventListener('rpro_switch_financeiro_subtab', handleSwitch);
+  }, []);
+
   // Abas que esse usuario pode ver (Configuracoes > Usuarios). Se a aba salva no aparelho nao for permitida,
   // cai na primeira permitida; se nenhuma for, mostra aviso de sem acesso.
   const abasVisiveis: string[] = FINANCEIRO_TABS.filter(t => canSeeFinanceiroTab(user, t.id)).map(t => t.id);
   const subTab = (abasVisiveis.includes(subTabSalvo) ? subTabSalvo : (abasVisiveis[0] ?? null)) as
-    'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao' | null;
+    'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao' | null;
 
   const [selectedMaquinaForPrec, setSelectedMaquinaForPrec] = useState<string | null>(null);
 
@@ -198,6 +209,19 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
     <div className="h-full flex flex-col min-h-0">
       {/* Navegação de Sub-Abas do Módulo Financeiro / Operacional */}
       <div className="flex items-center gap-1.5 sm:gap-2 mb-3 sm:mb-4 shrink-0 overflow-x-auto no-scrollbar pb-1 -mx-2 px-2 sm:mx-0 sm:px-0">
+        {abasVisiveis.includes('despesas_fixas') && (
+          <button
+            onClick={() => setSubTab('despesas_fixas')}
+            className={cn(
+              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
+              subTab === 'despesas_fixas'
+                ? "bg-amber-500 text-slate-950 font-black border-amber-400 shadow-lg shadow-amber-500/20"
+                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+            )}
+          >
+            <Building2 size={14} /> Despesas Fixas
+          </button>
+        )}
         {abasVisiveis.includes('funcionarios') && (
           <button
             onClick={() => setSubTab('funcionarios')}
@@ -265,7 +289,13 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
         )}
       </div>
       <div className="flex-1 min-h-0">
-        {subTab === 'funcionarios' ? (
+        {subTab === 'despesas_fixas' ? (
+          <ModuleErrorBoundary label="Despesas Fixas">
+            <div className="overflow-y-auto custom-scrollbar h-full pr-1">
+              <DespesasFixasModule currentCompany={currentCompany} user={user} />
+            </div>
+          </ModuleErrorBoundary>
+        ) : subTab === 'funcionarios' ? (
           <ModuleErrorBoundary label="Funcionários">
             <div className="overflow-y-auto custom-scrollbar h-full">
               <ComissoesAdminPanel />
@@ -892,6 +922,7 @@ export default function App() {
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
   const [pendingHistoryProductSearch, setPendingHistoryProductSearch] = useState<string | null>(null);
   const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
+  const [pendingQuitadasFilter, setPendingQuitadasFilter] = useState<{ active: boolean; dateFrom?: string; dateTo?: string } | null>(null);
   const [pendingGoToHistorico, setPendingGoToHistorico] = useState(false);
   const [pendingGoToServicos, setPendingGoToServicos] = useState(false);
   const [pendingOpenContratoId, setPendingOpenContratoId] = useState<string | null>(null);
@@ -3026,6 +3057,8 @@ export default function App() {
     setPendingHistoryProductSearch,
     pendingReceivablesFilter,
     setPendingReceivablesFilter,
+    pendingQuitadasFilter,
+    setPendingQuitadasFilter,
     pendingGoToHistorico,
     setPendingGoToHistorico,
     pendingGoToServicos,

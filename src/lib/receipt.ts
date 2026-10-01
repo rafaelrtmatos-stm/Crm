@@ -509,8 +509,9 @@ export async function renderReceiptCanvas({
   const tableTotalH = 36 + tableContentH; // 36px cabeçalho da tabela + linhas
 
   // Total Financeiro
-  const paymentBreakdown = order.payments && order.payments.length > 1 ? order.payments : null;
-  const paymentBreakdownExtra = paymentBreakdown ? (paymentBreakdown.length - 1) * 16 : 0;
+  const paymentBreakdown = order.payments && order.payments.length > 0 ? order.payments : null;
+  const hasCardSurcharge = down > total;
+  const paymentBreakdownExtra = (paymentBreakdown ? paymentBreakdown.length * 18 : 0) + (hasCardSurcharge ? 14 : 0);
   const totalCardH = 132 + paymentBreakdownExtra;
 
   // Informações Importantes
@@ -987,6 +988,13 @@ export async function renderReceiptCanvas({
   ctx.fillStyle = RED;
   ctx.fill();
 
+  // Acréscimo de taxa da maquininha se houver
+  if (down > total) {
+    ctx.font = `700 9px ${FONT}`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.fillText(`+ R$ ${(down - total).toFixed(2).replace('.', ',')} acréscimo taxa cartão`, marginX + 22, currentY + 110);
+  }
+
   // Linha divisória vertical
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.lineWidth = 1;
@@ -998,11 +1006,11 @@ export async function renderReceiptCanvas({
   // Lado Direito: Entrada recebida, Saldo pendente e Status
   const finRightX = marginX + halfW + 24;
 
-  // Entrada recebida
+  // Entrada recebida / Total pago
   ctx.textAlign = 'left';
   ctx.fillStyle = TEXT_GRAY;
   ctx.font = `600 11px ${FONT}`;
-  ctx.fillText('Entrada recebida', finRightX, currentY + 38);
+  ctx.fillText(down > total ? 'Total pago (c/ taxa)' : 'Entrada recebida', finRightX, currentY + 38);
 
   ctx.textAlign = 'right';
   ctx.fillStyle = TEXT_WHITE;
@@ -1020,19 +1028,39 @@ export async function renderReceiptCanvas({
   ctx.font = `900 15px ${FONT}`;
   ctx.fillText(isPending ? `R$ ${balance.toFixed(2).replace('.', ',')}` : 'R$ 0,00', width - marginX - 22, currentY + 62);
 
-  // Linha de múltiplos pagamentos se houver
-  if (paymentBreakdown) {
-    let py = currentY + 80;
-    paymentBreakdown.forEach((p, idx) => {
+  // Detalhamento das formas de pagamento e parcelamento
+  if (paymentBreakdown && paymentBreakdown.length > 0) {
+    let py = currentY + 82;
+    paymentBreakdown.forEach((p: any, idx: number) => {
+      const m = (p.method || '').toLowerCase();
+      let nomeMetodo = 'PIX';
+      if (m.includes('credito') || m === 'credit') nomeMetodo = 'Cartão Crédito';
+      else if (m.includes('debito') || m === 'debit') nomeMetodo = 'Cartão Débito';
+      else if (m.includes('dinheiro') || m === 'cash') nomeMetodo = 'Dinheiro';
+      else if (m.includes('boleto')) nomeMetodo = 'Boleto';
+      else if (m.includes('transferencia')) nomeMetodo = 'Transferência';
+      else if (m.includes('pix')) nomeMetodo = 'PIX';
+      else if (p.method) nomeMetodo = p.method;
+
+      const parcels = Number(p.installments) > 1 ? Number(p.installments) : (Number(p.installmentsCount) > 1 ? Number(p.installmentsCount) : 1);
+      const val = Number(p.value) || 0;
+      let labelMetodo = nomeMetodo;
+      if (parcels > 1) {
+        const parcVal = val / parcels;
+        labelMetodo = `${nomeMetodo} ${parcels}x de R$ ${parcVal.toFixed(2).replace('.', ',')}`;
+      }
+
       ctx.textAlign = 'left';
       ctx.fillStyle = TEXT_MUTED;
       ctx.font = `600 8.5px ${FONT}`;
-      ctx.fillText(`${idx + 1}. ${(p.method || 'PIX').toUpperCase()}`, finRightX + 4, py);
+      const prefix = paymentBreakdown.length > 1 ? `${idx + 1}. ` : '💳 ';
+      ctx.fillText(`${prefix}${labelMetodo}`, finRightX, py);
+
       ctx.textAlign = 'right';
       ctx.fillStyle = TEXT_WHITE;
       ctx.font = `700 9px ${FONT}`;
-      ctx.fillText(`R$ ${p.value.toFixed(2).replace('.', ',')}`, width - marginX - 22, py);
-      py += 16;
+      ctx.fillText(`R$ ${val.toFixed(2).replace('.', ',')}`, width - marginX - 22, py);
+      py += 18;
     });
   }
 

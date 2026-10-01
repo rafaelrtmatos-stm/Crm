@@ -26,7 +26,7 @@ import {
   somarDias,
 } from '../../lib/pontoCalc';
 import { PontoHeader } from './PontoHeader';
-import { PontoSidebar, PontoNavTab } from './PontoSidebar';
+import type { PontoNavTab } from './PontoSidebar';
 import { PontoDashboard, DashboardRegItem } from './PontoDashboard';
 import {
   PontoFuncionarios,
@@ -67,7 +67,6 @@ interface BancoMov {
 export function PontoApp() {
   const { user } = useApp();
   const [currentTab, setCurrentTab] = useState<PontoNavTab>('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Estados dos dados Supabase
   const [funcs, setFuncs] = useState<FuncionarioItem[]>([]);
@@ -464,31 +463,21 @@ export function PontoApp() {
   }
 
   return (
-    <div className="flex h-full min-h-[700px] bg-slate-950/40 text-white rounded-2xl overflow-hidden border border-white/10 backdrop-blur-xl shadow-2xl">
-      {/* Sidebar do Ponto */}
-      <PontoSidebar
+    <div className="flex flex-col h-full min-h-[700px] w-full bg-slate-950/40 text-white rounded-2xl overflow-hidden border border-white/10 backdrop-blur-xl shadow-2xl relative">
+      {/* Header do Ponto com Navegação Direta de Abas no Topo (100% de largura) */}
+      <PontoHeader
+        pendingCount={ajustesPendentes.length}
+        userName={user?.displayName || 'Rafael Matos'}
+        userPhoto={user?.photoURL}
         currentTab={currentTab}
         onSelectTab={(t) => {
           setCurrentTab(t);
           setSelId(null);
         }}
-        isOpen={sidebarOpen}
-        onCloseMobile={() => setSidebarOpen(false)}
-        userName={user?.displayName || 'Rafael Matos'}
-        userRole={user?.role === 'admin' ? 'Administrador' : 'Gestor de Ponto'}
-        userPhoto={user?.photoURL}
-        pendingAdjustmentsCount={ajustesPendentes.length}
       />
 
-      {/* Área Central / Conteúdo Principal */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header do Ponto */}
-        <PontoHeader
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          pendingCount={ajustesPendentes.length}
-          userName={user?.displayName || 'Rafael Matos'}
-          userPhoto={user?.photoURL}
-        />
+      {/* Área Central / Conteúdo Principal (100% de largura sem encolhimento) */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden w-full">
 
         {/* Corpo com Scroll */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 custom-scrollbar">
@@ -894,6 +883,7 @@ export function PontoApp() {
         <JornadaEditorModal
           func={jornadaModalFunc}
           jornadas={jornadasDe(jornadaModalFunc.id)}
+          todosFuncionarios={funcs}
           onClose={() => setJornadaModalFunc(null)}
           onSaved={async () => {
             setJornadaModalFunc(null);

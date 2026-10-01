@@ -43,6 +43,8 @@ export interface AppContextType {
   setPendingHistoryProductSearch: (v: string | null) => void;
   pendingReceivablesFilter: boolean;
   setPendingReceivablesFilter: (v: boolean) => void;
+  pendingQuitadasFilter: { active: boolean; dateFrom?: string; dateTo?: string } | null;
+  setPendingQuitadasFilter: (v: { active: boolean; dateFrom?: string; dateTo?: string } | null) => void;
   pendingGoToHistorico: boolean;
   setPendingGoToHistorico: (v: boolean) => void;
   pendingGoToServicos: boolean;

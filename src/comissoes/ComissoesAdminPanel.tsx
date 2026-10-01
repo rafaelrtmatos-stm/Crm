@@ -288,7 +288,7 @@ export default function ComissoesAdminPanel() {
           .eq('status', 'aberto'),
         supabase
           .from('vendas')
-          .select('total, status, created_at')
+          .select('total, status, down_payment, created_at')
           .gte('created_at', start)
           .lte('created_at', end)
           .is('deleted_at', null),
@@ -298,8 +298,14 @@ export default function ComissoesAdminPanel() {
         setUsuariosContas(usuariosRes.data as UsuarioConta[]);
       }
 
-      const faturamentoGeralSemana = (vendasRes.data || [])
-        .filter((v: any) => v.status !== 'canceled')
+      // Receita da loja no período (Sábado a Sexta): apenas notas 100% quitadas e recebidas (só com entrada NÃO conta)
+      const receitaLojaQuitadasSemana = (vendasRes.data || [])
+        .filter((v: any) => {
+          if (v.status === 'canceled') return false;
+          const total = Number(v.total) || 0;
+          const down = Number(v.down_payment) || 0;
+          return total > 0 && (v.status === 'completed' || down >= total);
+        })
         .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
 
       const servicos = servicosRes.data || [];
@@ -403,7 +409,7 @@ export default function ComissoesAdminPanel() {
             metasValores,
             metaValorMinimo,
             metaValorMaximo,
-            faturamentoGeral: faturamentoGeralSemana,
+            faturamentoGeral: receitaLojaQuitadasSemana,
           },
           colabServicos.totalProducao,
           colabServicos.totalComissao
@@ -420,7 +426,7 @@ export default function ComissoesAdminPanel() {
         statsMap[c.id] = {
           salarioBase: remuneracao.salarioBaseEfetivo,
           totalComissao: remuneracao.comissaoEfetiva,
-          totalProducao: modalidade === 'faturamento_geral' ? faturamentoGeralSemana : colabServicos.totalProducao,
+          totalProducao: modalidade === 'meta' || modalidade === 'faturamento_geral' ? receitaLojaQuitadasSemana : colabServicos.totalProducao,
           totalDescontos,
           totalPago,
           saldoAnterior,
@@ -532,6 +538,16 @@ export default function ComissoesAdminPanel() {
       metaProgressoGeral,
     };
   }, [colaboradores, weeklyStatsMap]);
+
+  // Sincroniza o total que a equipe tem a receber para o Card de Funcionários do Dashboard Principal
+  useEffect(() => {
+    if (typeof window !== 'undefined' && typeof metrics.totalEstimadoEquipe === 'number') {
+      localStorage.setItem('rpro_equipe_total_estimado', metrics.totalEstimadoEquipe.toString());
+      window.dispatchEvent(new CustomEvent('rpro-colab-stats-updated', {
+        detail: { totalEstimadoEquipe: metrics.totalEstimadoEquipe }
+      }));
+    }
+  }, [metrics.totalEstimadoEquipe]);
 
   // Lista filtrada e ordenada
   const filteredColaboradores = useMemo(() => {
@@ -2145,9 +2161,8 @@ export default function ComissoesAdminPanel() {
                     <DollarSign className="w-3.5 h-3.5" /> 2. Modalidade de Remuneração
                   </h4>
 
-                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / FATURAMENTO GERAL */}
-                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / META ESCALÁVEL / FATURAMENTO GERAL */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {/* Seletor de Modalidade: FIXO / FIXO + COMISSÃO / META ESCALÁVEL */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => setForm({ ...form, modalidadeRemuneracao: 'fixo', metaSemanal: 0, comissaoPadraoPercentual: 0 })}
@@ -2200,31 +2215,11 @@ export default function ComissoesAdminPanel() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
                           <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'meta' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
-                          Meta Escalável
+                          Meta Escalável (Loja)
                         </span>
                       </div>
                       <p className="text-[10px] text-[var(--text-muted)] leading-tight">
-                        Piso mínimo garantido + faixas de produção com remuneração escalável.
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'faturamento_geral' })}
-                      className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
-                        form.modalidadeRemuneracao === 'faturamento_geral'
-                          ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
-                          : 'border-[var(--border-color)] bg-[var(--bg-card-sec)] hover:border-[var(--text-muted)]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black uppercase text-[var(--text-main)] flex items-center gap-1.5">
-                          <CheckCircle2 className={`w-3.5 h-3.5 ${form.modalidadeRemuneracao === 'faturamento_geral' ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'}`} />
-                          % Faturamento Geral
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-[var(--text-muted)] leading-tight">
-                        Recebe % calculada diretamente sobre o total faturado da empresa.
+                        Degraus baseados na Receita semanal da loja (notas 100% quitadas de Sábado a Sexta).
                       </p>
                     </button>
                   </div>

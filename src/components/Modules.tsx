@@ -286,6 +286,8 @@ import { buscarClienteDuplicado, montarPayloadMesclagem, buscarClientePorTelefon
 import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
 import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
+import { getDespesasFixasTotalMensal } from './DespesasFixasModule';
+import { DashboardMetasCard } from './DashboardMetasCard';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
 // quando vendas importadas de planilha tem um createdAt malformado ou vazio.
@@ -881,6 +883,13 @@ const mapCrmMessageRow = (row: any): any => {
   const qMediaUrl = row.quoted_media_url || quotedMeta?.quotedMediaUrl || quotedMeta?.quoted_media_url || undefined;
   const qMediaType = row.quoted_media_type || quotedMeta?.quotedMediaType || quotedMeta?.quoted_media_type || (qText?.startsWith('📷') ? 'image' : undefined);
 
+  const reactMeta = Array.isArray(row.versions)
+    ? row.versions.find((v: any) => v && (v.type === 'reactions' || Array.isArray(v.reactions)))
+    : (row.versions && typeof row.versions === 'object' && row.versions.type === 'reactions' ? row.versions : null);
+  const reactionsList = Array.isArray(reactMeta?.list)
+    ? reactMeta.list
+    : (Array.isArray(reactMeta?.reactions) ? reactMeta.reactions : []);
+
   return {
     id: row.id,
     companyId: row.company_id,
@@ -913,6 +922,7 @@ const mapCrmMessageRow = (row: any): any => {
     quotedMediaType: qMediaType,
     quotedMediaUrl: qMediaUrl,
     mediaDuration: row.media_duration || row.mediaDuration || undefined,
+    reactions: reactionsList,
     createdAt: row.created_at,
   };
 };
@@ -1346,7 +1356,7 @@ ${CONTRATADA_NOME} — CONTRATADA`;
 }
 
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab, setIsMessagePopupOpen }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void, setIsMessagePopupOpen?: (open: boolean) => void }) => {
-  const { setPendingReceivablesFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
+  const { setPendingReceivablesFilter, setPendingQuitadasFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
   const [valorEmEstoque, setValorEmEstoque] = useState(0);
 
@@ -1422,6 +1432,56 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const channel = supabase.channel('dashboard-comissoes-custo').on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, loadComissoes).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
+  const [despesasFixasBaseMensal, setDespesasFixasBaseMensal] = useState<number>(() => getDespesasFixasTotalMensal());
+  useEffect(() => {
+    const handleUpdate = (e: any) => {
+      if (e?.detail?.totalMensal) {
+        setDespesasFixasBaseMensal(Number(e.detail.totalMensal) || getDespesasFixasTotalMensal());
+      } else {
+        setDespesasFixasBaseMensal(getDespesasFixasTotalMensal());
+      }
+    };
+    window.addEventListener('rpro-despesas-fixas-updated', handleUpdate);
+    return () => window.removeEventListener('rpro-despesas-fixas-updated', handleUpdate);
+  }, []);
+
+  const [totalEstimadoFuncionarios, setTotalEstimadoFuncionarios] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('rpro_equipe_total_estimado');
+      if (cached) return Number(cached) || 0;
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    const handleColabUpdate = (e: any) => {
+      if (typeof e?.detail?.totalEstimadoEquipe === 'number') {
+        setTotalEstimadoFuncionarios(e.detail.totalEstimadoEquipe);
+      }
+    };
+    window.addEventListener('rpro-colab-stats-updated', handleColabUpdate);
+
+    const loadEquipeTotal = async () => {
+      try {
+        const cached = typeof window !== 'undefined' ? localStorage.getItem('rpro_equipe_total_estimado') : null;
+        if (cached && Number(cached) > 0) {
+          setTotalEstimadoFuncionarios(Number(cached));
+          return;
+        }
+        const { data: colabs } = await supabase.from('colaboradores').select('id, salario_base, ativo').eq('ativo', true);
+        if (colabs && colabs.length > 0) {
+          const somaBase = colabs.reduce((acc: number, c: any) => acc + (Number(c.salario_base) || 0), 0);
+          setTotalEstimadoFuncionarios(somaBase);
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    loadEquipeTotal();
+
+    return () => window.removeEventListener('rpro-colab-stats-updated', handleColabUpdate);
+  }, []);
+
   const { setCurrentCompany, setPrefilledCustomer } = React.useContext(AppContext)!;
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
   const [settleMethod, setSettleMethod] = useState<'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito'>('pix');
@@ -1654,15 +1714,44 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     }, 0)
     + comissoesLancadas.filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= periodoStart && d <= periodoEnd; }).reduce((acc, c) => acc + c.valor, 0);
 
-  const netProfit = Math.max(0, totalRevenue - totalCost);
+  // Faturamento = Total emitido de todas as notas do período (misturado: quitadas, com entrada e pendentes)
+  const faturamentoTotal = filteredOrders
+    .filter(o => o.status !== 'canceled')
+    .reduce((acc, o) => acc + (o.total || 0), 0);
+
+  // Receita = Exclusivamente as notas do período 100% quitadas e recebidas (sem saldo pendente)
+  const quitadasOrders = filteredOrders.filter(o => {
+    if (o.status === 'canceled') return false;
+    const down = o.downPayment ?? o.receivedValue ?? 0;
+    const total = o.total || 0;
+    return total > 0 && (o.status === 'completed' || down >= total);
+  });
+  const receitaQuitadas = quitadasOrders.reduce((acc, o) => acc + (o.total || 0), 0);
+  const qtdQuitadas = quitadasOrders.length;
+
+  const diasNoPeriodo = Math.max(1, Math.round((periodoEnd.getTime() - periodoStart.getTime()) / (1000 * 60 * 60 * 24)));
+  const despesasFixasProporcional = (despesasFixasBaseMensal / 30) * Math.min(30, diasNoPeriodo);
+
+  // Funcionários = Soma do que os colaboradores ativos têm a receber (conforme exibido em cada card individual)
+  const custoFuncionarios = totalEstimadoFuncionarios > 0
+    ? totalEstimadoFuncionarios
+    : comissoesLancadas
+        .filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= periodoStart && d <= periodoEnd; })
+        .reduce((acc, c) => acc + c.valor, 0);
+
+  const contributionMargin = totalRevenue > 0 ? (Math.max(0, totalRevenue - totalCost) / totalRevenue) : 0.65;
+  const breakevenPoint = contributionMargin > 0 ? (despesasFixasProporcional / contributionMargin) : despesasFixasProporcional / 0.65;
+
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
-  const fixedCosts = 3800;
-  const contributionMargin = totalRevenue > 0 ? (netProfit / totalRevenue) : 0.65;
-  const breakevenPoint = contributionMargin > 0 ? (fixedCosts / contributionMargin) : fixedCosts / 0.65;
+  const roiPercent = totalCost > 0 ? Math.max(0, ((totalRevenue - totalCost) / totalCost) * 100) : 210;
+
+  // Lucro Líquido Real = Faturamento Recebido no Período - Custos de Insumos - Despesas Fixas Proporcionais
+  const netProfit = Math.max(0, totalRevenue - totalCost - despesasFixasProporcional);
+  const margemLiquidaReal = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '0';
 
   const totalSalesCount = filteredOrders.length;
   const pendingEntries = realSales.filter(o => o.status === 'pending');
-  const pendingValue = pendingEntries.reduce((acc, o) => acc + ((o.total || 0) - (o.downPayment || 0)), 0);
+  const pendingValue = pendingEntries.reduce((acc, o) => acc + Math.max(0, (o.total || 0) - (o.downPayment || 0)), 0);
 
   // Detecta tema claro/escuro (a classe fica no <body>, aplicada pelo App) — o grafico usa
   // cores fixas via SVG (fill inline), que NAO respeitam a troca automatica de classes CSS
@@ -2251,30 +2340,128 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       })()}
 
       {user?.isAdmin && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 sm:gap-4">
           {[
-            { label: 'Faturamento', val: `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Hoje/Período', color: 'emerald', action: () => setIsRevenueModalOpen(true) },
-            { label: 'Lucro Líquido', val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: `Margem: ${totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '65'}%`, color: 'emerald', action: () => setIsRevenueModalOpen(true) },
-            { label: 'Markup Médio', val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, diff: 'Faturamento/Custo', color: 'primary', action: () => setActiveTab?.('inventory') },
-            { label: 'Pto Equilíbrio', val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, diff: `${Math.min(100, Math.round((totalRevenue / breakevenPoint) * 100))}% Reatido`, color: 'purple', action: () => setIsRevenueModalOpen(true) },
-            { label: 'A Receber', val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, diff: 'Balancete Aberto', color: 'rose', action: () => { setPendingReceivablesFilter(true); setActiveTab?.('pos'); } },
+            { 
+              label: 'Faturamento', 
+              val: `R$ ${faturamentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `${filteredOrders.length} notas emitidas`, 
+              color: 'text-emerald-400', 
+              borderHover: 'hover:border-emerald-500/40',
+              glow: 'bg-emerald-500/10',
+              action: () => setIsRevenueModalOpen(true) 
+            },
+            { 
+              label: 'Receita (Quitadas)', 
+              val: `R$ ${receitaQuitadas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `${qtdQuitadas} quitadas 100%`, 
+              color: 'text-teal-300 font-black', 
+              borderHover: 'hover:border-teal-500/40',
+              glow: 'bg-teal-500/10',
+              action: () => {
+                const formatYMD = (d: Date) => {
+                  const yr = d.getFullYear();
+                  const mo = String(d.getMonth() + 1).padStart(2, '0');
+                  const da = String(d.getDate()).padStart(2, '0');
+                  return `${yr}-${mo}-${da}`;
+                };
+                setPendingReceivablesFilter(false);
+                setPendingQuitadasFilter({
+                  active: true,
+                  dateFrom: formatYMD(periodoStart),
+                  dateTo: formatYMD(periodoEnd),
+                });
+                setActiveTab?.('pos');
+              } 
+            },
+            { 
+              label: 'A Receber', 
+              val: `R$ ${pendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `${pendingEntries.length} em aberto`, 
+              color: 'text-rose-400', 
+              borderHover: 'hover:border-rose-500/40',
+              glow: 'bg-rose-500/10',
+              action: () => { setPendingReceivablesFilter(true); setActiveTab?.('pos'); } 
+            },
+            { 
+              label: 'Despesas Fixas', 
+              val: `R$ ${despesasFixasProporcional.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `Mensal: R$ ${despesasFixasBaseMensal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, 
+              color: 'text-amber-400', 
+              borderHover: 'hover:border-amber-500/40',
+              glow: 'bg-amber-500/10',
+              action: () => {
+                localStorage.setItem('rpro_financeiro_subtab', 'despesas_fixas');
+                window.dispatchEvent(new CustomEvent('rpro_switch_financeiro_subtab', { detail: { subTab: 'despesas_fixas' } }));
+                setActiveTab?.('comissoes');
+              } 
+            },
+            { 
+              label: 'Funcionários', 
+              val: `R$ ${custoFuncionarios.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: 'A Receber na Equipe', 
+              color: 'text-sky-400', 
+              borderHover: 'hover:border-sky-500/40',
+              glow: 'bg-sky-500/10',
+              action: () => {
+                localStorage.setItem('rpro_financeiro_subtab', 'funcionarios');
+                window.dispatchEvent(new CustomEvent('rpro_switch_financeiro_subtab', { detail: { subTab: 'funcionarios' } }));
+                setActiveTab?.('comissoes');
+              } 
+            },
+            { 
+              label: 'Pto Equilíbrio', 
+              val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, 
+              diff: `${Math.min(100, Math.round((totalRevenue / (breakevenPoint || 1)) * 100))}% atingido`, 
+              color: 'text-purple-400', 
+              borderHover: 'hover:border-purple-500/40',
+              glow: 'bg-purple-500/10',
+              action: () => setIsRevenueModalOpen(true) 
+            },
+            { 
+              label: 'Markup / ROI', 
+              val: `${avgMarkup.toFixed(2).replace('.', ',')}x`, 
+              diff: `+${roiPercent.toFixed(0)}% ROI`, 
+              color: 'text-primary-300', 
+              borderHover: 'hover:border-primary-500/40',
+              glow: 'bg-primary-500/10',
+              action: () => setActiveTab?.('inventory') 
+            },
+            { 
+              label: 'Lucro Líquido Real', 
+              val: `R$ ${netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              diff: `Margem: ${margemLiquidaReal}%`, 
+              color: 'text-emerald-300 font-black', 
+              borderHover: 'hover:border-emerald-400 border-emerald-500/30 bg-emerald-500/5',
+              glow: 'bg-emerald-500/20',
+              action: () => setIsRevenueModalOpen(true) 
+            },
           ].map((item, i) => (
             <GlassCard 
               key={i} 
               onClick={item.action}
-              className="p-4 border-white/5 flex flex-col justify-center transition-all cursor-pointer hover:border-primary-500/30 group relative overflow-hidden"
+              className={cn("p-3.5 sm:p-4 border-white/5 flex flex-col justify-between transition-all cursor-pointer group relative overflow-hidden", item.borderHover)}
             >
-               <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full -mr-8 -mt-8 group-hover:bg-primary-500/10 transition-all" />
-               <p className="text-[8px] font-black uppercase tracking-widest text-white/30 mb-1">{item.label}</p>
-               <div className="flex items-end justify-between">
-                  <h5 className="text-sm font-black text-white">{item.val}</h5>
-                  <span className={cn("text-[8px] font-bold", item.color === 'emerald' ? 'text-emerald-400' : 'text-primary-300')}>
+               <div className={cn("absolute top-0 right-0 w-16 h-16 rounded-full -mr-8 -mt-8 transition-all group-hover:scale-125 opacity-30 group-hover:opacity-70", item.glow)} />
+               <p className="text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider text-white/40 mb-1 leading-tight">{item.label}</p>
+               <div className="flex flex-col items-start gap-0.5 mt-auto">
+                  <h5 className="text-xs sm:text-sm font-black text-white leading-tight">{item.val}</h5>
+                  <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight", item.color)}>
                     {item.diff}
                   </span>
                </div>
             </GlassCard>
           ))}
         </div>
+      )}
+
+      {/* Termômetro de Metas Diária / Semanal / Mensal com Ponto de Equilíbrio */}
+      {user?.isAdmin && (
+        <DashboardMetasCard
+          realSales={realSales}
+          despesasFixasBaseMensal={despesasFixasBaseMensal}
+          contributionMargin={contributionMargin}
+        />
       )}
 
       <div className={cn("grid gap-8", user?.isAdmin ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
@@ -4767,12 +4954,14 @@ export const ChatPanel = ({
       }
     }
   };
-  // Ao trocar de conversa (ou sair), descarta as prévias pendentes.
+  // Ao trocar de conversa REAL (ou sair), descarta as prévias pendentes apenas se mudou de contato
+  const prevConversationIdRef = useRef<string | undefined>(conversation?.id);
   useEffect(() => {
-    return () => {
+    if (prevConversationIdRef.current && conversation?.id && prevConversationIdRef.current !== conversation.id) {
       pendingImagesRef.current.forEach(p => URL.revokeObjectURL(p.previewUrl));
       setPendingImages([]);
-    };
+    }
+    prevConversationIdRef.current = conversation?.id;
   }, [conversation?.id]);
 
   const handleDropFiles = (files: FileList | null | undefined) => {
@@ -4809,6 +4998,60 @@ export const ChatPanel = ({
     setTimeout(() => {
       chatInputRef.current?.focus();
     }, 50);
+  };
+
+  // Auto-crescimento dinâmico do campo de mensagem estilo WhatsApp:
+  // Expande de forma suave de 1 até 8 linhas (~176px) conforme o texto é digitado, ativando rolagem apenas após a 8ª linha
+  useEffect(() => {
+    const el = chatInputRef.current;
+    if (!el) return;
+    if (!newMessage) {
+      el.style.height = '34px';
+      el.style.overflowY = 'hidden';
+      return;
+    }
+    el.style.height = '0px';
+    const scrollH = el.scrollHeight;
+    const maxHeight = 176; // ~8 linhas
+    const finalH = Math.max(34, Math.min(scrollH, maxHeight));
+    el.style.height = `${finalH}px`;
+    el.style.overflowY = scrollH > maxHeight ? 'auto' : 'hidden';
+  }, [newMessage, conversation?.id]);
+
+  // Reações nas mensagens estilo WhatsApp (envia para Evolution API e grava no banco)
+  const handleReactMessage = async (m: any, emoji: string) => {
+    if (!m?.id) return;
+    const quem = user?.name ? `${user.name} (${user.isAdmin ? 'Adm' : 'Atendente'})` : (user?.isAdmin ? 'Adm' : 'Atendente');
+    const prevReactions = m.reactions || [];
+
+    // Atualização otimista imediata na interface
+    setMessages(prev => prev.map(msg => {
+      if (msg.id !== m.id) return msg;
+      const list = [...(msg.reactions || [])];
+      const idx = list.findIndex((r: any) => r.fromMe === true);
+      if (!emoji) {
+        if (idx >= 0) list.splice(idx, 1);
+      } else {
+        const item = { emoji, sender: quem, fromMe: true, at: new Date().toISOString() };
+        if (idx >= 0) list[idx] = item;
+        else list.push(item);
+      }
+      return { ...msg, reactions: list };
+    }));
+
+    try {
+      const resp = await fetch('/api/whatsapp-reaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({ messageId: m.id, reaction: emoji, senderName: quem }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        console.warn('Aviso ao reagir à mensagem:', data?.error);
+      }
+    } catch (err) {
+      console.error('Erro ao enviar reação no WhatsApp:', err);
+    }
   };
 
   // 4. Figurinhas do WhatsApp (Favoritas, Histórico de uso, Coleção do sistema)
@@ -5205,9 +5448,13 @@ export const ChatPanel = ({
 
   useEffect(() => {
     if (pendingReceiptAttachment) {
-      setPendingImages(prev => [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, file: pendingReceiptAttachment.file, previewUrl: pendingReceiptAttachment.previewUrl }]);
-      if (pendingReceiptAttachment.caption) {
-        setNewMessage(pendingReceiptAttachment.caption);
+      const att = pendingReceiptAttachment;
+      setPendingImages(prev => {
+        if (prev.some(p => p.file.name === att.file.name)) return prev;
+        return [...prev, { id: `receipt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, file: att.file, previewUrl: att.previewUrl }];
+      });
+      if (att.caption) {
+        setNewMessage(att.caption);
       }
       setPendingReceiptAttachment(null);
     }
@@ -7369,6 +7616,8 @@ export const ChatPanel = ({
                              isStickerSaved={isStickerSalva(m.mediaUrl)}
                              onSaveSticker={() => handleSaveStickerFromMessage(m)}
                              onForward={!isApagada ? () => setForwardingMessage(m) : undefined}
+                             onReact={!isApagada ? (emoji) => handleReactMessage(m, emoji) : undefined}
+                             userReaction={m.reactions?.find((r: any) => r.fromMe === true)?.emoji}
                              isDeleting={deletingWaMessageId === m.id}
                            />
                            <div
@@ -7379,7 +7628,7 @@ export const ChatPanel = ({
                                }
                              }}
                              className={cn(
-                             "max-w-[92%] sm:max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow cursor-default select-text break-words",
+                             "max-w-[92%] sm:max-w-[85%] rounded-2xl text-xs text-slate-800 leading-relaxed transition-shadow cursor-default select-text break-words relative",
                              highlightedMessageId && String(highlightedMessageId) === String(m.id) && "ring-2 ring-amber-400 shadow-lg shadow-amber-400/40 animate-pulse",
                              isSticker && !isApagada
                                ? "p-0"
@@ -7614,6 +7863,31 @@ export const ChatPanel = ({
                                   initialDuration={m.mediaDuration}
                                 />
                               ) : <span className="whitespace-pre-wrap break-words select-text">{m.text}</span>}
+                              {/* Distintivo de Reações (Badge estilo WhatsApp) */}
+                              {!isApagada && Array.isArray(m.reactions) && m.reactions.length > 0 && (() => {
+                                const emojisUnicos = Array.from(new Set(m.reactions.map((r: any) => r.emoji))).filter(Boolean);
+                                const total = m.reactions.length;
+                                const minhaReacao = m.reactions.find((r: any) => r.fromMe === true);
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (minhaReacao) {
+                                        handleReactMessage(m, '');
+                                      }
+                                    }}
+                                    title={m.reactions.map((r: any) => `${r.sender}: ${r.emoji}`).join('\n') + (minhaReacao ? ' (Clique para remover sua reação)' : '')}
+                                    className={cn(
+                                      "absolute -bottom-2.5 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full shadow-md border text-[11px] font-semibold cursor-pointer active:scale-90 transition-transform select-none bg-slate-900/95 border-white/20 text-white",
+                                      isOutgoing ? "right-2" : "left-2"
+                                    )}
+                                  >
+                                    <span className="leading-none">{emojisUnicos.join('')}</span>
+                                    {total > 1 && <span className="text-[9px] font-bold text-white/70 leading-none">{total}</span>}
+                                  </button>
+                                );
+                              })()}
                            </div>
                            <div className={cn("text-[9px] font-bold flex items-center gap-1.5 mt-1 flex-nowrap whitespace-nowrap", isOutgoing ? "justify-end mr-1" : "justify-start ml-1")}>
                              <span className="text-white/40 shrink-0">{timeStr}</span>
@@ -7949,6 +8223,7 @@ export const ChatPanel = ({
                   {/* [Msgs Rápidas] — Ação Rápida com / */}
                   <div className="relative shrink-0">
                     <button
+                      ref={quickRepliesBtnRef}
                       type="button"
                       onClick={() => handleToggleQuickReplies(quickRepliesBtnRef.current)}
                       className={cn(
@@ -8208,20 +8483,6 @@ export const ChatPanel = ({
                       >
                         <Smile size={16} />
                       </button>
-                      <button
-                        ref={quickRepliesBtnRef}
-                        type="button"
-                        title="Mensagens Rápidas e Respostas Prontas (Atalho /)"
-                        onClick={() => handleToggleQuickReplies(quickRepliesBtnRef.current)}
-                        className={cn(
-                          "w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 cursor-pointer",
-                          showQuickReplies 
-                            ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-400/50 shadow-xs" 
-                            : "text-white/50 hover:text-amber-300 hover:bg-white/10"
-                        )}
-                      >
-                        <span className="font-mono text-xs font-black px-1.5 py-0.5 rounded bg-white/10 border border-white/15 text-white/90">/</span>
-                      </button>
                     </div>
 
                     {/* [Digite sua mensagem...] */}
@@ -8250,7 +8511,8 @@ export const ChatPanel = ({
                         }
                       }}
                       placeholder={pendingImages.length > 0 ? "Adicione uma legenda... (opcional)" : "Digite sua mensagem... (/ para respostas rápidas)"}
-                      className="flex-1 bg-transparent border-none outline-none text-xs text-white font-medium p-1.5 sm:p-2 resize-none max-h-24 min-h-[34px] custom-scrollbar focus:ring-0 placeholder:text-white/35 leading-relaxed"
+                      className="flex-1 bg-transparent border-none outline-none text-xs text-white font-medium p-1.5 sm:p-2 resize-none max-h-[176px] min-h-[34px] custom-scrollbar focus:ring-0 placeholder:text-white/35 leading-relaxed transition-[height] duration-75"
+                      style={{ height: '34px' }}
                       rows={1}
                     />
 
@@ -13257,7 +13519,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -16109,6 +16371,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setPendingReceivablesFilter(false);
   }, [pendingReceivablesFilter]);
 
+  // Se o card "Receita (Quitadas)" do Dashboard pediu pra ver as notas quitadas no período
+  useEffect(() => {
+    if (!pendingQuitadasFilter || !pendingQuitadasFilter.active) return;
+    setHistoryClienteIdFilter(null);
+    setHistorySearch('');
+    setSelectedOrderStatusFilters(new Set(['quitado']));
+    if (pendingQuitadasFilter.dateFrom) setHistoryDateFrom(pendingQuitadasFilter.dateFrom);
+    if (pendingQuitadasFilter.dateTo) setHistoryDateTo(pendingQuitadasFilter.dateTo);
+    setActiveTab('historico');
+    setPendingQuitadasFilter(null);
+  }, [pendingQuitadasFilter]);
+
   // Se a Analise Detalhada do Dashboard (ou outro atalho generico) pediu pra ir pro Historico, sem filtro nenhum
   useEffect(() => {
     if (!pendingGoToHistorico) return;
@@ -16261,7 +16535,35 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const isPending = balance > 0 || order.status === 'pending';
     const itemsText = order.items.map(i => `• ${i.quantity}x ${i.name} (R$ ${((i.area ? i.price * i.area : i.price) * i.quantity).toFixed(2).replace('.', ',')})`).join('\n');
     const deliveryStr = order.scheduledFor ? `\n📅 *Previsão de Entrega:* ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}` : '';
-    return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total do Pedido:* R$ ${total.toFixed(2).replace('.', ',')}\n✅ *Valor Recebido (Entrada):* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
+
+    // Detalhamento dos pagamentos (parcelas, cartão e valores)
+    let pagamentosTexto = '';
+    if (order.payments && order.payments.length > 0) {
+      const linhasPag = order.payments.map((p: any) => {
+        const m = (p.method || '').toLowerCase();
+        let nomeMetodo = 'PIX';
+        if (m.includes('credito') || m === 'credit') nomeMetodo = 'Cartão de Crédito';
+        else if (m.includes('debito') || m === 'debit') nomeMetodo = 'Cartão de Débito';
+        else if (m.includes('dinheiro') || m === 'cash') nomeMetodo = 'Dinheiro';
+        else if (m.includes('boleto')) nomeMetodo = 'Boleto';
+        else if (m.includes('transferencia')) nomeMetodo = 'Transferência';
+        else if (m.includes('pix')) nomeMetodo = 'PIX';
+        else if (p.method) nomeMetodo = p.method;
+
+        const parcels = Number(p.installments) > 1 ? Number(p.installments) : (Number(p.installmentsCount) > 1 ? Number(p.installmentsCount) : 1);
+        const valorTotal = Number(p.value) || 0;
+        if (parcels > 1) {
+          const valorParc = valorTotal / parcels;
+          return `💳 *${nomeMetodo}:* ${parcels}x de R$ ${valorParc.toFixed(2).replace('.', ',')} (Total: R$ ${valorTotal.toFixed(2).replace('.', ',')})`;
+        }
+        return `💵 *${nomeMetodo}:* R$ ${valorTotal.toFixed(2).replace('.', ',')}`;
+      }).join('\n');
+      pagamentosTexto = `\n${linhasPag}`;
+    }
+
+    const acrescimoCartao = down > total ? `\n📈 *Acréscimo Cartão (Taxa):* +R$ ${(down - total).toFixed(2).replace('.', ',')}` : '';
+
+    return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total dos Itens:* R$ ${total.toFixed(2).replace('.', ',')}${acrescimoCartao}${pagamentosTexto}\n✅ *Total Pago/Recebido:* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
   };
 
   const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
@@ -16334,6 +16636,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         const file = new File([blob], `Recibo-${sale.id.slice(-8).toUpperCase()}.png`, { type: 'image/png' });
         const previewUrl = URL.createObjectURL(blob);
         setPendingReceiptAttachment({ file, previewUrl, caption: legenda, phone: cleanPhone });
+        // Tenta copiar a imagem para a área de transferência (permite colar com Ctrl+V no WhatsApp Web se desejar)
+        try {
+          if (navigator.clipboard && typeof (window as any).ClipboardItem !== 'undefined') {
+            navigator.clipboard.write([new (window as any).ClipboardItem({ 'image/png': blob })]).catch(() => {});
+          }
+        } catch (_) {}
       }
 
       // Se marcou para salvar este número na ficha do cliente no banco
@@ -23537,8 +23845,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                        <tbody>${itemsList}</tbody>
                      </table>
                      <div class="totals">
-                       <div class="row"><span>TOTAL:</span> <span class="bold">R$ ${total.toFixed(2).replace('.', ',')}</span></div>
-                       <div class="row"><span>ENTRADA RECEBIDA:</span> <span class="bold">R$ ${down.toFixed(2).replace('.', ',')}</span></div>
+                       <div class="row"><span>TOTAL ITENS:</span> <span class="bold">R$ ${total.toFixed(2).replace('.', ',')}</span></div>
+                       ${down > total ? `<div class="row" style="color:#b45309;"><span>ACRÉSCIMO TAXA CARTÃO:</span> <span class="bold">+R$ ${(down - total).toFixed(2).replace('.', ',')}</span></div>` : ''}
+                       ${(order.payments || []).map((p: any) => {
+                         const m = (p.method || '').toLowerCase();
+                         let nomeMetodo = 'PIX';
+                         if (m.includes('credito') || m === 'credit') nomeMetodo = 'Cartão de Crédito';
+                         else if (m.includes('debito') || m === 'debit') nomeMetodo = 'Cartão de Débito';
+                         else if (m.includes('dinheiro') || m === 'cash') nomeMetodo = 'Dinheiro';
+                         else if (m.includes('boleto')) nomeMetodo = 'Boleto';
+                         else if (m.includes('transferencia')) nomeMetodo = 'Transferência';
+                         else if (m.includes('pix')) nomeMetodo = 'PIX';
+                         else if (p.method) nomeMetodo = p.method;
+                         const parcels = Number(p.installments) > 1 ? Number(p.installments) : (Number(p.installmentsCount) > 1 ? Number(p.installmentsCount) : 1);
+                         const desc = parcels > 1 ? `${nomeMetodo} ${parcels}x de R$ ${(p.value / parcels).toFixed(2).replace('.', ',')}` : nomeMetodo;
+                         return `<div class="row" style="font-size:11px;color:#333;"><span>FORMA:</span> <span>${desc} (R$ ${Number(p.value).toFixed(2).replace('.', ',')})</span></div>`;
+                       }).join('')}
+                       <div class="row"><span>TOTAL PAGO / ENTRADA:</span> <span class="bold">R$ ${down.toFixed(2).replace('.', ',')}</span></div>
                        ${balance > 0 ? `<div class="row" style="color:#c00;"><span>FALTA PAGAR:</span> <span class="bold">R$ ${balance.toFixed(2).replace('.', ',')}</span></div>` : '<div class="row"><span>SITUAÇÃO:</span> <span class="bold">QUITADO</span></div>'}
                      </div>
                      <div class="footer">

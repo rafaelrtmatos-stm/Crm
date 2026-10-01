@@ -540,6 +540,47 @@ async function registrarEdicaoMensagem(whatsappMessageId, textoNovo, editadoPor)
   }
 }
 
+// Reação enviada pelo cliente no WhatsApp (ou por nós pelo celular/CRM):
+// salva a reação na lista dentro de crm_messages.versions (tipo: 'reactions')
+async function registrarReacaoMensagem(whatsappMessageId, emoji, quemReagiu, ehMinha) {
+  try {
+    const buscaResp = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(whatsappMessageId)}&select=id,versions`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    const linhas = await buscaResp.json().catch(() => []);
+    const msg = Array.isArray(linhas) ? linhas[0] : null;
+    if (!msg) return;
+
+    const versoesAtuais = Array.isArray(msg.versions) ? [...msg.versions] : [];
+    let reacoesObj = versoesAtuais.find(v => v && v.type === 'reactions');
+    if (!reacoesObj) {
+      reacoesObj = { type: 'reactions', list: [] };
+      versoesAtuais.push(reacoesObj);
+    }
+    const lista = Array.isArray(reacoesObj.list) ? [...reacoesObj.list] : [];
+    const indexExistente = lista.findIndex(r => r.fromMe === ehMinha && (ehMinha || r.sender === quemReagiu));
+
+    const emojiReaction = typeof emoji === 'string' ? emoji.trim() : '';
+    if (!emojiReaction) {
+      if (indexExistente >= 0) lista.splice(indexExistente, 1);
+    } else {
+      const novaReacao = { emoji: emojiReaction, sender: quemReagiu, fromMe: ehMinha, at: new Date().toISOString() };
+      if (indexExistente >= 0) lista[indexExistente] = novaReacao;
+      else lista.push(novaReacao);
+    }
+    reacoesObj.list = lista;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/crm_messages?id=eq.${encodeURIComponent(msg.id)}`, {
+      method: 'PATCH',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ versions: versoesAtuais }),
+    });
+  } catch (err) {
+    console.error('[CRM WEBHOOK] falha ao registrar reação da mensagem:', err);
+  }
+}
+
 async function atualizarStatusConexao(status) {
   // Guarda o status da conexao (connecting | open | close) pro IntegracoesModule.tsx
   // conseguir ler e mostrar "Conectado"/"Desconectado" sem precisar perguntar direto
@@ -607,9 +648,18 @@ export default async function handler(req, res) {
       const mensagens = Array.isArray(body.data) ? body.data : [body.data].filter(Boolean);
 
       for (const msg of mensagens) {
-        // Reacoes (👍, ❤️ etc.) chegam como um MESSAGES_UPSERT proprio, sem conteudo de
-        // texto real — nao sao mensagem nova, entao nao devem virar linha no chat.
-        if (msg?.message?.reactionMessage) continue;
+        // Reações (👍, ❤️ etc.): chegam como MESSAGES_UPSERT com reactionMessage apontando
+        // via key.id para a mensagem alvo. Registra no versions da mensagem original.
+        if (msg?.message?.reactionMessage) {
+          const rm = msg.message.reactionMessage;
+          const targetId = rm?.key?.id;
+          const emoji = rm?.text || '';
+          const quem = msg?.key?.fromMe ? 'Você' : (msg?.pushName || 'Cliente');
+          if (targetId) {
+            waitUntil(registrarReacaoMensagem(targetId, emoji, quem, !!msg?.key?.fromMe));
+          }
+          continue;
+        }
 
         // Mensagem apagada (REVOKE): chega como um MESSAGES_UPSERT proprio, sem texto novo --
         // so um protocolMessage apontando (via key.id) pra mensagem original que sumiu do

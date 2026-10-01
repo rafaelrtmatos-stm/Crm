@@ -156,7 +156,8 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-white/80">
-                    Sua Produção: <strong className="font-mono text-white">{formatCurrency(totalProduction)}</strong>
+                    {modalidadeRemuneracao === 'meta' ? 'Receita da Loja (Quitadas):' : 'Sua Produção:'}{' '}
+                    <strong className="font-mono text-white">{formatCurrency(totalProduction)}</strong>
                   </span>
                   <span className="text-amber-300 font-bold">
                     Faltam: <strong className="font-mono text-amber-200">{formatCurrency(infoMeta.quantoFalta)}</strong>
@@ -173,7 +174,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
                 <div className="text-[11px] text-white/85 flex items-center justify-between pt-0.5 leading-tight">
                   <span>
-                    Próxima: <strong>{infoMeta.proximaFaixa.nome || 'Faixa Seguinte'}</strong> ({formatCurrency(infoMeta.proximaFaixa.valorProducao)})
+                    Próximo Degrau Loja: <strong>{infoMeta.proximaFaixa.nome || 'Faixa Seguinte'}</strong> ({formatCurrency(infoMeta.proximaFaixa.valorProducao)})
                   </span>
                   <span className="text-emerald-300 font-black">
                     Recebe: {formatCurrency(infoMeta.proximaFaixa.valorReceber)}

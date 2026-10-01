@@ -30,6 +30,10 @@ import {
   StatusDia,
   PontoRegistro,
   PontoJornada,
+  minutosTrabalhados,
+  minutosPrevistos,
+  inicioDaSemana,
+  somarDias,
 } from '../../lib/pontoCalc';
 import { FuncionarioItem } from './PontoFuncionarios';
 
@@ -97,16 +101,86 @@ export function PontoPerfil({
     diasDoMes.push(`${mesSelecionado}-${diaFmt}`);
   }
 
+  // Grade Semanal Cadastrada do Funcionário
+  const DIAS_GRADE = [
+    { dow: 1, nome: 'Segunda-feira', curto: 'Seg' },
+    { dow: 2, nome: 'Terça-feira', curto: 'Ter' },
+    { dow: 3, nome: 'Quarta-feira', curto: 'Qua' },
+    { dow: 4, nome: 'Quinta-feira', curto: 'Qui' },
+    { dow: 5, nome: 'Sexta-feira', curto: 'Sex' },
+    { dow: 6, nome: 'Sábado', curto: 'Sáb' },
+    { dow: 0, nome: 'Domingo', curto: 'Dom' },
+  ];
+
+  const gradeSemanal = DIAS_GRADE.map((d) => {
+    const cand = jornadas
+      .filter((x) => x.dia_semana === d.dow)
+      .sort((a, b) => b.vigente_desde.localeCompare(a.vigente_desde));
+    const j = cand[0];
+    const trabalha = j !== undefined ? j.trabalha : d.dow !== 0;
+    const entrada = j?.entrada?.slice(0, 5) || (trabalha ? '08:00' : '—');
+    const inicio_intervalo = j?.inicio_intervalo?.slice(0, 5) || (trabalha ? '12:00' : '—');
+    const fim_intervalo = j?.fim_intervalo?.slice(0, 5) || (trabalha ? '13:00' : '—');
+    const saida = j?.saida?.slice(0, 5) || (trabalha ? '17:00' : '—');
+    const minDia = trabalha ? minutosTrabalhados({
+      entrada: entrada !== '—' ? `${entrada}:00` : null,
+      inicio_intervalo: inicio_intervalo !== '—' ? `${inicio_intervalo}:00` : null,
+      fim_intervalo: fim_intervalo !== '—' ? `${fim_intervalo}:00` : null,
+      saida: saida !== '—' ? `${saida}:00` : null,
+    }) : 0;
+
+    return {
+      ...d,
+      trabalha,
+      entrada,
+      inicio_intervalo,
+      fim_intervalo,
+      saida,
+      minDia,
+    };
+  });
+
+  // Carga diária prevista para hoje
+  const horasPrevistasHoje = jornadaHoje && jornadaHoje.trabalha ? minutosPrevistos(jornadaHoje) : 0;
+
+  // Carga semanal prevista
+  const horasSemanaisPrevistas = gradeSemanal.reduce((acc, d) => acc + d.minDia, 0) || (44 * 60);
+  const diasTrabalhadosGradeCount = gradeSemanal.filter((d) => d.trabalha).length;
+
+  const diasTrabalhoTexto = diasTrabalhadosGradeCount === 6
+    ? 'Segunda a Sábado (6x1)'
+    : diasTrabalhadosGradeCount === 5
+    ? 'Segunda a Sexta (5x2)'
+    : `${gradeSemanal.filter(d => d.trabalha).map(d => d.curto).join(', ')} (${diasTrabalhadosGradeCount} dias/sem)`;
+
+  // Horas trabalhadas na semana atual (Segunda até Domingo da semana de hoje)
+  const iniSemana = inicioDaSemana(hoje);
+  let horasSemanaTrabalhadas = 0;
+  for (let i = 0; i < 7; i++) {
+    const dStr = somarDias(iniSemana, i);
+    if (dStr <= hoje) {
+      const r = regMap.get(`${func.id}|${dStr}`);
+      if (r) horasSemanaTrabalhadas += minutosTrabalhados(r);
+    }
+  }
+
   // Estatísticas do Mês
   let minMes = 0;
   let diasTrabalhados = 0;
   let atrasos = 0;
   let faltas = 0;
+  let horasMesPrevistas = 0;
+  let horasMesPrevistasAteHoje = 0;
 
   diasDoMes.forEach((d) => {
+    const j = jornadaDoDia(jornadas, d);
+    const prevDia = j && j.trabalha ? minutosPrevistos(j) : 0;
+    horasMesPrevistas += prevDia;
+
     if (d <= hoje) {
+      horasMesPrevistasAteHoje += prevDia;
       const r = regMap.get(`${func.id}|${d}`) || null;
-      const a = analisarDia(r, jornadaDoDia(jornadas, d), d, hoje, func.tolerancia_minutos, agoraMin);
+      const a = analisarDia(r, j, d, hoje, func.tolerancia_minutos, agoraMin);
       minMes += a.trabalhados;
       if (a.trabalhados > 0) diasTrabalhados++;
       if (a.status === 'atrasado') atrasos++;
@@ -114,8 +188,19 @@ export function PontoPerfil({
     }
   });
 
-  // Frequência percentual (base 22 dias úteis)
-  const frequenciaPct = Math.min(100, Math.round((diasTrabalhados / 22) * 100));
+  if (horasMesPrevistas === 0) {
+    horasMesPrevistas = Math.round(horasSemanaisPrevistas * 4.3333);
+  }
+
+  // Saldo no mês (real trabalhado até hoje vs previsto até hoje)
+  const saldoMesMinutos = minMes - horasMesPrevistasAteHoje;
+
+  // Frequência percentual (base dias úteis cadastrados no mês)
+  const diasUteisNoMes = diasDoMes.filter(d => {
+    const j = jornadaDoDia(jornadas, d);
+    return j ? j.trabalha : new Date(`${d}T12:00:00`).getDay() !== 0;
+  }).length || 22;
+  const frequenciaPct = Math.min(100, Math.round((diasTrabalhados / diasUteisNoMes) * 100));
 
   const hhmm = (v?: string | null) => (v ? v.slice(0, 5) : '—');
   const admissao = colab && (colab as any).created_at
@@ -253,32 +338,73 @@ export function PontoPerfil({
           </div>
         </div>
 
-        {/* 4 Cards de Indicadores (KPIs do Perfil Compactos) */}
+        {/* 4 Cards de Indicadores (Diária, Semanal, Mensal e Saldo/Banco) */}
         <div className="xl:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-          {/* Horas hoje */}
+          {/* Carga Diária (Hoje) */}
           <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-2 border border-emerald-500/30 shrink-0">
-              <Clock size={16} />
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+                <Clock size={16} />
+              </div>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/10 text-white/70">
+                {horasPrevistasHoje > 0 ? 'Meta ' + fmtHM(horasPrevistasHoje) : 'Folga'}
+              </span>
             </div>
             <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">
               {fmtHM(analiseHoje.trabalhados)}
             </p>
-            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Horas hoje</p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">
+              Diária (Hoje)
+            </p>
           </div>
 
-          {/* Horas no mês */}
+          {/* Carga Semanal */}
           <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center mb-2 border border-sky-500/30 shrink-0">
-              <Calendar size={16} />
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center border border-sky-500/30 shrink-0">
+                <Calendar size={16} />
+              </div>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                Meta {fmtHM(horasSemanaisPrevistas)}
+              </span>
             </div>
-            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">{fmtHM(minMes)}</p>
-            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Horas no mês</p>
+            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">
+              {fmtHM(horasSemanaTrabalhadas)}
+            </p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">
+              Semana atual
+            </p>
           </div>
 
-          {/* Banco de horas */}
+          {/* Carga no Mês */}
           <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center mb-2 border border-purple-500/30 shrink-0">
-              <Scale size={16} />
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center border border-teal-500/30 shrink-0">
+                <Percent size={16} />
+              </div>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                Meta {fmtHM(horasMesPrevistas)}
+              </span>
+            </div>
+            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">
+              {fmtHM(minMes)}
+            </p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">
+              Mês ({frequenciaPct}% freq.)
+            </p>
+          </div>
+
+          {/* Banco de horas / Saldo */}
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30 shrink-0">
+                <Scale size={16} />
+              </div>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                saldoMesMinutos >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+              }`}>
+                {saldoMesMinutos >= 0 ? '+' : '-'}{fmtHM(Math.abs(saldoMesMinutos))} mês
+              </span>
             </div>
             <p
               className={`text-base sm:text-lg lg:text-xl font-black leading-tight truncate whitespace-nowrap ${
@@ -288,16 +414,9 @@ export function PontoPerfil({
               {saldoBancoMinutos >= 0 ? '+ ' : '- '}
               {fmtHM(Math.abs(saldoBancoMinutos))}
             </p>
-            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Banco de horas</p>
-          </div>
-
-          {/* Frequência (mês) */}
-          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-3 sm:p-3.5 border border-white/10 shadow-xl flex flex-col justify-center min-w-0 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center mb-2 border border-teal-500/30 shrink-0">
-              <Percent size={16} />
-            </div>
-            <p className="text-base sm:text-lg lg:text-xl font-black text-white leading-tight truncate whitespace-nowrap">{frequenciaPct}%</p>
-            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">Frequência (mês)</p>
+            <p className="text-[10.5px] font-semibold text-white/40 mt-0.5 truncate whitespace-nowrap">
+              Banco acumulado
+            </p>
           </div>
         </div>
       </div>
@@ -433,21 +552,24 @@ export function PontoPerfil({
               </div>
             </div>
 
-            {/* Jornada de Trabalho */}
+            {/* Jornada de Trabalho Dinâmica */}
             <div className="lg:col-span-2 bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-black text-white">Jornada de Trabalho</h3>
+                  <div>
+                    <h3 className="text-sm font-black text-white">Jornada de Trabalho</h3>
+                    <p className="text-[11px] text-white/40">Escala e carga horária contratada</p>
+                  </div>
                   <button
                     onClick={onEditarJornada}
-                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20"
                   >
-                    <Pencil size={12} /> Editar
+                    <Pencil size={12} /> Editar Grade
                   </button>
                 </div>
 
-                <div className="space-y-3 text-xs">
-                  <div className="flex items-center justify-between py-2 border-b border-white/10">
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                     <span className="text-white/60 font-medium flex items-center gap-2">
                       <Clock size={14} className="text-white/40" /> Horário de entrada
                     </span>
@@ -456,7 +578,7 @@ export function PontoPerfil({
                     </b>
                   </div>
 
-                  <div className="flex items-center justify-between py-2 border-b border-white/10">
+                  <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                     <span className="text-white/60 font-medium flex items-center gap-2">
                       <Clock size={14} className="text-white/40" /> Horário de saída
                     </span>
@@ -465,7 +587,7 @@ export function PontoPerfil({
                     </b>
                   </div>
 
-                  <div className="flex items-center justify-between py-2 border-b border-white/10">
+                  <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                     <span className="text-white/60 font-medium flex items-center gap-2">
                       <Coffee size={14} className="text-white/40" /> Intervalo
                     </span>
@@ -475,18 +597,38 @@ export function PontoPerfil({
                     </b>
                   </div>
 
-                  <div className="flex items-center justify-between py-2 border-b border-white/10">
+                  <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                     <span className="text-white/60 font-medium flex items-center gap-2">
-                      <Calendar size={14} className="text-white/40" /> Dias de trabalho
+                      <Calendar size={14} className="text-white/40" /> Escala / Dias
                     </span>
-                    <b className="text-white">Segunda a Sábado</b>
+                    <b className="text-white font-semibold">{diasTrabalhoTexto}</b>
                   </div>
 
-                  <div className="flex items-center justify-between py-2">
+                  <div className="flex items-center justify-between py-1.5 border-b border-white/10">
                     <span className="text-white/60 font-medium flex items-center gap-2">
-                      <FileText size={14} className="text-white/40" /> Carga horária diária
+                      <FileText size={14} className="text-emerald-400" /> Carga diária hoje
                     </span>
-                    <b className="text-white">8 horas</b>
+                    <b className="text-emerald-400 font-bold font-mono">
+                      {horasPrevistasHoje > 0 ? fmtHM(horasPrevistasHoje) : 'Folga'}
+                    </b>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-white/10">
+                    <span className="text-white/60 font-medium flex items-center gap-2">
+                      <Calendar size={14} className="text-sky-400" /> Carga semanal
+                    </span>
+                    <b className="text-sky-300 font-bold font-mono">
+                      {fmtHM(horasSemanaisPrevistas)} / semana
+                    </b>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5">
+                    <span className="text-white/60 font-medium flex items-center gap-2">
+                      <Scale size={14} className="text-purple-400" /> Carga mensal estimada
+                    </span>
+                    <b className="text-purple-300 font-bold font-mono">
+                      ~{fmtHM(horasMesPrevistas)} / mês
+                    </b>
                   </div>
                 </div>
               </div>
@@ -915,20 +1057,147 @@ export function PontoPerfil({
 
       {/* CONTEÚDO DA ABA: JORNADA */}
       {abaAtiva === 'jornada' && (
-        <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-xl space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div>
-              <h3 className="text-sm font-black text-white">Jornada Semanal Cadastrada</h3>
-              <p className="text-xs text-white/50">
-                Horários de trabalho programados para cada dia da semana
+              <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Clock className="text-emerald-400" size={18} />
+                Jornada Semanal & Carga Horária Cadastrada
+              </h3>
+              <p className="text-xs text-white/50 mt-0.5">
+                Escala de trabalho, horários contratuais e metas diárias, semanais e mensais
               </p>
             </div>
             <button
               onClick={onEditarJornada}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer shrink-0"
             >
-              <Pencil size={13} /> Editar Grade Semanal
+              <Pencil size={14} /> Editar Grade Semanal
             </button>
+          </div>
+
+          {/* Cards de Totais: Diária, Semanal e Mensal */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-white/10 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+                  Carga Diária Hoje
+                </span>
+                <p className="text-xl font-black text-white mt-0.5">
+                  {horasPrevistasHoje > 0 ? fmtHM(horasPrevistasHoje) : 'Folga hoje'}
+                </p>
+                <span className="text-[10px] text-white/40 block mt-0.5">
+                  {jornadaHoje?.entrada ? `${hhmm(jornadaHoje.entrada)} às ${hhmm(jornadaHoje.saida)}` : 'Sem expediente hoje'}
+                </span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                <Clock size={20} />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-white/10 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400 block">
+                  Carga Semanal Total
+                </span>
+                <p className="text-xl font-black text-white mt-0.5">
+                  {fmtHM(horasSemanaisPrevistas)}
+                </p>
+                <span className="text-[10px] text-white/40 block mt-0.5">
+                  {diasTrabalhadosGradeCount} dias de trabalho por semana
+                </span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center border border-sky-500/30">
+                <Calendar size={20} />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-white/10 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 block">
+                  Carga Mensal Estimada
+                </span>
+                <p className="text-xl font-black text-white mt-0.5">
+                  ~{fmtHM(horasMesPrevistas)}
+                </p>
+                <span className="text-[10px] text-white/40 block mt-0.5">
+                  Base CLT ({diasUteisNoMes} dias úteis no mês)
+                </span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
+                <Scale size={20} />
+              </div>
+            </div>
+          </div>
+
+          {/* Tabela da Grade dos 7 Dias da Semana */}
+          <div className="border border-white/10 rounded-xl overflow-hidden bg-slate-950/60">
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="bg-white/5 border-b border-white/10 text-white/50 text-[10px] uppercase font-bold tracking-wider">
+                    <th className="p-3">Dia da Semana</th>
+                    <th className="p-3 text-center">Status</th>
+                    <th className="p-3">Entrada</th>
+                    <th className="p-3">Início Intervalo</th>
+                    <th className="p-3">Fim Intervalo</th>
+                    <th className="p-3">Saída</th>
+                    <th className="p-3 text-right">Carga Diária</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {gradeSemanal.map((dia) => (
+                    <tr 
+                      key={dia.dow} 
+                      className={`hover:bg-white/5 transition-colors ${
+                        dia.dow === new Date(`${hoje}T12:00:00`).getDay() ? 'bg-primary-500/10' : ''
+                      }`}
+                    >
+                      <td className="p-3 font-bold text-white flex items-center gap-2">
+                        <span>{dia.nome}</span>
+                        {dia.dow === new Date(`${hoje}T12:00:00`).getDay() && (
+                          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-primary-500/20 text-primary-300 border border-primary-500/30">
+                            Hoje
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-center">
+                        {dia.trabalha ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Trabalha
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-white/50 border border-white/10">
+                            Folga
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono text-white/80">{dia.trabalha ? dia.entrada : '—'}</td>
+                      <td className="p-3 font-mono text-white/80">{dia.trabalha ? dia.inicio_intervalo : '—'}</td>
+                      <td className="p-3 font-mono text-white/80">{dia.trabalha ? dia.fim_intervalo : '—'}</td>
+                      <td className="p-3 font-mono text-white/80">{dia.trabalha ? dia.saida : '—'}</td>
+                      <td className="p-3 text-right font-mono font-bold">
+                        {dia.trabalha ? (
+                          <span className="text-emerald-400">{fmtHM(dia.minDia)}</span>
+                        ) : (
+                          <span className="text-white/30 font-normal">0h 00m</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-white/5 border-t border-white/10 font-bold text-xs">
+                    <td colSpan={6} className="p-3 text-white uppercase text-[11px] tracking-wider">
+                      Total da Carga Horária Semanal:
+                    </td>
+                    <td className="p-3 text-right text-emerald-400 font-mono text-sm">
+                      {fmtHM(horasSemanaisPrevistas)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         </div>
       )}

@@ -45,7 +45,8 @@ import {
   Film,
   FileText,
   Mic,
-  Download
+  Download,
+  Smile
 } from 'lucide-react';
 import { Badge, Button, cn, AvatarPhoto } from './SharedUI';
 import { format } from 'date-fns';
@@ -336,6 +337,9 @@ export const AudioMessagePlayer = ({
 // ==========================================
 // 2. AÇÕES FLUTUANTES NO HOVER DA MENSAGEM
 // ==========================================
+const POPULAR_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const EXTENDED_REACTIONS = ['🔥', '👏', '🎉', '💯', '🤝', '👀', '😍', '🤔', '💪', '🚀', '✅', '✨'];
+
 export const MessageHoverActions = ({
   text,
   transcriptionText,
@@ -348,6 +352,8 @@ export const MessageHoverActions = ({
   onQuote,
   onForward,
   onSaveSticker,
+  onReact,
+  userReaction,
   isSticker = false,
   isStickerSaved = false,
   isDeleting = false,
@@ -363,12 +369,16 @@ export const MessageHoverActions = ({
   onQuote?: (quoteText: string) => void;
   onForward?: () => void;
   onSaveSticker?: () => void;
+  onReact?: (emoji: string) => void;
+  userReaction?: string;
   isSticker?: boolean;
   isStickerSaved?: boolean;
   isDeleting?: boolean;
 }) => {
   const [copied, setCopied] = useState(false);
   const [isActionSheetOpen, setIsActionSheetOpen] = useState(false);
+  const [showReactionStrip, setShowReactionStrip] = useState(false);
+  const [showMoreEmojis, setShowMoreEmojis] = useState(false);
 
   const effectiveText = text || transcriptionText || fileName || (mediaContentType ? `[${mediaContentType}]` : '') || '';
 
@@ -393,7 +403,7 @@ export const MessageHoverActions = ({
     }
   };
 
-  if (!effectiveText && !canEditOrDelete && !onQuote && !onForward && !onSaveSticker) return null;
+  if (!effectiveText && !canEditOrDelete && !onQuote && !onForward && !onSaveSticker && !onReact) return null;
 
   return (
     <>
@@ -402,6 +412,85 @@ export const MessageHoverActions = ({
         "absolute -top-3.5 z-20 hidden sm:flex opacity-0 group-hover:opacity-100 transition-all duration-150 items-center gap-0.5 p-0.5 rounded-full bg-[#202c33] border border-white/10 backdrop-blur-md shadow-lg",
         isOutgoing ? "right-2" : "left-2"
       )}>
+        {/* Botão de Reação rápida estilo WhatsApp */}
+        {onReact && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowReactionStrip(prev => !prev); }}
+              title="Reagir à mensagem"
+              className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer",
+                userReaction
+                  ? "text-amber-400 bg-amber-400/20"
+                  : "text-white/70 hover:text-amber-400 hover:bg-white/10 active:bg-white/20"
+              )}
+            >
+              <Smile size={12} />
+            </button>
+
+            {/* Popover flutuante de reações estilo WhatsApp */}
+            {showReactionStrip && (
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  "absolute -top-11 z-30 flex items-center gap-1 px-2 py-1 rounded-full bg-[#1f2c34] border border-white/15 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 whitespace-nowrap",
+                  isOutgoing ? "right-0" : "left-0"
+                )}
+              >
+                {POPULAR_REACTIONS.map((emoji) => {
+                  const isSelected = userReaction === emoji;
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        onReact(isSelected ? '' : emoji);
+                        setShowReactionStrip(false);
+                        setShowMoreEmojis(false);
+                      }}
+                      className={cn(
+                        "w-7 h-7 flex items-center justify-center text-lg rounded-full hover:scale-125 transition-transform cursor-pointer active:scale-95",
+                        isSelected && "bg-white/20 ring-1 ring-amber-400"
+                      )}
+                      title={isSelected ? `Remover reação ${emoji}` : `Reagir com ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setShowMoreEmojis(prev => !prev)}
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 text-xs font-bold transition-colors cursor-pointer"
+                  title="Mais emojis"
+                >
+                  <Plus size={12} />
+                </button>
+
+                {showMoreEmojis && (
+                  <div className="absolute -top-10 left-0 flex items-center gap-1 px-2 py-1 rounded-full bg-[#1f2c34] border border-white/15 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+                    {EXTENDED_REACTIONS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => {
+                          onReact(userReaction === emoji ? '' : emoji);
+                          setShowReactionStrip(false);
+                          setShowMoreEmojis(false);
+                        }}
+                        className="w-6 h-6 flex items-center justify-center text-base rounded-full hover:scale-125 transition-transform cursor-pointer active:scale-95"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Botão de Salvar Figurinha nos Favoritos */}
         {isSticker && onSaveSticker && (
           <button
@@ -511,11 +600,26 @@ export const MessageHoverActions = ({
           >
             {/* Emojis de Reação Rápida no Topo (WhatsApp iOS) */}
             <div className="flex items-center justify-around bg-[#1f2c34] border border-white/10 rounded-full px-3 py-2 shadow-2xl">
-              {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji, i) => (
-                <span key={i} className="text-2xl hover:scale-125 transition-transform cursor-pointer active:scale-95">
-                  {emoji}
-                </span>
-              ))}
+              {POPULAR_REACTIONS.map((emoji, i) => {
+                const isSelected = userReaction === emoji;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      onReact?.(isSelected ? '' : emoji);
+                      setIsActionSheetOpen(false);
+                    }}
+                    className={cn(
+                      "text-2xl hover:scale-125 transition-transform cursor-pointer active:scale-95 p-1 rounded-full",
+                      isSelected && "bg-white/20 ring-2 ring-amber-400"
+                    )}
+                    title={isSelected ? `Remover ${emoji}` : `Reagir ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Menu de Ações Estilo iOS */}

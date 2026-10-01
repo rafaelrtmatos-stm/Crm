@@ -88,6 +88,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     setPendingHistoryProductSearch,
     pendingReceivablesFilter,
     setPendingReceivablesFilter,
+    pendingQuitadasFilter,
+    setPendingQuitadasFilter,
     pendingGoToHistorico,
     setPendingGoToHistorico,
     pendingGoToServicos,
@@ -354,6 +356,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       setPendingReceivablesFilter(false);
     }
   }, [pendingReceivablesFilter, setPendingReceivablesFilter]);
+
+  // Handle quitadas filter
+  useEffect(() => {
+    if (pendingQuitadasFilter && pendingQuitadasFilter.active) {
+      setHistoryStatusFilter('completed');
+      setActiveTab('historico');
+      setPendingQuitadasFilter(null);
+    }
+  }, [pendingQuitadasFilter, setPendingQuitadasFilter]);
 
   // Ha venda feita offline ainda por enviar (e que o servidor nao recusou)? Enquanto houver, NAO
   // recarrega produtos/clientes do servidor: ele ainda nao sabe dessa venda e reverteria o estoque e o

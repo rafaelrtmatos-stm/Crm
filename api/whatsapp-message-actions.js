@@ -175,6 +175,94 @@ async function handleApagar(req, res) {
   }
 }
 
+// --- rota=reagir (enviar ou remover reação na mensagem) ---
+async function handleReagir(req, res) {
+  if (!(await exigirUsuarioAutorizado(req, res))) return;
+
+  const { messageId, reaction, senderName } = req.body || {};
+  if (!messageId) {
+    res.status(400).json({ error: 'Faltou o id da mensagem.' });
+    return;
+  }
+
+  try {
+    const buscaResp = await fetch(
+      `${SUPABASE_URL}/rest/v1/crm_messages?id=eq.${encodeURIComponent(messageId)}&company_id=eq.${COMPANY_ID}&select=id,phone,direction,whatsapp_message_id,group_jid,versions`,
+      { headers: supabaseHeaders() }
+    );
+    const linhas = await buscaResp.json().catch(() => []);
+    const msg = Array.isArray(linhas) ? linhas[0] : null;
+    if (!msg) {
+      res.status(404).json({ error: 'Mensagem não encontrada.' });
+      return;
+    }
+    if (!msg.whatsapp_message_id) {
+      res.status(400).json({ error: 'Essa mensagem não tem identificador do WhatsApp.' });
+      return;
+    }
+
+    const ehGrupo = !!msg.group_jid || (msg.phone && String(msg.phone).includes('@g.us'));
+    const remoteJid = ehGrupo
+      ? (msg.group_jid || `${String(msg.phone).replace('@g.us', '')}@g.us`)
+      : `${normalizarTelefoneBR(String(msg.phone).replace(/\D/g, ''))}@s.whatsapp.net`;
+
+    const emojiReaction = typeof reaction === 'string' ? reaction.trim() : '';
+
+    // Envia reação via Evolution API
+    try {
+      const evoResp = await fetch(`${EVOLUTION_API_URL}/message/sendReaction/${INSTANCE_NAME}`, {
+        method: 'POST',
+        headers: evolutionHeaders(),
+        body: JSON.stringify({
+          key: {
+            remoteJid,
+            fromMe: msg.direction === 'outgoing',
+            id: msg.whatsapp_message_id,
+          },
+          reaction: emojiReaction,
+        }),
+      });
+      if (!evoResp.ok) {
+        const corpo = await evoResp.text().catch(() => '');
+        console.warn('[REACAO] Evolution retornou aviso:', evoResp.status, corpo);
+      }
+    } catch (evoErr) {
+      console.warn('[REACAO] Erro ao chamar Evolution sendReaction:', evoErr);
+    }
+
+    // Atualiza crm_messages.versions com a lista de reações
+    const versoesAtuais = Array.isArray(msg.versions) ? [...msg.versions] : [];
+    let reacoesObj = versoesAtuais.find(v => v && v.type === 'reactions');
+    if (!reacoesObj) {
+      reacoesObj = { type: 'reactions', list: [] };
+      versoesAtuais.push(reacoesObj);
+    }
+    const lista = Array.isArray(reacoesObj.list) ? [...reacoesObj.list] : [];
+    const quem = senderName || 'Você';
+    const indexExistente = lista.findIndex(r => r.fromMe === true);
+
+    if (!emojiReaction) {
+      if (indexExistente >= 0) lista.splice(indexExistente, 1);
+    } else {
+      const novaReacao = { emoji: emojiReaction, sender: quem, fromMe: true, at: new Date().toISOString() };
+      if (indexExistente >= 0) lista[indexExistente] = novaReacao;
+      else lista.push(novaReacao);
+    }
+    reacoesObj.list = lista;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/crm_messages?id=eq.${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify({ versions: versoesAtuais }),
+    });
+
+    res.status(200).json({ ok: true, reactions: lista });
+  } catch (err) {
+    console.error('Erro ao reagir à mensagem:', err);
+    res.status(500).json({ error: 'Não foi possível enviar a reação.' });
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -188,6 +276,10 @@ export default async function handler(req, res) {
   const rota = String(req.query?.rota || '');
   if (rota === 'apagar') {
     await handleApagar(req, res);
+    return;
+  }
+  if (rota === 'reagir') {
+    await handleReagir(req, res);
     return;
   }
   // default / rota === 'editar'

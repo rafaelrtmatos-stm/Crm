@@ -4,6 +4,7 @@ import type { AppUser } from '../types';
 // Usadas em dois lugares: FinanceiroModule (App.tsx) esconde as abas que o usuario nao pode ver, e a
 // tela de Usuarios (Modules.tsx) deixa o admin marcar quais abas cada usuario enxerga -- igual as abas do PDV.
 export const FINANCEIRO_TABS = [
+  { id: 'despesas_fixas', label: 'Despesas Fixas', desc: 'Contas fixas mensais e custos operacionais' },
   { id: 'funcionarios', label: 'Funcionários', desc: 'Colaboradores e comissões' },
   { id: 'ponto', label: 'Controle de Ponto', desc: 'Espelho de ponto e horas' },
   { id: 'materias_primas', label: 'Matérias-Primas', desc: 'Insumos e custo por unidade' },

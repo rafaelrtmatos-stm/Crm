@@ -80,20 +80,24 @@ export function calcularRemuneracaoSemanal(
     let metaProximaReceber: number | undefined = undefined;
 
     const valorMinimo = Number(params.metaValorMinimo) > 0 ? Number(params.metaValorMinimo) : 600;
+    // Base da meta escalável: Receita de notas 100% quitadas e recebidas da loja na semana (Sábado a Sexta).
+    // Se não houver faturamento da loja fornecido, usa produção individual como fallback.
+    const baseCalculoMeta = Number(params.faturamentoGeral) > 0 ? Number(params.faturamentoGeral) : producao;
 
     const metasValidas = (params.metasValores || []).filter(
       (m) => Number(m.valorProducao) > 0 && Number(m.valorReceber) > 0
     );
 
     if (metasValidas.length > 0) {
-      // Ordena as metas por valor de produção crescente
+      // Ordena as metas por valor de produção/receita crescente
       const ordenadas = [...metasValidas].sort((a, b) => Number(a.valorProducao) - Number(b.valorProducao));
-      const atingidas = ordenadas.filter((m) => producao >= Number(m.valorProducao));
-      const naoAtingidas = ordenadas.filter((m) => producao < Number(m.valorProducao));
+      const atingidas = ordenadas.filter((m) => baseCalculoMeta >= Number(m.valorProducao));
+      const naoAtingidas = ordenadas.filter((m) => baseCalculoMeta < Number(m.valorProducao));
 
       if (atingidas.length > 0) {
         // Se atingir uma faixa -> recebe o valor daquela faixa.
         // Se ultrapassar várias faixas -> recebe o valor da maior faixa atingida.
+        // Ex: R$ 3.999,99 fica na faixa anterior; R$ 4.000,00 salta para a nova faixa!
         const maiorAtingida = atingidas[atingidas.length - 1];
         metaAtingidaNome = maiorAtingida.nome || `Faixa (${maiorAtingida.valorProducao})`;
         valorMeta = Number(maiorAtingida.valorReceber);
@@ -111,7 +115,7 @@ export function calcularRemuneracaoSemanal(
         metaProximaReceber = Number(ordenadas[0].valorReceber);
       }
     } else if (metaPerc > 0) {
-      valorMeta = Math.max(valorMinimo, (producao * metaPerc) / 100);
+      valorMeta = Math.max(valorMinimo, (baseCalculoMeta * metaPerc) / 100);
       metaAtingidaNome = 'Piso Mínimo Garantido';
     } else {
       valorMeta = valorMinimo;
