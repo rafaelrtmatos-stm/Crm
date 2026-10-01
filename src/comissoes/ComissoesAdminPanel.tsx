@@ -1322,6 +1322,7 @@ export default function ComissoesAdminPanel() {
                 <option value="recentes">🕒 Mais Recentes</option>
               </select>
 
+
               {/* Grid / Table Switcher */}
               <div className="flex items-center bg-[var(--bg-card-sec)] p-1 rounded-xl border border-[var(--border-color)] shrink-0">
                 <button
