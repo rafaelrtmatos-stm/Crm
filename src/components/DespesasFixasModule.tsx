@@ -288,8 +288,8 @@ export const DespesasFixasModule: React.FC<{
         </GlassCard>
       </div>
 
-      {/* Tabela de Despesas Fixas */}
-      <GlassCard className="p-6 border-white/5 bg-white/[0.02] space-y-4">
+      {/* Tabela de Despesas Fixas / Cards Mobile */}
+      <GlassCard className="p-4 sm:p-6 border-white/5 bg-white/[0.02] space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileText size={18} className="text-amber-400" />
@@ -298,7 +298,78 @@ export const DespesasFixasModule: React.FC<{
           <span className="text-[10px] font-bold text-white/40 uppercase">{despesas.length} itens cadastrados</span>
         </div>
 
-        <div className="overflow-x-auto no-scrollbar">
+        {/* Mobile View: Cards em 2 linhas sem precisar arrastar pro lado */}
+        <div className="block md:hidden space-y-3">
+          {despesas.map((item) => (
+            <div key={item.id} className="bg-slate-900/80 border border-white/10 rounded-xl p-3.5 space-y-2.5">
+              {/* Linha 1: Nome, Categoria e Valor */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <p className="font-bold text-white text-sm truncate">{item.nome}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {getCategoriaBadge(item.categoria)}
+                    <span className="text-[10px] text-white/50 font-mono">Venc: Dia {item.diaVencimento}</span>
+                  </div>
+                  {item.observacao && (
+                    <p className="text-[10px] text-white/40 italic truncate">{item.observacao}</p>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono font-black text-amber-400 text-sm">
+                    R$ {item.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Linha 2: Status e Botões de Ação Grandes */}
+              <div className="flex items-center justify-between pt-2 border-t border-white/5 gap-2">
+                <div>
+                  <button
+                    onClick={() => handleTogglePago(item.id)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border shadow-sm"
+                    style={{
+                      backgroundColor: item.pagoEsteMes ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      borderColor: item.pagoEsteMes ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+                      color: item.pagoEsteMes ? '#34d399' : '#f87171',
+                    }}
+                  >
+                    {item.pagoEsteMes ? (
+                      <>
+                        <CheckCircle2 size={13} /> Pago este mês
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle size={13} /> Pendente
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => handleOpenEditModal(item)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition-all shadow"
+                    title="Editar Despesa"
+                  >
+                    <Edit3 size={15} className="text-amber-400" />
+                    <span>Editar</span>
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg text-xs font-bold transition-all shadow"
+                    title="Excluir Despesa"
+                  >
+                    <Trash2 size={15} className="text-rose-400" />
+                    <span>Excluir</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop View: Tabela completa */}
+        <div className="hidden md:block overflow-x-auto no-scrollbar">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-white/10 text-[9px] uppercase font-black tracking-wider text-white/40">
@@ -353,17 +424,19 @@ export const DespesasFixasModule: React.FC<{
                     <div className="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => handleOpenEditModal(item)}
-                        className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+                        className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold"
                         title="Editar Despesa"
                       >
-                        <Edit3 size={15} />
+                        <Edit3 size={13} className="text-amber-400" />
+                        <span>Editar</span>
                       </button>
                       <button
                         onClick={() => handleDelete(item.id)}
-                        className="p-1.5 text-white/40 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all"
+                        className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold"
                         title="Excluir Despesa"
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={13} className="text-rose-400" />
+                        <span>Excluir</span>
                       </button>
                     </div>
                   </td>

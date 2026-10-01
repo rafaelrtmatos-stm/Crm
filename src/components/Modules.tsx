@@ -2414,7 +2414,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             { 
               label: 'Despesas Fixas', 
               val: `R$ ${despesasFixasProporcional.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
-              diff: `Mensal: R$ ${despesasFixasBaseMensal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, 
+              diff: period === 'Hoje' ? 'Equivalente Diário' : (period === 'Semana' || period === '7 dias') ? 'Equivalente Semanal' : 'Total Mensal', 
               color: 'text-amber-400', 
               borderHover: 'hover:border-amber-500/40',
               glow: 'bg-amber-500/10',
