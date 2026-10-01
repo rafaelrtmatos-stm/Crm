@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, createContext, useContext, Suspense } from 'react';
+import React, { useState, useEffect, createContext, useContext, Suspense, useMemo } from 'react';
 import { 
   LayoutDashboard, 
   Percent, 
@@ -164,17 +164,62 @@ const SidebarItem = ({
 // 3. Máquinas (Cadastro e custos operacionais com cálculo automático de depreciação, manutenção, cabeça, energia e tinta)
 // 5. Despesas Fixas (Gestão de contas mensais e custos fixos operacionais: Aluguel, Luz, Água, Internet, Contador, etc.)
 const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | null; user: AppUser | null }) => {
-  const [subTabSalvo, setSubTabState] = useState<'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao'>(() => {
+  const [financeiroMenuConfig, setFinanceiroMenuConfig] = useState<{ id: string; visible: boolean }[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('rpro_financeiro_subtab');
-      if (saved && ['despesas_fixas', 'funcionarios', 'ponto', 'materias_primas', 'maquinas', 'precificacao'].includes(saved)) {
-        return saved as 'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao';
+      const raw = localStorage.getItem('rpro_financeiro_menu_config');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return parsed;
+        } catch (e) {}
       }
     }
-    return 'despesas_fixas';
+    return FINANCEIRO_TABS.map(t => ({ id: t.id, visible: true }));
   });
 
-  const setSubTab = (tab: 'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao') => {
+  useEffect(() => {
+    const handleMenuUpdate = () => {
+      const raw = localStorage.getItem('rpro_financeiro_menu_config');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) setFinanceiroMenuConfig(parsed);
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('rpro_financeiro_menu_updated', handleMenuUpdate);
+    return () => window.removeEventListener('rpro_financeiro_menu_updated', handleMenuUpdate);
+  }, []);
+
+  const orderedTabs = useMemo(() => {
+    const configMap = new Map(financeiroMenuConfig.map(c => [c.id, c.visible]));
+    const list = [...FINANCEIRO_TABS].sort((a, b) => {
+      const idxA = financeiroMenuConfig.findIndex(c => c.id === a.id);
+      const idxB = financeiroMenuConfig.findIndex(c => c.id === b.id);
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+    return list.filter(t => {
+      const isVisibleByAdmin = configMap.get(t.id) !== false;
+      const isAllowedByUser = canSeeFinanceiroTab(user, t.id);
+      return isVisibleByAdmin && isAllowedByUser;
+    });
+  }, [financeiroMenuConfig, user]);
+
+  const abasVisiveis: string[] = orderedTabs.map(t => t.id);
+
+  const [subTabSalvo, setSubTabState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rpro_financeiro_subtab');
+      if (saved && abasVisiveis.includes(saved)) {
+        return saved;
+      }
+    }
+    return abasVisiveis[0] || 'despesas_fixas';
+  });
+
+  const setSubTab = (tab: string) => {
     setSubTabState(tab);
     if (typeof window !== 'undefined') {
       localStorage.setItem('rpro_financeiro_subtab', tab);
@@ -191,11 +236,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
     return () => window.removeEventListener('rpro_switch_financeiro_subtab', handleSwitch);
   }, []);
 
-  // Abas que esse usuario pode ver (Configuracoes > Usuarios). Se a aba salva no aparelho nao for permitida,
-  // cai na primeira permitida; se nenhuma for, mostra aviso de sem acesso.
-  const abasVisiveis: string[] = FINANCEIRO_TABS.filter(t => canSeeFinanceiroTab(user, t.id)).map(t => t.id);
-  const subTab = (abasVisiveis.includes(subTabSalvo) ? subTabSalvo : (abasVisiveis[0] ?? null)) as
-    'despesas_fixas' | 'funcionarios' | 'ponto' | 'materias_primas' | 'maquinas' | 'precificacao' | null;
+  const subTab = abasVisiveis.includes(subTabSalvo) ? subTabSalvo : (abasVisiveis[0] ?? null);
 
   const [selectedMaquinaForPrec, setSelectedMaquinaForPrec] = useState<string | null>(null);
 
@@ -209,84 +250,42 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
     <div className="h-full flex flex-col min-h-0">
       {/* Navegação de Sub-Abas do Módulo Financeiro / Operacional */}
       <div className="flex items-center gap-1.5 sm:gap-2 mb-3 sm:mb-4 shrink-0 overflow-x-auto no-scrollbar pb-1 -mx-2 px-2 sm:mx-0 sm:px-0">
-        {abasVisiveis.includes('despesas_fixas') && (
-          <button
-            onClick={() => setSubTab('despesas_fixas')}
-            className={cn(
-              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
-              subTab === 'despesas_fixas'
-                ? "bg-amber-500 text-slate-950 font-black border-amber-400 shadow-lg shadow-amber-500/20"
-                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            <Building2 size={14} /> Despesas Fixas
-          </button>
-        )}
-        {abasVisiveis.includes('funcionarios') && (
-          <button
-            onClick={() => setSubTab('funcionarios')}
-            className={cn(
-              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
-              subTab === 'funcionarios'
-                ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
-                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            <Users size={14} /> Funcionários
-          </button>
-        )}
-        {abasVisiveis.includes('ponto') && (
-          <button
-            onClick={() => setSubTab('ponto')}
-            className={cn(
-              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
-              subTab === 'ponto'
-                ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
-                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            <Clock size={14} /> Controle de Ponto
-          </button>
-        )}
-        {abasVisiveis.includes('materias_primas') && (
-          <button
-            onClick={() => setSubTab('materias_primas')}
-            className={cn(
-              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
-              subTab === 'materias_primas'
-                ? "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20"
-                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            <Layers size={14} /> Matérias-Primas
-          </button>
-        )}
-        {abasVisiveis.includes('maquinas') && (
-          <button
-            onClick={() => setSubTab('maquinas')}
-            className={cn(
-              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
-              subTab === 'maquinas'
-                ? "bg-cyan-600 text-white border-white/20 shadow-lg shadow-cyan-600/20"
-                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            <Wrench size={14} className={subTab === 'maquinas' ? 'text-white' : 'text-cyan-400'} /> Máquinas & Equipamentos
-          </button>
-        )}
-        {abasVisiveis.includes('precificacao') && (
-          <button
-            onClick={() => setSubTab('precificacao')}
-            className={cn(
-              "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
-              subTab === 'precificacao'
-                ? "bg-emerald-600 text-white border-white/20 shadow-lg shadow-emerald-600/20"
-                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
-            )}
-          >
-            <Calculator size={14} className={subTab === 'precificacao' ? 'text-white' : 'text-emerald-400'} /> Precificação
-          </button>
-        )}
+        {orderedTabs.map(tab => {
+          let Icon = Building2;
+          let activeClass = "bg-primary-500 text-white border-white/20 shadow-lg shadow-primary-500/20";
+          let iconColor = "";
+          if (tab.id === 'despesas_fixas') {
+            Icon = Building2;
+            activeClass = "bg-amber-500 text-slate-950 font-black border-amber-400 shadow-lg shadow-amber-500/20";
+          } else if (tab.id === 'funcionarios') {
+            Icon = Users;
+          } else if (tab.id === 'ponto') {
+            Icon = Clock;
+          } else if (tab.id === 'materias_primas') {
+            Icon = Layers;
+          } else if (tab.id === 'maquinas') {
+            Icon = Wrench;
+            iconColor = subTab === 'maquinas' ? 'text-white' : 'text-cyan-400';
+          } else if (tab.id === 'precificacao') {
+            Icon = Calculator;
+            iconColor = subTab === 'precificacao' ? 'text-white' : 'text-emerald-400';
+          }
+          const isActive = subTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setSubTab(tab.id)}
+              className={cn(
+                "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors border shrink-0 whitespace-nowrap",
+                isActive
+                  ? activeClass
+                  : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white"
+              )}
+            >
+              <Icon size={14} className={iconColor} /> {tab.label}
+            </button>
+          );
+        })}
       </div>
       <div className="flex-1 min-h-0">
         {subTab === 'despesas_fixas' ? (

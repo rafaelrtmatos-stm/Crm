@@ -23,12 +23,13 @@ const GlassCard: React.FC<{ children: React.ReactNode; className?: string }> = (
   </div>
 );
 
-const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'danger'; children: React.ReactNode }> = ({ children, className = '', variant = 'primary', ...props }) => {
+const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'ghost'; children: React.ReactNode }> = ({ children, className = '', variant = 'primary', ...props }) => {
   let baseClasses = "px-4 py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-2 cursor-pointer ";
   if (variant === 'primary') baseClasses += "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20";
   else if (variant === 'secondary') baseClasses += "bg-slate-800 hover:bg-slate-700 text-white";
   else if (variant === 'outline') baseClasses += "border border-white/10 hover:bg-white/5 text-slate-300";
   else if (variant === 'danger') baseClasses += "bg-rose-600 hover:bg-rose-500 text-white";
+  else if (variant === 'ghost') baseClasses += "hover:bg-white/5 text-slate-300";
   return (
     <button className={`${baseClasses} ${className}`} {...props}>
       {children}
@@ -102,6 +103,7 @@ export const DespesasFixasModule: React.FC<{
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DespesaFixaItem | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Form State
   const [nome, setNome] = useState('');
@@ -149,10 +151,14 @@ export const DespesasFixasModule: React.FC<{
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir esta despesa fixa?')) {
-      const filtered = despesas.filter(d => d.id !== id);
-      saveDespesas(filtered);
-    }
+    setDeleteId(id);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteId) return;
+    const filtered = despesas.filter(d => d.id !== deleteId);
+    saveDespesas(filtered);
+    setDeleteId(null);
   };
 
   const handleTogglePago = (id: string) => {
@@ -477,6 +483,39 @@ export const DespesasFixasModule: React.FC<{
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-sm bg-[#131b2e] border border-white/10 rounded-2xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-wider">Excluir Despesa</h3>
+                <p className="text-xs text-white/50">Tem certeza que deseja excluir esta despesa fixa?</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <Button 
+                type="button" 
+                variant="ghost" 
+                onClick={() => setDeleteId(null)}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                type="button" 
+                variant="danger"
+                onClick={confirmDelete}
+              >
+                Sim, Excluir
+              </Button>
+            </div>
           </div>
         </div>
       )}

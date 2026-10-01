@@ -13621,6 +13621,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [insulfilmLarguraMaterial, setInsulfilmLarguraMaterial] = useState<number>(1.5);
   const [insulfilmPecas, setInsulfilmPecas] = useState<{ id: string; largura: number | ''; altura: number | '' }[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [showLucroRaioXModal, setShowLucroRaioXModal] = useState(false);
   const [allowExtraPaymentEntry, setAllowExtraPaymentEntry] = useState(false);
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -29600,6 +29601,48 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     showAlert('Abas do PDV atualizadas! Recarregue a página pra ver a nova ordem.');
   };
 
+  // Abas do Módulo Financeiro configuráveis e ordenáveis por drag and drop
+  const [financeiroMenuConfigForm, setFinanceiroMenuConfigForm] = useState<{ id: string; visible: boolean }[]>(FINANCEIRO_TABS.map(m => ({ id: m.id, visible: true })));
+  const [financeiroMenuConfigDragId, setFinanceiroMenuConfigDragId] = useState<string | null>(null);
+  const [savingFinanceiroMenuConfig, setSavingFinanceiroMenuConfig] = useState(false);
+
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    supabase.from('configuracoes').select('financeiro_menu_config').eq('company_id', 'rafa-arts').maybeSingle().then(({ data }) => {
+      if (data?.financeiro_menu_config && Array.isArray(data.financeiro_menu_config) && data.financeiro_menu_config.length > 0) {
+        const salvos = data.financeiro_menu_config as { id: string; visible: boolean }[];
+        const idsSalvos = new Set(salvos.map(s => s.id));
+        const faltando = FINANCEIRO_TABS.filter(m => !idsSalvos.has(m.id)).map(m => ({ id: m.id, visible: true }));
+        setFinanceiroMenuConfigForm([...salvos, ...faltando]);
+      } else {
+        const local = localStorage.getItem('rpro_financeiro_menu_config');
+        if (local) {
+          try {
+            const parsed = JSON.parse(local);
+            if (Array.isArray(parsed)) setFinanceiroMenuConfigForm(parsed);
+          } catch (e) {}
+        }
+      }
+    });
+  }, [user?.isAdmin]);
+
+  const handleSaveFinanceiroMenuConfig = async () => {
+    setSavingFinanceiroMenuConfig(true);
+    const { error } = await supabase.from('configuracoes').upsert({
+      company_id: 'rafa-arts',
+      financeiro_menu_config: financeiroMenuConfigForm,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id' });
+    setSavingFinanceiroMenuConfig(false);
+    localStorage.setItem('rpro_financeiro_menu_config', JSON.stringify(financeiroMenuConfigForm));
+    window.dispatchEvent(new CustomEvent('rpro_financeiro_menu_updated'));
+    if (error) {
+      showAlert('Abas do Financeiro atualizadas localmente!');
+      return;
+    }
+    showAlert('Abas do Financeiro atualizadas com sucesso! A ordem foi salva.');
+  };
+
   useEffect(() => {
     if (!user?.isAdmin) return;
     const minhaSessaoId = sessionStorage.getItem('rpro_session_id');
@@ -30639,6 +30682,61 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     </div>
                     <Button icon={Save} disabled={savingPdvMenuConfig} onClick={handleSavePdvMenuConfig}>
                       {savingPdvMenuConfig ? 'Salvando...' : 'Salvar Abas do PDV'}
+                    </Button>
+
+                    <div className="h-px bg-white/10 my-6" />
+
+                    <div>
+                       <h3 className="text-xl font-bold text-white tracking-tight italic uppercase">Abas do Módulo Financeiro</h3>
+                       <p className="text-xs text-white/40 mt-1">Arraste para reordenar e escolha quais abas do Financeiro aparecem no sistema (Despesas Fixas, Funcionários, Controle de Ponto, Matérias-Primas, Máquinas, Precificação).</p>
+                    </div>
+                    <div className="space-y-2">
+                       {financeiroMenuConfigForm.map((item, idx) => {
+                         const info = FINANCEIRO_TABS.find(m => m.id === item.id);
+                         return (
+                           <div
+                             key={item.id}
+                             draggable
+                             onDragStart={() => setFinanceiroMenuConfigDragId(item.id)}
+                             onDragOver={(e) => e.preventDefault()}
+                             onDrop={(e) => {
+                                e.preventDefault();
+                                if (!financeiroMenuConfigDragId || financeiroMenuConfigDragId === item.id) return;
+                                setFinanceiroMenuConfigForm(prev => {
+                                   const fromIdx = prev.findIndex(p => p.id === financeiroMenuConfigDragId);
+                                   const toIdx = prev.findIndex(p => p.id === item.id);
+                                   if (fromIdx === -1 || toIdx === -1) return prev;
+                                   const next = [...prev];
+                                   const [moved] = next.splice(fromIdx, 1);
+                                   next.splice(toIdx, 0, moved);
+                                   return next;
+                                });
+                                setFinanceiroMenuConfigDragId(null);
+                             }}
+                             className={cn(
+                               "flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing transition-all",
+                               financeiroMenuConfigDragId === item.id ? "opacity-40" : "",
+                               !item.visible ? "opacity-50" : ""
+                             )}
+                           >
+                              <GripVertical size={16} className="text-white/30 shrink-0" />
+                              <span className="text-xs font-black text-white/30 w-5 shrink-0">{idx + 1}</span>
+                              <span className="flex-1 text-sm font-bold text-white">{info?.label || item.id}</span>
+                              <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                                 <input
+                                   type="checkbox"
+                                   checked={item.visible}
+                                   onChange={(e) => setFinanceiroMenuConfigForm(prev => prev.map(p => p.id === item.id ? { ...p, visible: e.target.checked } : p))}
+                                   className="w-4 h-4 accent-amber-500"
+                                 />
+                                 <span className="text-[9px] font-black uppercase text-white/40">{item.visible ? 'Visível' : 'Oculto'}</span>
+                              </label>
+                           </div>
+                         );
+                       })}
+                    </div>
+                    <Button icon={Save} disabled={savingFinanceiroMenuConfig} onClick={handleSaveFinanceiroMenuConfig} className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black">
+                      {savingFinanceiroMenuConfig ? 'Salvando...' : 'Salvar Abas do Financeiro'}
                     </Button>
                   </>
                 )}
