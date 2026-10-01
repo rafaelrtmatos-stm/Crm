@@ -68,6 +68,7 @@ export const DespesasFixasModule: React.FC<{
   const [despesas, setDespesas] = useState<DespesaFixaItem[]>(() => getCachedDespesasFixas());
   const [loading, setLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'offline'>('synced');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Carregar dados reais do Supabase na inicialização
   useEffect(() => {
@@ -156,11 +157,17 @@ export const DespesasFixasModule: React.FC<{
     setDeleteId(null);
 
     // Otimista: remove localmente
+    const previous = despesas;
     const filtered = despesas.filter(d => d.id !== targetId);
     saveDespesasLocal(filtered);
 
+    setSaveError(null);
     setSyncStatus('saving');
     const ok = await deleteDespesaFixa(targetId);
+    if (!ok) {
+      saveDespesasLocal(previous);
+      setSaveError('Não foi possível excluir a despesa no banco. Ela foi restaurada na lista.');
+    }
     setSyncStatus(ok ? 'synced' : 'offline');
   };
 
@@ -168,12 +175,18 @@ export const DespesasFixasModule: React.FC<{
     const item = despesas.find(d => d.id === id);
     if (!item) return;
 
+    const previous = despesas;
     const novoPago = !item.pagoEsteMes;
     const updated = despesas.map(d => (d.id === id ? { ...d, pagoEsteMes: novoPago } : d));
     saveDespesasLocal(updated);
 
+    setSaveError(null);
     setSyncStatus('saving');
     const ok = await togglePagoDespesaFixa(id, novoPago);
+    if (!ok) {
+      saveDespesasLocal(previous);
+      setSaveError('Não foi possível salvar o status de pagamento no banco.');
+    }
     setSyncStatus(ok ? 'synced' : 'offline');
   };
 
@@ -184,11 +197,13 @@ export const DespesasFixasModule: React.FC<{
     const valorNum = parseFloat(valor.replace(',', '.')) || 0;
     const diaNum = Math.min(31, Math.max(1, parseInt(diaVencimento) || 10));
 
+    setSaveError(null);
     setSyncStatus('saving');
     setIsModalOpen(false);
 
     if (editingItem) {
       // Atualização otimista
+      const previousList = despesas;
       const updatedList = despesas.map(d => {
         if (d.id === editingItem.id) {
           return {
@@ -205,20 +220,28 @@ export const DespesasFixasModule: React.FC<{
       });
       saveDespesasLocal(updatedList);
 
-      const saved = await saveDespesaFixa({
-        id: editingItem.id,
-        nome: nome.trim(),
-        categoria,
-        valor: valorNum,
-        diaVencimento: diaNum,
-        observacao: observacao.trim(),
-        pagoEsteMes: editingItem.pagoEsteMes,
-      }, companyId);
+      try {
+        const saved = await saveDespesaFixa({
+          id: editingItem.id,
+          nome: nome.trim(),
+          categoria,
+          valor: valorNum,
+          diaVencimento: diaNum,
+          observacao: observacao.trim(),
+          pagoEsteMes: editingItem.pagoEsteMes,
+        }, companyId);
 
-      if (saved) {
-        setDespesas(prev => prev.map(d => d.id === editingItem.id ? saved : d));
+        setDespesas(prev => {
+          const next = prev.map(d => d.id === editingItem.id ? saved : d);
+          updateDespesasFixasCache(next);
+          return next;
+        });
+        setSyncStatus('synced');
+      } catch (err: any) {
+        saveDespesasLocal(previousList);
+        setSaveError(`Não foi possível salvar a despesa: ${err?.message || 'erro desconhecido'}`);
+        setSyncStatus('offline');
       }
-      setSyncStatus('synced');
     } else {
       // Novo item com ID temporário otimista
       const tempId = `temp-${Date.now()}`;
@@ -233,22 +256,30 @@ export const DespesasFixasModule: React.FC<{
         pagoEsteMes: false,
         dataAtualizacao: new Date().toISOString(),
       };
+      const previousList = despesas;
       saveDespesasLocal([...despesas, newItem]);
 
-      const saved = await saveDespesaFixa({
-        nome: nome.trim(),
-        categoria,
-        valor: valorNum,
-        diaVencimento: diaNum,
-        observacao: observacao.trim(),
-        pagoEsteMes: false,
-      }, companyId);
+      try {
+        const saved = await saveDespesaFixa({
+          nome: nome.trim(),
+          categoria,
+          valor: valorNum,
+          diaVencimento: diaNum,
+          observacao: observacao.trim(),
+          pagoEsteMes: false,
+        }, companyId);
 
-      if (saved) {
-        setDespesas(prev => prev.map(d => d.id === tempId ? saved : d));
-        updateDespesasFixasCache(despesas.map(d => d.id === tempId ? saved : d));
+        setDespesas(prev => {
+          const next = prev.map(d => d.id === tempId ? saved : d);
+          updateDespesasFixasCache(next);
+          return next;
+        });
+        setSyncStatus('synced');
+      } catch (err: any) {
+        saveDespesasLocal(previousList);
+        setSaveError(`Não foi possível salvar a despesa: ${err?.message || 'erro desconhecido'}`);
+        setSyncStatus('offline');
       }
-      setSyncStatus('synced');
     }
   };
 
@@ -306,6 +337,13 @@ export const DespesasFixasModule: React.FC<{
           </Button>
         </div>
       </div>
+
+      {saveError && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-200">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="text-rose-300 hover:text-white text-xs uppercase tracking-wider">Fechar</button>
+        </div>
+      )}
 
       {/* Cards de Resumo */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

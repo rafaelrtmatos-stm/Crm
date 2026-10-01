@@ -66,9 +66,10 @@ export const mapColaboradorRow = (row: any): Colaborador => {
     metaPercentual: Number(row.meta_percentual ?? localExtra?.metaPercentual) || 0,
     metaValorMinimo: Number(row.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0,
     metaValorMaximo: Number(row.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0,
-    metasValores: Array.isArray(localExtra?.metasValores)
-      ? localExtra.metasValores
-      : (Array.isArray(row.metas_valores) ? row.metas_valores : undefined),
+    // O banco manda; o cache local só entra se o banco não tiver faixas
+    metasValores: Array.isArray(row.metas_valores) && row.metas_valores.length > 0
+      ? row.metas_valores
+      : (Array.isArray(localExtra?.metasValores) ? localExtra.metasValores : undefined),
   };
 };
 

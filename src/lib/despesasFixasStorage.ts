@@ -94,7 +94,20 @@ export async function fetchDespesasFixas(companyId: string = 'rafa-arts'): Promi
     // Se a tabela do Supabase estiver vazia, sincroniza os dados do cache ou defaults para o Supabase
     const initialList = getCachedDespesasFixas();
     if (initialList.length > 0) {
-      await seedDespesasFixasToSupabase(initialList, companyId);
+      const seeded = await seedDespesasFixasToSupabase(initialList, companyId);
+      if (seeded) {
+        // Relê do banco para trabalhar com os UUIDs reais (senão editar um item insere uma duplicata)
+        const { data: seededData, error: seededError } = await supabase
+          .from('despesas_fixas')
+          .select('*')
+          .eq('company_id', companyId)
+          .order('dia_vencimento', { ascending: true });
+        if (!seededError && seededData && seededData.length > 0) {
+          const mapped = seededData.map(mapDespesaRow);
+          updateDespesasFixasCache(mapped);
+          return mapped;
+        }
+      }
       return initialList;
     }
 
@@ -105,7 +118,7 @@ export async function fetchDespesasFixas(companyId: string = 'rafa-arts'): Promi
   }
 }
 
-export async function seedDespesasFixasToSupabase(items: DespesaFixaItem[], companyId: string = 'rafa-arts'): Promise<void> {
+export async function seedDespesasFixasToSupabase(items: DespesaFixaItem[], companyId: string = 'rafa-arts'): Promise<boolean> {
   try {
     const rows = items.map(item => ({
       company_id: companyId,
@@ -118,16 +131,19 @@ export async function seedDespesasFixasToSupabase(items: DespesaFixaItem[], comp
       updated_at: new Date().toISOString(),
     }));
 
-    await supabase.from('despesas_fixas').insert(rows);
+    const { error } = await supabase.from('despesas_fixas').insert(rows);
+    if (error) throw error;
+    return true;
   } catch (err) {
     console.warn('Não foi possível fazer seed inicial de despesas fixas no Supabase:', err);
+    return false;
   }
 }
 
 export async function saveDespesaFixa(
   item: Partial<DespesaFixaItem> & { nome: string; valor: number },
   companyId: string = 'rafa-arts'
-): Promise<DespesaFixaItem | null> {
+): Promise<DespesaFixaItem> {
   const isExistingUUID = item.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
 
   const payload: any = {
@@ -164,19 +180,8 @@ export async function saveDespesaFixa(
     }
   } catch (err) {
     console.error('Erro ao salvar despesa fixa no Supabase:', err);
-    // Fallback offline: cria item local com id gerado
-    const fallbackItem: DespesaFixaItem = {
-      id: item.id || `local-${Date.now()}`,
-      companyId,
-      nome: item.nome,
-      categoria: item.categoria || 'instalacoes',
-      valor: item.valor,
-      diaVencimento: item.diaVencimento || 10,
-      pagoEsteMes: item.pagoEsteMes,
-      observacao: item.observacao,
-      dataAtualizacao: new Date().toISOString(),
-    };
-    return fallbackItem;
+    // Não cria mais item "local" fingindo que salvou: o erro sobe para a tela avisar o usuário.
+    throw err;
   }
 }
 

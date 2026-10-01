@@ -621,9 +621,10 @@ export default function ComissoesAdminPanel() {
       (Number(c.meta_percentual || localExtra?.metaPercentual) > 0 || (localExtra?.metasValores && localExtra.metasValores.length > 0) ? 'meta' : 'fixo_comissao');
 
     const metaPercentual = Number(c.meta_percentual ?? localExtra?.metaPercentual) || 0;
-    const rawMetas: MetaValorItem[] = Array.isArray(localExtra?.metasValores) && localExtra.metasValores.length > 0
-      ? localExtra.metasValores
-      : (Array.isArray(c.metas_valores) && c.metas_valores.length > 0 ? c.metas_valores : defaultMetasTemplate);
+    // O banco manda; o cache local só entra se o banco não tiver faixas
+    const rawMetas: MetaValorItem[] = Array.isArray(c.metas_valores) && c.metas_valores.length > 0
+      ? c.metas_valores
+      : (Array.isArray(localExtra?.metasValores) && localExtra.metasValores.length > 0 ? localExtra.metasValores : defaultMetasTemplate);
     const metaValorMinimo = Number(c.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0;
     const metaValorMaximo = Number(c.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0;
     const linkedU = usuariosContas.find((u) => u.colaborador_id === c.id);
@@ -838,31 +839,27 @@ export default function ComissoesAdminPanel() {
       ? await supabase.from('colaboradores').update(payload).eq('id', editingId).select().maybeSingle()
       : await supabase.from('colaboradores').insert(payload).select().maybeSingle();
 
-    // Resiliência: se o banco ainda não tiver as colunas modalidade_remuneracao / meta_percentual
-    if (error && error.message?.includes('column')) {
-      const fallbackPayload = {
-        nome: payload.nome,
-        senha: payload.senha,
-        cargo: payload.cargo,
-        salario_base: payload.salario_base,
-        comissao_padrao_percentual: payload.comissao_padrao_percentual,
-        meta_semanal: payload.meta_semanal,
-        modo_lancamento_comissao: payload.modo_lancamento_comissao,
-        ativo: payload.ativo,
-        updated_at: payload.updated_at,
-      };
-
-      const resFallback = editingId
-        ? await supabase.from('colaboradores').update(fallbackPayload).eq('id', editingId).select().maybeSingle()
-        : await supabase.from('colaboradores').insert(fallbackPayload).select().maybeSingle();
-
-      error = resFallback.error;
-      savedData = resFallback.data;
+    // Coluna ausente no banco: NÃO salva "pela metade" (antes o fallback gravava só salário/comissão
+    // e descartava modalidade e faixas sem avisar, parecendo que tinha salvo).
+    if (error && /column|schema cache/i.test(error.message || '')) {
+      setSaving(false);
+      showAlert(
+        `O banco ainda não tem as colunas de modalidade/metas (${error.message}). ` +
+        'Execute supabase/add_modalidade_remuneracao_colaboradores.sql no Supabase e tente de novo. Nada foi salvo.'
+      );
+      return;
     }
 
     if (error) {
       setSaving(false);
       showAlert(`Não foi possível salvar: ${error.message}`);
+      return;
+    }
+
+    // Confere o que o banco devolveu: update sem linha afetada (ou modo diferente) = não gravou de verdade
+    if (!savedData || savedData.modalidade_remuneracao !== form.modalidadeRemuneracao) {
+      setSaving(false);
+      showAlert('O banco não confirmou a gravação do colaborador (modo de remuneração não foi atualizado). Tente novamente.');
       return;
     }
 
