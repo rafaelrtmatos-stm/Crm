@@ -4158,6 +4158,42 @@ export const ChatPanel = ({
   const [showSuggestActionMenu, setShowSuggestActionMenu] = useState(false);
   const [selectedSuggestAction, setSelectedSuggestAction] = useState<SuggestReplyAction>('followup');
 
+  const updateQuickRepliesPosition = (sourceEl?: HTMLElement | null) => {
+    const target = sourceEl || quickRepliesBtnRef.current || chatInputRef.current;
+    if (target) {
+      const r = target.getBoundingClientRect();
+      const popupWidth = Math.min(340, window.innerWidth - 24);
+      let left = r.left;
+      if (left + popupWidth > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - popupWidth - 12);
+      }
+      if (left < 12) left = 12;
+      setQuickRepliesPos({
+        bottom: window.innerHeight - r.top + 8,
+        left
+      });
+    }
+  };
+
+  const handleToggleQuickReplies = (sourceEl?: HTMLElement | null) => {
+    if (!showQuickReplies) {
+      updateQuickRepliesPosition(sourceEl);
+    }
+    setShowQuickReplies(prev => !prev);
+  };
+
+  useEffect(() => {
+    if (!showQuickReplies) return;
+    updateQuickRepliesPosition();
+    const handleRealign = () => updateQuickRepliesPosition();
+    window.addEventListener('resize', handleRealign);
+    window.addEventListener('scroll', handleRealign, true);
+    return () => {
+      window.removeEventListener('resize', handleRealign);
+      window.removeEventListener('scroll', handleRealign, true);
+    };
+  }, [showQuickReplies]);
+
   const handleOpenSuggestMenu = () => {
     const lastIncoming = [...messages].reverse().find(m => m.direction === 'incoming' && m.text);
     if (!lastIncoming) { showAlert('Ainda não tem mensagem do cliente nessa conversa pra sugerir uma resposta.'); return; }
@@ -7909,6 +7945,25 @@ export const ChatPanel = ({
                       document.body
                     )}
                   </div>
+
+                  {/* [Msgs Rápidas] — Ação Rápida com / */}
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleQuickReplies(quickRepliesBtnRef.current)}
+                      className={cn(
+                        "text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-xs whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 active:scale-95",
+                        showQuickReplies
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                          : "bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border-white/10"
+                      )}
+                      title="Mensagens rápidas e respostas prontas (Atalho /)"
+                    >
+                      <Sparkles size={10} className="text-amber-400" />
+                      <span>Msgs Rápidas</span>
+                      <kbd className="font-mono text-[8.5px] px-1 py-0.2 rounded bg-white/10 text-white/80 border border-white/10">/</kbd>
+                    </button>
+                  </div>
                 </div>
 
                     {showQuickReplies && typeof document !== 'undefined' && createPortal(
@@ -7975,7 +8030,10 @@ export const ChatPanel = ({
                                     if (tpl.imageUrl) {
                                       enviarMensagemRapidaComImagem(tpl);
                                     } else if (tpl.text) {
-                                      setNewMessage(prev => prev ? `${prev}\n${tpl.text}` : tpl.text);
+                                      setNewMessage(prev => {
+                                        const cleaned = prev.replace(/\/$/, '').trim();
+                                        return cleaned ? `${cleaned}\n${tpl.text}` : tpl.text;
+                                      });
                                     }
                                     setShowQuickReplies(false);
                                   }}
@@ -8150,6 +8208,20 @@ export const ChatPanel = ({
                       >
                         <Smile size={16} />
                       </button>
+                      <button
+                        ref={quickRepliesBtnRef}
+                        type="button"
+                        title="Mensagens Rápidas e Respostas Prontas (Atalho /)"
+                        onClick={() => handleToggleQuickReplies(quickRepliesBtnRef.current)}
+                        className={cn(
+                          "w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 cursor-pointer",
+                          showQuickReplies 
+                            ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-400/50 shadow-xs" 
+                            : "text-white/50 hover:text-amber-300 hover:bg-white/10"
+                        )}
+                      >
+                        <span className="font-mono text-xs font-black px-1.5 py-0.5 rounded bg-white/10 border border-white/15 text-white/90">/</span>
+                      </button>
                     </div>
 
                     {/* [Digite sua mensagem...] */}
@@ -8163,10 +8235,17 @@ export const ChatPanel = ({
                           e.preventDefault();
                           if (pendingImages.length > 0) enviarImagensPendentes();
                           else handleSendMessage();
-                        } else if (e.key === 'Escape' && replyingToMessage) {
+                        } else if (e.key === 'Escape') {
+                          if (showQuickReplies) {
+                            e.preventDefault();
+                            setShowQuickReplies(false);
+                          } else if (replyingToMessage) {
+                            e.preventDefault();
+                            setReplyingToMessage(null);
+                          }
+                        } else if (e.key === '/' && (newMessage === '' || newMessage.endsWith(' '))) {
                           e.preventDefault();
-                          setReplyingToMessage(null);
-                        } else if (e.key === '/' && newMessage === '') {
+                          updateQuickRepliesPosition(chatInputRef.current);
                           setShowQuickReplies(true);
                         }
                       }}
