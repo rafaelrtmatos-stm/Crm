@@ -170,6 +170,8 @@ import {
   Paintbrush,
   CheckCircle
 } from 'lucide-react';
+
+const sale = {} as any;
 import { 
   DndContext, 
   closestCenter,
