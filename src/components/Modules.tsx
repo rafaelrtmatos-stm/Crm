@@ -20838,7 +20838,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <div className="relative min-w-0" style={colFlex('itens')}>Itens / Descrição<ResizeHandle colKey="itens" /></div>
                       <div className="relative min-w-0 hidden sm:block" style={colFlex('codigo')}>Código<ResizeHandle colKey="codigo" /></div>
                       <div className="relative min-w-0 hidden sm:block" style={colFlex('data')}>Data<ResizeHandle colKey="data" /></div>
-                      <div className="relative min-w-0 hidden sm:block text-center" style={colFlex('etapa')}>Etapa<ResizeHandle colKey="etapa" /></div>
+                      <div className="relative min-w-0 hidden sm:block text-center" style={colFlex('etapa')}>
+                               {/* Status do Pedido (Sempre visível) */}
+                               <span className={cn("inline-flex items-center gap-1 px-2 h-6 rounded-full border text-[8px] font-black uppercase tracking-wider shrink-0", stageColorOf(etapaOf(sale) || 'pedido_recebido').bg, stageColorOf(etapaOf(sale) || 'pedido_recebido').text, "border-white/10")} title="Etapa do pedido">
+                                 {React.createElement(stageIconOf(etapaOf(sale) || 'pedido_recebido'), { size: 9, className: "shrink-0" })}
+                                 <span className="truncate max-w-[70px]">{STAGE_LABELS[etapaOf(sale) || 'pedido_recebido'] || etapaOf(sale)}</span>
+                               </span>Etapa<ResizeHandle colKey="etapa" /></div>
                       <div className="relative min-w-0 text-center" style={colFlex('status')}>Pagamento<ResizeHandle colKey="status" /></div>
                       <div className="relative min-w-0 text-right" style={colFlex('valor')}>Valor / Pagamento</div>
                       <div className="shrink-0 w-8 text-center">Ações</div>
