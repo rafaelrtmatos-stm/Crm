@@ -92,7 +92,8 @@ export const ProductionModule: React.FC<ProductionModuleProps> = ({ currentCompa
       const { error } = await supabase
         .from('vendas')
         .update({ service_status: targetStatus, etapa_servico: targetStatus, updated_at: new Date().toISOString() })
-        .eq('id', orderId);
+        .eq('id', orderId)
+        .not('service_status', 'is', null);
 
       if (error) throw error;
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, serviceStatus: targetStatus as any } : o));

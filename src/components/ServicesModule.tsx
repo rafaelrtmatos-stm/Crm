@@ -79,7 +79,7 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
         paymentMethod: row.payment_method || 'dinheiro',
         payments: Array.isArray(row.payments) ? row.payments : [],
         status: row.status || 'completed',
-        serviceStatus: row.service_status || 'pedido_recebido',
+        serviceStatus: row.etapa_servico || row.service_status || 'pedido_recebido',
         responsavel: row.responsavel || '',
         observacoes: row.observacoes || '',
         scheduledFor: row.scheduled_for || '',
@@ -103,7 +103,7 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
     try {
       const { error } = await supabase
         .from('vendas')
-        .update({ service_status: newStatus, etapa_servico: newStatus, updated_at: new Date().toISOString() })
+        .update({ etapa_servico: newStatus, updated_at: new Date().toISOString() })
         .eq('id', orderId);
 
       if (error) throw error;
