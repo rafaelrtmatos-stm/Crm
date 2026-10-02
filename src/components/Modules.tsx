@@ -160,6 +160,7 @@ import {
   DollarSign,
   Receipt,
   Factory,
+  HardHat,
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
@@ -221,7 +222,7 @@ import {
   Maquina,
   calcularCustosMaquina
 } from '../types';
-import { fetchMateriasPrimas, deductMateriasPrimasStock, excluirNotasDevolvendoMateriaPrima, restaurarNotasReaplicandoMateriaPrima } from '../lib/materiasPrimasStorage';
+import { fetchMateriasPrimas, deductMateriasPrimasStock, excluirNotasDevolvendoMateriaPrima, restaurarNotasReaplicandoMateriaPrima, estornarConsumoDeNotas } from '../lib/materiasPrimasStorage';
 import { fetchMaquinas } from '../lib/maquinasStorage';
 import { 
   AreaChart, 
@@ -17809,10 +17810,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!(await showConfirm(`Cancelar o pedido de ${sale.customerName || 'cliente'} (R$ ${sale.total.toFixed(2).replace('.', ',')})? Ele deixa de contar como venda ativa, mas continua no histórico marcado como cancelado.`))) return;
     const { error } = await supabase.from('vendas').update({ status: 'canceled' }).eq('id', sale.id);
     if (error) { showAlert(`Não foi possível cancelar o pedido: ${error.message}`); return; }
+
+    try {
+      await estornarConsumoDeNotas([sale]);
+    } catch (e) {
+      console.warn('Erro ao devolver insumos ao estoque no cancelamento:', e);
+    }
+
     const atualizado = { ...sale, status: 'canceled' as const };
     setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-    showAlert('Pedido cancelado!');
+    showAlert('Pedido cancelado e insumos devolvidos ao estoque!');
   };
 
   // Abre a nota inteira no Terminal de Vendas pra editar os itens do carrinho, com o cliente ja
@@ -18952,10 +18960,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleDeliverFromCard = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
     const nowIso = new Date().toISOString();
-    const { data, error } = await supabase.from('vendas').update({ service_status: 'produto_entregue', updated_at: nowIso }).eq('id', sale.id).select();
+    
+    const updates: any = { updated_at: nowIso };
+    
+    const atualizado = { 
+      ...sale, 
+      delivered: true,
+      updatedAt: nowIso 
+    };
+
+    const { data, error } = await supabase.from('vendas').update(updates).eq('id', sale.id).select();
     if (error) { showAlert(`Não foi possível marcar como entregue: ${error.message}`); return; }
-    if (!data || data.length === 0) { showAlert('Não foi possível marcar como entregue — o pedido pode ter sido removido ou alterado por outra pessoa. Feche e abra a tela de novo.'); return; }
-    const atualizado = { ...sale, serviceStatus: 'produto_entregue' as any, updatedAt: nowIso };
+    if (!data || data.length === 0) { showAlert('Não foi possível marcar como entregue — o pedido pode ter sido removido ou alterado por outra pessoa.'); return; }
+
     setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
     showAlert('Pedido marcado como entregue!');
@@ -21058,12 +21075,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   title="Lançar este pedido para a esteira de Produção / Serviços"
                                   className="h-6 w-full max-w-[130px] flex items-center justify-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full px-2 text-[8px] font-black uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
                                 >
-                                  <Factory size={11} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                  <HardHat size={11} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
                                   <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
                                 </button>
                               ) : (
-                                <div className="relative flex items-center justify-center gap-1 w-full max-w-[135px]">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0 animate-pulse" title="Em Produção" />
+                                <div className="flex items-center gap-1 w-full max-w-[140px]">
+                                  {/* Botão de Lançado (HardHat + Check Verde) */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoverDaProducao(sale)}
+                                    title="Trabalho lançado na produção (Com check verde). Clique para desmarcar."
+                                    className="h-6 px-1.5 bg-emerald-500/20 hover:bg-rose-500/20 border border-emerald-500/35 hover:border-rose-500/40 text-emerald-300 hover:text-rose-300 rounded-full flex items-center gap-1 text-[8px] font-black uppercase transition-colors shrink-0 cursor-pointer"
+                                  >
+                                    <HardHat size={11} className="text-emerald-400 shrink-0" />
+                                    <CheckCircle size={10} className="text-emerald-400 shrink-0" />
+                                  </button>
+                                  {/* Seletor de Etapa Independente */}
                                   <select
                                     value={sale.serviceStatus}
                                     onChange={(e) => {
@@ -21074,25 +21101,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                       }
                                     }}
                                     onClick={(e) => e.stopPropagation()}
-                                    title="Em Produção — Clique para mudar de etapa ou desmarcar"
+                                    title="Etapa atual na esteira — Clique para alterar"
                                     className="h-6 w-full bg-indigo-500/20 border border-indigo-500/35 rounded-full pl-2 pr-1 text-[8px] font-black uppercase text-indigo-300 focus:outline-none focus:border-primary-500 cursor-pointer truncate"
                                   >
                                     {STAGE_ORDER.map(id => (
                                       <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
                                     ))}
-                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
+                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar</option>
                                   </select>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRemoverDaProducao(sale);
-                                    }}
-                                    title="Desmarcar / Remover da Produção"
-                                    className="h-5 w-5 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/40 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
-                                  >
-                                    <X size={10} />
-                                  </button>
                                 </div>
                               )}
                             </div>
@@ -21488,14 +21504,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 title="Lançar este pedido para a esteira de Produção / Serviços"
                                 className="h-7 px-3 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 shadow-sm"
                               >
-                                <Factory size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
+                                <HardHat size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
                                 <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
                               </button>
                             ) : (
                               <div className="flex items-center gap-1.5">
-                                <span className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 border border-white/10", stageColorOf(sale.serviceStatus).bg, stageColorOf(sale.serviceStatus).text)}>
-                                  {React.createElement(stageIconOf(sale.serviceStatus), { size: 12, className: "shrink-0" })}
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoverDaProducao(sale)}
+                                  title="Trabalho lançado na produção (Com check verde). Clique para desmarcar."
+                                  className="h-7 px-2 bg-emerald-500/20 hover:bg-rose-500/20 border border-emerald-500/35 hover:border-rose-500/40 text-emerald-300 hover:text-rose-300 rounded-full flex items-center gap-1.5 text-[9px] font-black uppercase transition-colors cursor-pointer"
+                                >
+                                  <HardHat size={13} className="text-emerald-400 shrink-0" />
+                                  <CheckCircle size={12} className="text-emerald-400 shrink-0" />
+                                  <span>Lançado</span>
+                                </button>
                                 <select
                                   value={sale.serviceStatus}
                                   onChange={(e) => {
@@ -21519,23 +21542,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   ))}
                                   <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
                                 </select>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoverDaProducao(sale);
-                                  }}
-                                  title="Desmarcar / Remover da Produção"
-                                  className="h-7 w-7 rounded-full bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 text-white/40 hover:text-rose-300 flex items-center justify-center shrink-0 transition-colors"
-                                >
-                                  <X size={12} />
-                                </button>
                               </div>
                             )}
                             {sale.scheduledFor && (
                               <EntregaCountdown
                                 scheduledFor={sale.scheduledFor}
-                                delivered={sale.serviceStatus === 'produto_entregue'}
+                                delivered={sale.serviceStatus === 'produto_entregue' || (sale as any).delivered === true}
                                 onEdit={() => handleEditScheduleFromCard(sale)}
                                 onDeliver={() => handleDeliverFromCard(sale)}
                                 onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
