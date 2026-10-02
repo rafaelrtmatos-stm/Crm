@@ -91,7 +91,7 @@ export const ProductionModule: React.FC<ProductionModuleProps> = ({ currentCompa
     try {
       const { error } = await supabase
         .from('vendas')
-        .update({ service_status: targetStatus, updated_at: new Date().toISOString() })
+        .update({ service_status: targetStatus, etapa_servico: targetStatus, updated_at: new Date().toISOString() })
         .eq('id', orderId);
 
       if (error) throw error;

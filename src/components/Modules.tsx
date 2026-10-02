@@ -1030,7 +1030,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   deletedAt: row.deleted_at || row.deletedAt || undefined,
   observacoes: row.observacoes || undefined,
   serviceStatus: row.service_status || row.serviceStatus || undefined,
-  entregueEm: row.entregue_em || row.entregueEm || undefined,
+  etapaServico: row.etapa_servico || row.etapaServico || undefined,
   statusHistory: Array.isArray(row.status_history) ? row.status_history : (Array.isArray(row.statusHistory) ? row.statusHistory : []),
   responsavel: row.responsavel || undefined,
   orcamentoId: row.orcamento_id || row.orcamentoId || undefined,
@@ -1038,9 +1038,25 @@ const mapVendaRow = (row: any): SaleOrder => ({
   extraCosts: deduplicateExtraCosts(row.custos_extras || row.extraCosts),
 } as SaleOrder);
 
-// Entregue = tem data de entrega OU está na etapa final (pedidos antigos). Independe de estar lançado na esteira.
-const isSaleDelivered = (sale: { entregueEm?: string; serviceStatus?: string }) =>
-  Boolean(sale.entregueEm) || sale.serviceStatus === 'produto_entregue';
+// Etapa do pedido: vem de etapa_servico (cai em service_status só para pedidos sem a coluna preenchida).
+// service_status = "lançado para produção" (não nulo = a mão de obra aparece para o funcionário).
+const etapaOf = (sale: { etapaServico?: string; serviceStatus?: string }) => sale.etapaServico || sale.serviceStatus || undefined;
+
+// Entregue = etapa final. Independe de estar lançado para produção.
+const isSaleDelivered = (sale: { etapaServico?: string; serviceStatus?: string }) => etapaOf(sale) === 'produto_entregue';
+
+// Troca a etapa no estado local. Só acompanha service_status se o pedido já está lançado.
+const applyEtapa = <T extends { serviceStatus?: any; etapaServico?: any }>(sale: T, etapa: string): T =>
+  ({ ...sale, etapaServico: etapa as any, serviceStatus: sale.serviceStatus ? (etapa as any) : sale.serviceStatus });
+
+// Campos gravados em vendas ao trocar a etapa. Só mexe em service_status (lançado) se o pedido já estiver lançado.
+const buildVendaEtapaUpdates = async (vendaId: string, etapa: string, forceLaunch = false): Promise<Record<string, any>> => {
+  const updates: Record<string, any> = { etapa_servico: etapa };
+  if (forceLaunch) { updates.service_status = etapa; return updates; }
+  const { data } = await supabase.from('vendas').select('service_status').eq('id', vendaId).maybeSingle();
+  if (data?.service_status) updates.service_status = etapa;
+  return updates;
+};
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
   id: row.id,
@@ -15329,6 +15345,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           observacoes: contratoForm.observacoes || null,
           orcamento_id: contratoForm.orcamentoId || null,
           service_status: 'pedido_recebido',
+          etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
         vendaId = novaVenda.id;
@@ -15999,6 +16016,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: 'pending',
           observacoes: orcamentoForm.observacoes || null,
           service_status: 'pedido_recebido',
+          etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
         vendaId = novaVenda.id;
@@ -16100,10 +16118,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   // SINCRONIZAÇÃO DE ETAPAS: Pedido ↔ Orçamento ↔ Contrato
   // Quando qualquer um muda de etapa, atualiza os outros 2 (se vinculados)
-  const syncServiceStatus = async (sourceType: 'venda' | 'orcamento' | 'contrato', docId: string, newStatus: string) => {
+  const syncServiceStatus = async (sourceType: 'venda' | 'orcamento' | 'contrato', docId: string, newStatus: string, forceLaunch = false) => {
     try {
       // 1. Atualizar o documento que foi alterado
-      const updates: Record<string, any> = { service_status: newStatus };
+      const updates: Record<string, any> = sourceType === 'venda'
+        ? await buildVendaEtapaUpdates(docId, newStatus, forceLaunch)
+        : { service_status: newStatus };
       const { error: updateError } = await supabase
         .from(sourceType === 'venda' ? 'vendas' : sourceType === 'orcamento' ? 'orcamentos' : 'contratos')
         .update(updates)
@@ -16149,9 +16169,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const updates_others: Record<string, any> = { service_status: newStatus };
       
       if (vendaId && sourceType !== 'venda') {
-        await supabase.from('vendas').update(updates_others).eq('id', vendaId);
+        await supabase.from('vendas').update(await buildVendaEtapaUpdates(vendaId, newStatus)).eq('id', vendaId);
         // Recarregar dados do Pedido
-        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? { ...s, serviceStatus: newStatus as any } : s));
+        setAllSalesHistory(prev => prev.map(s => s.id === vendaId ? applyEtapa(s, newStatus) : s));
       }
       if (orcamentoId && sourceType !== 'orcamento') {
         await supabase.from('orcamentos').update(updates_others).eq('id', orcamentoId);
@@ -17721,10 +17741,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const payload: Record<string, any> = {};
     if (bulkEditFields.paymentMethod.on) payload.payment_method = bulkEditFields.paymentMethod.value;
     if (bulkEditFields.scheduledFor.on) payload.scheduled_for = localDatetimeToIso(bulkEditFields.scheduledFor.value);
-    if (bulkEditFields.serviceStatus.on) payload.service_status = bulkEditFields.serviceStatus.value;
+    if (bulkEditFields.serviceStatus.on) payload.etapa_servico = bulkEditFields.serviceStatus.value;
     if (bulkEditFields.observacoes.on) payload.observacoes = bulkEditFields.observacoes.value || null;
     const ids = Array.from(selectedSaleIds);
     const { error } = await supabase.from('vendas').update(payload).in('id', ids);
+    // Etapa nova só acompanha service_status nos pedidos que já estão lançados
+    if (!error && bulkEditFields.serviceStatus.on) {
+      await supabase.from('vendas').update({ service_status: bulkEditFields.serviceStatus.value }).in('id', ids).not('service_status', 'is', null);
+    }
     setIsSavingBulkEdit(false);
     if (error) { console.error(error); showAlert('Não foi possível salvar as alterações em massa.'); return; }
     showAlert(`${ids.length} venda(s) atualizada(s) com sucesso!`);
@@ -17987,26 +18011,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
-    const vendaAntes = allSalesHistory.find(s => s.id === saleId);
+    // Troca só a etapa; não lança nem desmarca o pedido da produção
     await syncServiceStatus('venda', saleId, newStatus);
-    // Etapa final grava a data de entrega; sair da etapa final (correção) limpa. Outras trocas não mexem.
-    let entregueEmNovo: string | undefined | null = undefined;
-    if (newStatus === 'produto_entregue' && !vendaAntes?.entregueEm) entregueEmNovo = new Date().toISOString();
-    else if (newStatus !== 'produto_entregue' && vendaAntes?.serviceStatus === 'produto_entregue') entregueEmNovo = null;
-    if (entregueEmNovo !== undefined) {
-      const { error: entregueErr } = await supabase.from('vendas').update({ entregue_em: entregueEmNovo }).eq('id', saleId);
-      if (entregueErr) console.error('Erro ao gravar entregue_em:', entregueErr);
-      else {
-        const valor = entregueEmNovo || undefined;
-        setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, entregueEm: valor } : s));
-        setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, entregueEm: valor } : s));
-      }
-    }
     // Atualizar estado local após sincronização
-    setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
-    setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
-    setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
-    setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, serviceStatus: newStatus as any } : s));
+    setViewingReceiptSale(prev => prev && prev.id === saleId ? applyEtapa(prev, newStatus) : prev);
+    setLastFinalizedOrder(prev => prev && prev.id === saleId ? applyEtapa(prev, newStatus) : prev);
+    setAllSalesHistory(prev => prev.map(s => s.id === saleId ? applyEtapa(s, newStatus) : s));
+    setSalesToday(prev => prev.map(s => s.id === saleId ? applyEtapa(s, newStatus) : s));
 
     if (newStatus === 'produto_entregue') {
       const sale = allSalesHistory.find(s => s.id === saleId) || (lastFinalizedOrder?.id === saleId ? lastFinalizedOrder : null) || (viewingReceiptSale?.id === saleId ? viewingReceiptSale : null);
@@ -18037,11 +18048,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     setLancandoProducaoId(sale.id);
     try {
-      // Se o pedido já tem etapa, mantém (não volta para 'producao'); entregue_em não é tocado
-      const etapaLancamento = sale.serviceStatus || 'producao';
-      await syncServiceStatus('venda', sale.id, etapaLancamento);
+      // Lançar só marca o pedido como lançado (service_status). Se já tem etapa, mantém; senão começa em 'producao'
+      const etapaExistente = etapaOf(sale);
+      const etapaLancamento = etapaExistente || 'producao';
       const nowIso = new Date().toISOString();
-      const atualizado = { ...sale, serviceStatus: etapaLancamento as any, updatedAt: nowIso };
+      if (etapaExistente) {
+        const { error: lancErr } = await supabase.from('vendas')
+          .update({ service_status: etapaLancamento, etapa_servico: etapaLancamento, updated_at: nowIso })
+          .eq('id', sale.id);
+        if (lancErr) throw lancErr;
+      } else {
+        await syncServiceStatus('venda', sale.id, etapaLancamento, true);
+      }
+      const atualizado = { ...sale, serviceStatus: etapaLancamento as any, etapaServico: etapaLancamento as any, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       showAlert(`Pedido #${sale.id.slice(-8).toUpperCase()} lançado para Produção com sucesso!`);
@@ -18058,14 +18077,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!confirma) return;
     try {
       const nowIso = new Date().toISOString();
-      // Desmarcar produção só zera a etapa. Se o pedido estava entregue só pela etapa final
-      // (pedido antigo, sem entregue_em), registra a entrega antes para não perdê-la.
+      // Desmarcar produção só zera service_status (lançado). A etapa (etapa_servico) é preservada.
+      const etapaAtual = etapaOf(sale);
       const updates: Record<string, any> = { service_status: null, updated_at: nowIso };
-      const entregueEmFinal = sale.entregueEm || (sale.serviceStatus === 'produto_entregue' ? nowIso : undefined);
-      if (!sale.entregueEm && entregueEmFinal) updates.entregue_em = entregueEmFinal;
+      if (!sale.etapaServico && etapaAtual) updates.etapa_servico = etapaAtual;
       const { error } = await supabase.from('vendas').update(updates).eq('id', sale.id);
       if (error) throw error;
-      const atualizado = { ...sale, serviceStatus: undefined, entregueEm: entregueEmFinal, updatedAt: nowIso };
+      const atualizado = { ...sale, serviceStatus: undefined, etapaServico: etapaAtual as any, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       showAlert('Lançamento desmarcado com sucesso. (Os itens já adicionados à comissão continuam seguros)');
@@ -18974,14 +18992,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
     const nowIso = new Date().toISOString();
     
-    // Entregar grava só a data de entrega: NÃO lança o pedido na esteira dos funcionários.
-    // Se ele já está na esteira, a etapa acompanha para 'produto_entregue'.
-    const updates: Record<string, any> = { entregue_em: nowIso, updated_at: nowIso };
+    // Entregar é só a etapa final (etapa_servico): NÃO lança o pedido na esteira dos funcionários.
+    // Se ele já está lançado, service_status acompanha para 'produto_entregue'.
+    const updates: Record<string, any> = { etapa_servico: 'produto_entregue', updated_at: nowIso };
     if (sale.serviceStatus) updates.service_status = 'produto_entregue';
 
     const atualizado = {
       ...sale,
-      entregueEm: nowIso,
+      etapaServico: 'produto_entregue' as any,
       serviceStatus: sale.serviceStatus ? ('produto_entregue' as any) : sale.serviceStatus,
       updatedAt: nowIso
     };
@@ -19396,6 +19414,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           orcamento_id: linkedOrcamentoId || null,
           discount_value: saleDiscountValue || null,
           service_status: 'pedido_recebido',
+          etapa_servico: 'pedido_recebido',
         }).select().single();
         if (error) throw error;
         insertedVenda = insertedVendaResult;
@@ -20989,11 +21008,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setActiveTab('servicos'); }}
-                                    title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} (clique para ir a Serviços)`}
+                                    title={`Em Produção: ${STAGE_LABELS[etapaOf(sale)!] || etapaOf(sale)} (clique para ir a Serviços)`}
                                     className="h-5 px-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
                                   >
                                     <Factory size={8} className="text-amber-400" />
-                                    <span className="truncate max-w-[85px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
+                                    <span className="truncate max-w-[85px]">{STAGE_LABELS[etapaOf(sale)!] || etapaOf(sale)}</span>
                                   </button>
                                 )}
 
@@ -21110,7 +21129,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   </button>
                                   {/* Seletor de Etapa Independente */}
                                   <select
-                                    value={sale.serviceStatus}
+                                    value={etapaOf(sale)}
                                     onChange={(e) => {
                                       if (e.target.value === '__remover__') {
                                         handleRemoverDaProducao(sale);
@@ -21321,9 +21340,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span>{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
                               </button>
                             ) : (
-                              <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(sale.serviceStatus).bg, stageColorOf(sale.serviceStatus).text, "border-white/10")}>
-                                {React.createElement(stageIconOf(sale.serviceStatus), { size: 10, className: "shrink-0" })}
-                                <span className="truncate max-w-[90px]">{STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus}</span>
+                              <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(etapaOf(sale)!).bg, stageColorOf(etapaOf(sale)!).text, "border-white/10")}>
+                                {React.createElement(stageIconOf(etapaOf(sale)!), { size: 10, className: "shrink-0" })}
+                                <span className="truncate max-w-[90px]">{STAGE_LABELS[etapaOf(sale)!] || etapaOf(sale)}</span>
                               </div>
                             )}
                           </div>
@@ -21540,7 +21559,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <span>Lançado</span>
                                 </button>
                                 <select
-                                  value={sale.serviceStatus}
+                                  value={etapaOf(sale)}
                                   onChange={(e) => {
                                     if (e.target.value === '__remover__') {
                                       handleRemoverDaProducao(sale);
@@ -21552,7 +21571,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   title="Em Produção — Clique para alterar etapa ou desmarcar"
                                   className={cn(
                                     "h-7 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px] border",
-                                    sale.serviceStatus === 'produto_entregue'
+                                    etapaOf(sale) === 'produto_entregue'
                                       ? "bg-sky-500/20 border-sky-500/40 text-sky-200"
                                       : "bg-amber-500/20 border-amber-500/40 text-amber-200"
                                   )}
@@ -21832,7 +21851,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const down = sale.downPayment || 0;
                   const balance = sale.total - down;
                   const isPartial = balance > 0 || sale.status === 'pending';
-                  const currentStage = sale.serviceStatus || 'pedido_recebido';
+                  const currentStage = etapaOf(sale) || 'pedido_recebido';
                   const entregue = isSaleDelivered(sale);
                   return (
                     <div key={sale.id} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/10 rounded-2xl px-4 py-3.5 transition-all space-y-3">
@@ -24414,12 +24433,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    <div className="pt-2 border-t border-white/5 space-y-1">
                       <label className="text-[9px] font-black uppercase text-white/40 tracking-widest block">Etapa Atual</label>
                       <select
-                        value={lastFinalizedOrder.serviceStatus || ''}
+                        value={etapaOf(lastFinalizedOrder) || ''}
                         onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(lastFinalizedOrder.id, e.target.value); }}
                         className="w-full h-9 bg-slate-900/60 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
                       >
-                        {!lastFinalizedOrder.serviceStatus && (
-                          <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
+                        {!etapaOf(lastFinalizedOrder) && (
+                          <option value="" disabled className="bg-slate-900">Escolha a etapa</option>
                         )}
                         {STAGE_ORDER.map(id => (
                           <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
@@ -27191,12 +27210,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                <div className="bg-slate-900/60 rounded-xl p-2.5 sm:p-3 border border-white/10 space-y-1.5 shadow-md">
                  <label className="text-[9px] font-black uppercase text-white/50 tracking-widest block">Etapa de Produção</label>
                  <select
-                   value={sale.serviceStatus || ''}
+                   value={etapaOf(sale) || ''}
                    onChange={(e) => { if (e.target.value) handleUpdateServiceStatus(sale.id, e.target.value); }}
                    className="w-full h-8 bg-slate-900/90 border border-white/10 rounded-lg px-2 text-xs text-white font-bold focus:outline-none focus:border-primary-500 cursor-pointer"
                  >
-                   {!sale.serviceStatus && (
-                     <option value="" disabled className="bg-slate-900">Escolha a etapa (envia p/ Serviços)</option>
+                   {!etapaOf(sale) && (
+                     <option value="" disabled className="bg-slate-900">Escolha a etapa</option>
                    )}
                    {STAGE_ORDER.map(id => (
                      <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
@@ -28339,6 +28358,7 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
         payment_method: 'pix',
         status: isPending ? 'pending' : 'completed',
         service_status: 'pedido_recebido',
+        etapa_servico: 'pedido_recebido',
       }).select().single();
       if (vendaErr) throw vendaErr;
       const orderId = vendaRow.id;
@@ -29702,9 +29722,9 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
           </span>
         )}
         <div className="relative">
-          <span className={cn("absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(pedido.serviceStatus || 'pedido_recebido').dot)} />
+          <span className={cn("absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(etapaOf(pedido) || 'pedido_recebido').dot)} />
           <select
-            value={pedido.serviceStatus || 'pedido_recebido'}
+            value={etapaOf(pedido) || 'pedido_recebido'}
             onPointerDown={(e: any) => e.stopPropagation()}
             onClick={(e: any) => e.stopPropagation()}
             onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
@@ -29803,9 +29823,9 @@ const OrdemServicoListRow = ({ pedido, onDropdownChange, selectMode, selected, o
          </span>
        )}
        <div className="relative shrink-0">
-         <span className={cn("absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(pedido.serviceStatus || 'pedido_recebido').dot)} />
+         <span className={cn("absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none", stageColorOf(etapaOf(pedido) || 'pedido_recebido').dot)} />
          <select
-           value={pedido.serviceStatus || 'pedido_recebido'}
+           value={etapaOf(pedido) || 'pedido_recebido'}
            onClick={(e: any) => e.stopPropagation()}
            onChange={(e: any) => { e.stopPropagation(); onDropdownChange(pedido, e.target.value); }}
            disabled={selectMode}
@@ -29887,8 +29907,10 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
 
   const handleAdvanceStage = async (pedido: SaleOrder, novaEtapa: string) => {
     // Atualiza local na hora (nao espera o realtime) pra mover o card instantaneamente
-    setPedidos(prev => prev.map(p => p.id === pedido.id ? { ...p, serviceStatus: novaEtapa as any } : p));
-    const { error } = await supabase.from('vendas').update({ service_status: novaEtapa }).eq('id', pedido.id);
+    setPedidos(prev => prev.map(p => p.id === pedido.id ? applyEtapa(p, novaEtapa) : p));
+    const etapaUpdates: Record<string, any> = { etapa_servico: novaEtapa };
+    if (pedido.serviceStatus) etapaUpdates.service_status = novaEtapa;
+    const { error } = await supabase.from('vendas').update(etapaUpdates).eq('id', pedido.id);
     if (error) showAlert(`Não foi possível atualizar a etapa: ${error.message}`);
   };
 
@@ -29910,11 +29932,14 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     if (!(await showConfirm(`Aplicar essas alterações em ${selectedIds.size} pedido(s) selecionado(s)?`))) return;
     setIsSavingBulkEdit(true);
     const payload: Record<string, any> = {};
-    if (bulkFields.serviceStatus.on) payload.service_status = bulkFields.serviceStatus.value;
+    if (bulkFields.serviceStatus.on) payload.etapa_servico = bulkFields.serviceStatus.value;
     const scheduledForIso = bulkFields.scheduledFor.on ? localDatetimeToIso(bulkFields.scheduledFor.value) : null;
     if (bulkFields.scheduledFor.on) payload.scheduled_for = scheduledForIso;
     const ids = Array.from(selectedIds);
     const { data, error } = await supabase.from('vendas').update(payload).in('id', ids).select();
+    if (!error && bulkFields.serviceStatus.on) {
+      await supabase.from('vendas').update({ service_status: bulkFields.serviceStatus.value }).in('id', ids).not('service_status', 'is', null);
+    }
     setIsSavingBulkEdit(false);
     if (error) { showAlert(`Não foi possível salvar as alterações em massa: ${error.message}`); return; }
     // Atualiza local na hora, sem esperar o realtime
@@ -29922,7 +29947,8 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
       if (!ids.includes(p.id)) return p;
       return {
         ...p,
-        serviceStatus: bulkFields.serviceStatus.on ? (bulkFields.serviceStatus.value as any) : p.serviceStatus,
+        etapaServico: bulkFields.serviceStatus.on ? (bulkFields.serviceStatus.value as any) : p.etapaServico,
+        serviceStatus: bulkFields.serviceStatus.on && p.serviceStatus ? (bulkFields.serviceStatus.value as any) : p.serviceStatus,
         scheduledFor: bulkFields.scheduledFor.on ? (scheduledForIso || undefined) : p.scheduledFor,
       };
     }));
@@ -29943,8 +29969,8 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
     // Solta em cima de uma coluna vazia (id = stageId) ou em cima de outro card (pega a etapa do card)
     const overStageId = STAGE_ORDER.includes(over.id as string)
       ? (over.id as string)
-      : pedidos.find(p => p.id === over.id)?.serviceStatus || 'pedido_recebido';
-    if (overStageId && (pedido.serviceStatus || 'pedido_recebido') !== overStageId) {
+      : (pedidos.find(p => p.id === over.id) ? etapaOf(pedidos.find(p => p.id === over.id)!) : undefined) || 'pedido_recebido';
+    if (overStageId && (etapaOf(pedido) || 'pedido_recebido') !== overStageId) {
       handleAdvanceStage(pedido, overStageId);
     }
   };
@@ -29956,7 +29982,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   );
 
   const pedidosOrdenados = [...pedidos].filter(p => {
-    const etapa = p.serviceStatus || 'pedido_recebido';
+    const etapa = etapaOf(p) || 'pedido_recebido';
     if (etapa === 'produto_entregue' && !showEntregues) {
       const dias = (Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24);
       return dias <= 2;
@@ -30075,7 +30101,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
               <OrdemServicoColumn
                 key={stageId}
                 stageId={stageId}
-                pedidos={pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId)}
+                pedidos={pedidosOrdenados.filter(p => (etapaOf(p) || 'pedido_recebido') === stageId)}
                 onDropdownChange={handleAdvanceStageWithConfirm}
                 selectMode={selectMode}
                 selectedIds={selectedIds}
@@ -30094,7 +30120,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
         <div className="space-y-4">
            <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
               {STAGE_ORDER.map(stageId => {
-                const count = pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === stageId).length;
+                const count = pedidosOrdenados.filter(p => (etapaOf(p) || 'pedido_recebido') === stageId).length;
                 return (
                   <button
                     key={stageId}
@@ -30110,19 +30136,19 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
                 );
               })}
            </div>
-           {selectMode && pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).length > 0 && (
+           {selectMode && pedidosOrdenados.filter(p => (etapaOf(p) || 'pedido_recebido') === etapaSelecionada).length > 0 && (
              <button
-               onClick={() => toggleSelectedGroup(pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(p => p.id))}
+               onClick={() => toggleSelectedGroup(pedidosOrdenados.filter(p => (etapaOf(p) || 'pedido_recebido') === etapaSelecionada).map(p => p.id))}
                className="flex items-center gap-1.5 text-[9px] font-black uppercase text-white/50 hover:text-white cursor-pointer border-0 bg-transparent"
              >
                <CheckSquare size={13} /> Selecionar todos desta etapa
              </button>
            )}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).map(pedido => (
+              {pedidosOrdenados.filter(p => (etapaOf(p) || 'pedido_recebido') === etapaSelecionada).map(pedido => (
                 <OrdemServicoCard key={pedido.id} pedido={pedido} onDropdownChange={handleAdvanceStageWithConfirm} selectMode={selectMode} selected={selectedIds.has(pedido.id)} onToggleSelect={toggleSelected} />
               ))}
-              {pedidosOrdenados.filter(p => (p.serviceStatus || 'pedido_recebido') === etapaSelecionada).length === 0 && (
+              {pedidosOrdenados.filter(p => (etapaOf(p) || 'pedido_recebido') === etapaSelecionada).length === 0 && (
                 <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-10">
                    <Layers size={40} />
                 </div>

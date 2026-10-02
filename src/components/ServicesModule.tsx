@@ -103,7 +103,7 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
     try {
       const { error } = await supabase
         .from('vendas')
-        .update({ service_status: newStatus, updated_at: new Date().toISOString() })
+        .update({ service_status: newStatus, etapa_servico: newStatus, updated_at: new Date().toISOString() })
         .eq('id', orderId);
 
       if (error) throw error;

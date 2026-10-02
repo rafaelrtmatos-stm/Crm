@@ -101,8 +101,8 @@ export interface SaleOrder {
   pendingPaymentMethod?: string;
   status: 'pending' | 'completed' | 'canceled';
   serviceStatus?: 'pedido_recebido' | 'aguardando_arte' | 'arte_em_desenvolvimento' | 'aguardando_aprovacao' | 'producao' | 'acabamento' | 'aguardando_retirada' | 'produto_entregue';
-  /** Quando o pedido foi entregue. Independe de estar lançado na esteira (service_status). */
-  entregueEm?: string;
+  /** Etapa do pedido (de pedido_recebido até produto_entregue). Independe de estar lançado para produção (serviceStatus). */
+  etapaServico?: 'pedido_recebido' | 'aguardando_arte' | 'arte_em_desenvolvimento' | 'aguardando_aprovacao' | 'producao' | 'acabamento' | 'aguardando_retirada' | 'produto_entregue';
   statusHistory?: { status: string; changedAt: string }[];
   responsavel?: string;
   orcamentoId?: string;

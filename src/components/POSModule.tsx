@@ -160,7 +160,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     try {
       const { error } = await supabase
         .from('vendas')
-        .update({ service_status: 'producao', updated_at: new Date().toISOString() })
+        .update({ service_status: 'producao', etapa_servico: 'producao', updated_at: new Date().toISOString() })
         .eq('id', sale.id);
       if (error) throw error;
 
