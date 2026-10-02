@@ -1030,12 +1030,17 @@ const mapVendaRow = (row: any): SaleOrder => ({
   deletedAt: row.deleted_at || row.deletedAt || undefined,
   observacoes: row.observacoes || undefined,
   serviceStatus: row.service_status || row.serviceStatus || undefined,
+  entregueEm: row.entregue_em || row.entregueEm || undefined,
   statusHistory: Array.isArray(row.status_history) ? row.status_history : (Array.isArray(row.statusHistory) ? row.statusHistory : []),
   responsavel: row.responsavel || undefined,
   orcamentoId: row.orcamento_id || row.orcamentoId || undefined,
   contratoId: row.contrato_id || row.contratoId || undefined,
   extraCosts: deduplicateExtraCosts(row.custos_extras || row.extraCosts),
 } as SaleOrder);
+
+// Entregue = tem data de entrega OU está na etapa final (pedidos antigos). Independe de estar lançado na esteira.
+const isSaleDelivered = (sale: { entregueEm?: string; serviceStatus?: string }) =>
+  Boolean(sale.entregueEm) || sale.serviceStatus === 'produto_entregue';
 
 const mapOrcamentoRow = (row: any): Orcamento => ({
   id: row.id,
@@ -17982,7 +17987,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleUpdateServiceStatus = async (saleId: string, newStatus: string) => {
+    const vendaAntes = allSalesHistory.find(s => s.id === saleId);
     await syncServiceStatus('venda', saleId, newStatus);
+    // Etapa final grava a data de entrega; sair da etapa final (correção) limpa. Outras trocas não mexem.
+    let entregueEmNovo: string | undefined | null = undefined;
+    if (newStatus === 'produto_entregue' && !vendaAntes?.entregueEm) entregueEmNovo = new Date().toISOString();
+    else if (newStatus !== 'produto_entregue' && vendaAntes?.serviceStatus === 'produto_entregue') entregueEmNovo = null;
+    if (entregueEmNovo !== undefined) {
+      const { error: entregueErr } = await supabase.from('vendas').update({ entregue_em: entregueEmNovo }).eq('id', saleId);
+      if (entregueErr) console.error('Erro ao gravar entregue_em:', entregueErr);
+      else {
+        const valor = entregueEmNovo || undefined;
+        setAllSalesHistory(prev => prev.map(s => s.id === saleId ? { ...s, entregueEm: valor } : s));
+        setSalesToday(prev => prev.map(s => s.id === saleId ? { ...s, entregueEm: valor } : s));
+      }
+    }
     // Atualizar estado local após sincronização
     setViewingReceiptSale(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
     setLastFinalizedOrder(prev => prev && prev.id === saleId ? { ...prev, serviceStatus: newStatus as any } : prev);
@@ -18018,9 +18037,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
     setLancandoProducaoId(sale.id);
     try {
-      await syncServiceStatus('venda', sale.id, 'producao');
+      // Se o pedido já tem etapa, mantém (não volta para 'producao'); entregue_em não é tocado
+      const etapaLancamento = sale.serviceStatus || 'producao';
+      await syncServiceStatus('venda', sale.id, etapaLancamento);
       const nowIso = new Date().toISOString();
-      const atualizado = { ...sale, serviceStatus: 'producao' as any, updatedAt: nowIso };
+      const atualizado = { ...sale, serviceStatus: etapaLancamento as any, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       showAlert(`Pedido #${sale.id.slice(-8).toUpperCase()} lançado para Produção com sucesso!`);
@@ -18037,9 +18058,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!confirma) return;
     try {
       const nowIso = new Date().toISOString();
-      const { error } = await supabase.from('vendas').update({ service_status: null, updated_at: nowIso }).eq('id', sale.id);
+      // Desmarcar produção só zera a etapa. Se o pedido estava entregue só pela etapa final
+      // (pedido antigo, sem entregue_em), registra a entrega antes para não perdê-la.
+      const updates: Record<string, any> = { service_status: null, updated_at: nowIso };
+      const entregueEmFinal = sale.entregueEm || (sale.serviceStatus === 'produto_entregue' ? nowIso : undefined);
+      if (!sale.entregueEm && entregueEmFinal) updates.entregue_em = entregueEmFinal;
+      const { error } = await supabase.from('vendas').update(updates).eq('id', sale.id);
       if (error) throw error;
-      const atualizado = { ...sale, serviceStatus: undefined, updatedAt: nowIso };
+      const atualizado = { ...sale, serviceStatus: undefined, entregueEm: entregueEmFinal, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       showAlert('Lançamento desmarcado com sucesso. (Os itens já adicionados à comissão continuam seguros)');
@@ -18948,12 +18974,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
     const nowIso = new Date().toISOString();
     
-    const updates: any = { updated_at: nowIso };
-    
-    const atualizado = { 
-      ...sale, 
-      delivered: true,
-      updatedAt: nowIso 
+    // Entregar grava só a data de entrega: NÃO lança o pedido na esteira dos funcionários.
+    // Se ele já está na esteira, a etapa acompanha para 'produto_entregue'.
+    const updates: Record<string, any> = { entregue_em: nowIso, updated_at: nowIso };
+    if (sale.serviceStatus) updates.service_status = 'produto_entregue';
+
+    const atualizado = {
+      ...sale,
+      entregueEm: nowIso,
+      serviceStatus: sale.serviceStatus ? ('produto_entregue' as any) : sale.serviceStatus,
+      updatedAt: nowIso
     };
 
     const { data, error } = await supabase.from('vendas').update(updates).eq('id', sale.id).select();
@@ -20958,7 +20988,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 ) : (
                                   <button
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); handleLancarProducao(sale); }}
+                                    onClick={(e) => { e.stopPropagation(); setActiveTab('servicos'); }}
                                     title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus} (clique para ir a Serviços)`}
                                     className="h-5 px-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
                                   >
@@ -21535,7 +21565,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             {sale.scheduledFor && (
                               <EntregaCountdown
                                 scheduledFor={sale.scheduledFor}
-                                delivered={sale.serviceStatus === 'produto_entregue' || (sale as any).delivered === true}
+                                delivered={isSaleDelivered(sale)}
                                 onEdit={() => handleEditScheduleFromCard(sale)}
                                 onDeliver={() => handleDeliverFromCard(sale)}
                                 onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
@@ -21801,7 +21831,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   const balance = sale.total - down;
                   const isPartial = balance > 0 || sale.status === 'pending';
                   const currentStage = sale.serviceStatus || 'pedido_recebido';
-                  const entregue = currentStage === 'produto_entregue';
+                  const entregue = isSaleDelivered(sale);
                   return (
                     <div key={sale.id} className="bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/10 rounded-2xl px-4 py-3.5 transition-all space-y-3">
 
@@ -27196,7 +27226,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                >
                  {enviandoReciboWhatsApp ? 'Enviando...' : 'Enviar Recibo'}
                </Button>
-               {sale.serviceStatus === 'produto_entregue' && (
+               {isSaleDelivered(sale) && (
                  <Button
                    variant="secondary"
                    size="sm"
