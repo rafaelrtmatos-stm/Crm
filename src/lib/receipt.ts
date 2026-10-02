@@ -67,15 +67,15 @@ export function loadImage(src: string, timeoutMs: number = 3000): Promise<HTMLIm
 }
 
 // ---------- Paleta Rafa Arts Graphics (Preto, Grafite, Vermelho, Branco, Cinza) ----------
-const RED = '#FF2B2B';
-const RED_DARK = '#B51218';
-const BG = '#090909';
-const CARD_BG = '#151515';
-const CARD_BORDER = '#202020';
-const TEXT_WHITE = '#FFFFFF';
-const TEXT_GRAY = '#A0A0A0';
-const TEXT_MUTED = '#666666';
-const FONT = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
+export const RED = '#FF2B2B';
+export const RED_DARK = '#B51218';
+export const BG = '#090909';
+export const CARD_BG = '#151515';
+export const CARD_BORDER = '#202020';
+export const TEXT_WHITE = '#FFFFFF';
+export const TEXT_GRAY = '#A0A0A0';
+export const TEXT_MUTED = '#666666';
+export const FONT = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
 export const PIPELINE_STAGES = [
   'Pedido Recebido',

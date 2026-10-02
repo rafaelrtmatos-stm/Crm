@@ -16225,7 +16225,63 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const updateOrcamentoStatus = async (o: Orcamento, newStatus: string) => {
+    const agoraIso = new Date().toISOString();
+    const updatePayload: Record<string, any> = { status: newStatus };
+    if (newStatus === 'aprovado' && !o.aprovadoEm) {
+      updatePayload.aprovado_em = agoraIso;
+      updatePayload.aprovado_por = user?.name || 'Responsável';
+    }
+    const { error } = await supabase.from('orcamentos').update(updatePayload).eq('id', o.id);
+    if (error) {
+      showAlert('Não foi possível atualizar o status do orçamento.');
+      return;
+    }
     await syncServiceStatus('orcamento', o.id, newStatus);
+    loadOrcamentos();
+  };
+
+  const handleGerarNotaFromOrcamento = async (o: Orcamento) => {
+    if (o.vendaId) {
+      openReceiptById(o.vendaId);
+      return;
+    }
+    if (!(await showConfirm(`Gerar Nota/Recibo a partir do orçamento ${o.numero} para ${o.customerName || 'Cliente'}?`))) return;
+    try {
+      const novaVendaPayload = {
+        company_id: currentCompany?.id || 'rafa-arts',
+        customer_id: o.clienteId || null,
+        customer_name: o.customerName || 'Cliente',
+        customer_phone: o.phone || null,
+        items: o.items || [],
+        total: o.total || 0,
+        subtotal: (o.items || []).reduce((acc, i) => acc + (i.area ? i.price * i.area : i.price) * i.quantity, 0),
+        discount_value: o.desconto || 0,
+        down_payment: 0,
+        received_value: 0,
+        payment_method: o.formaPagamentoTexto || 'A Combinar',
+        payment_status: 'pending',
+        status: 'pending',
+        service_status: o.serviceStatus || 'pedido_recebido',
+        orcamento_id: o.id,
+        observacoes: o.observacoes || null,
+        created_at: new Date().toISOString(),
+      };
+      const { data: insertedVenda, error: vendaError } = await supabase.from('vendas').insert(novaVendaPayload).select().single();
+      if (vendaError) throw vendaError;
+      const vendaId = insertedVenda.id;
+
+      const { error: orcError } = await supabase.from('orcamentos').update({ venda_id: vendaId, status: 'concluido' }).eq('id', o.id);
+      if (orcError) throw orcError;
+
+      await loadOrcamentos();
+      if (typeof loadSalesHistory === 'function') loadSalesHistory();
+
+      showAlert('Nota/Recibo gerado com sucesso!');
+      openReceiptById(vendaId);
+    } catch (err: any) {
+      console.error('Erro ao gerar nota/recibo do orçamento:', err);
+      showAlert(`Não foi possível gerar a nota/recibo: ${err?.message || 'erro desconhecido'}`);
+    }
   };
 
   const handleDeleteOrcamento = async (o: Orcamento) => {
