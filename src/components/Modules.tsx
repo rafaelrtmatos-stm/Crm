@@ -20919,7 +20919,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <div className="text-right">
-                                  <span className="text-[12px] font-black text-white block leading-tight">
+                                  <span className="text-[12px] font-black text-white block leading-tight whitespace-nowrap">
                                     R$ {sale.total.toFixed(2).replace('.', ',')}
                                   </span>
                                   {composicaoPagamento.length > 0 && (
@@ -20932,7 +20932,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <button
                                   onClick={() => { if (isPartial) openSettlePayment(sale); else openReceiptDetail(sale); }}
                                   className={cn(
-                                    "h-7 px-2 rounded-lg border text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 transition-all cursor-pointer",
+                                    "h-7 px-2 rounded-lg border text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 whitespace-nowrap transition-all cursor-pointer",
                                     isPartial
                                       ? "bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500/25"
                                       : "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25"
@@ -20942,12 +20942,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   {isPartial ? (
                                     <>
                                       <AlertCircle size={10} className="text-rose-400 shrink-0" />
-                                      <span>Falta R$ {balance.toFixed(2).replace('.', ',')}</span>
+                                      <span className="whitespace-nowrap">Falta R$ {balance.toFixed(2).replace('.', ',')}</span>
                                     </>
                                   ) : (
                                     <>
                                       <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
-                                      <span>Pago</span>
+                                      <span className="whitespace-nowrap">Pago</span>
                                     </>
                                   )}
                                 </button>
@@ -20979,13 +20979,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <button
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
-                                  className="font-mono text-white/40 hover:text-primary-300 font-bold shrink-0"
+                                  className="font-mono text-white/40 hover:text-primary-300 font-bold shrink-0 whitespace-nowrap"
                                   title="Copiar código da nota"
                                 >
                                   #{sale.id.slice(-8).toUpperCase()}
                                 </button>
                                 <span className="text-white/20 shrink-0">•</span>
-                                <span className="text-white/40 shrink-0 font-medium">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
+                                <span className="text-white/40 shrink-0 font-medium whitespace-nowrap">{safeFormat(sale.createdAt, 'dd/MM HH:mm')}</span>
                                 {sale.items && sale.items.length > 0 && (() => {
                                   const summary = summarizeSaleItems(sale.items);
                                   return (
@@ -21000,9 +21000,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               </div>
 
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <span className={cn("inline-flex items-center gap-1 px-1.5 h-5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(etapaOf(sale) || 'pedido_recebido').bg, stageColorOf(etapaOf(sale) || 'pedido_recebido').text, "border-white/10")} title="Etapa do pedido">
+                                <span className={cn("inline-flex items-center gap-1 px-1.5 h-5 rounded-full border text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap", stageColorOf(etapaOf(sale) || 'pedido_recebido').bg, stageColorOf(etapaOf(sale) || 'pedido_recebido').text, "border-white/10")} title="Etapa do pedido">
                                   {React.createElement(stageIconOf(etapaOf(sale) || 'pedido_recebido'), { size: 8, className: "shrink-0" })}
-                                  <span className="truncate max-w-[70px]">{STAGE_LABELS[etapaOf(sale) || 'pedido_recebido'] || etapaOf(sale)}</span>
+                                  <span className="truncate max-w-[70px] whitespace-nowrap">{STAGE_LABELS[etapaOf(sale) || 'pedido_recebido'] || etapaOf(sale)}</span>
                                 </span>
                                 {!sale.serviceStatus ? (
                                   <button
@@ -21010,20 +21010,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     onClick={(e) => { e.stopPropagation(); handleLancarProducao(sale); }}
                                     disabled={lancandoProducaoId === sale.id}
                                     title="Lançar para Produção"
-                                    className="h-5 px-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                    className="h-5 px-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 whitespace-nowrap transition-colors"
                                   >
-                                    <Factory size={8} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
-                                    <span>{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
+                                    <Factory size={8} className={cn(lancandoProducaoId === sale.id && "animate-spin", "shrink-0")} />
+                                    <span className="whitespace-nowrap">{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
                                   </button>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setActiveTab('servicos'); }}
                                     title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus!] || sale.serviceStatus} (clique para ir a Serviços)`}
-                                    className="h-5 px-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                    className="h-5 px-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 whitespace-nowrap transition-colors"
                                   >
-                                    <Factory size={8} className="text-amber-400" />
-                                    <span className="truncate max-w-[85px]">{STAGE_LABELS[sale.serviceStatus!] || sale.serviceStatus}</span>
+                                    <Factory size={8} className="text-amber-400 shrink-0" />
+                                    <span className="truncate max-w-[85px] whitespace-nowrap">{STAGE_LABELS[sale.serviceStatus!] || sale.serviceStatus}</span>
                                   </button>
                                 )}
 
@@ -21455,157 +21455,138 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                     return (
                       <GlassCard key={sale.id} className="p-3.5 sm:p-5 md:p-6 border-white/10 space-y-3 sm:space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
-                        {/* Cabeçalho do Card: Foto/Avatar + Cliente (Nome, Código, Badges) e Etapa / Entrega */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-white/5 pb-3">
-                          <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                            {canManageHistory && (
-                              <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 mt-1 shrink-0 accent-primary-500" />
-                            )}
-                            <AvatarPhoto
-                              photoUrl={photo}
-                              name={sale.customerName || 'Cliente'}
-                              className="w-10 h-10 rounded-full bg-slate-800 border-white/10 shrink-0"
-                              textClassName="text-xs font-bold text-white/70"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
+                        {/* Cabeçalho do Card: Foto/Avatar + Cliente (Nome) + Status Lançamento + Status Produção */}
+                        <div className="border-b border-white/5 pb-3 space-y-2">
+                          <div className="flex items-center justify-between gap-3 min-w-0">
+                            {/* Bloco esquerdo: Checkbox + Avatar + Nome + Status Lançado/Não Lançado */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {canManageHistory && (
+                                <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 shrink-0 accent-primary-500" />
+                              )}
+                              <AvatarPhoto
+                                photoUrl={photo}
+                                name={sale.customerName || 'Cliente'}
+                                className="w-9 h-9 rounded-full bg-slate-800 border-white/10 shrink-0"
+                                textClassName="text-xs font-bold text-white/70"
+                              />
+                              <div className="min-w-0 flex-1 flex items-center gap-2 overflow-hidden">
                                 <button
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
                                   title="Clique para copiar o nome do cliente"
-                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer group inline-flex items-center gap-1.5"
+                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer min-w-0 truncate"
+                                  style={{ flex: '1', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                                 >
-                                  <span className="truncate max-w-[200px] sm:max-w-none">{sale.customerName || 'Cliente de Balcão'}</span>
-                                  {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' ? (
-                                    <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Copiado!</span>
-                                  ) : (
-                                    <Copy size={11} className="opacity-0 group-hover:opacity-100 text-white/40 group-hover:text-primary-300 transition-opacity" />
-                                  )}
+                                  {sale.customerName || 'Cliente de Balcão'}
                                 </button>
-                                <Badge 
-                                  className={cn(
-                                    "text-[8px] font-black uppercase px-2 py-0.5 border",
-                                    isPartial
-                                      ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
-                                      : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                                  )}
-                                >
-                                  {isPartial ? (
-                                    <span className="inline-flex items-center gap-1">
-                                      <AlertCircle size={9} className="text-rose-400 shrink-0" />
-                                      <span>FALTA R$ {balance.toFixed(2).replace('.', ',')}</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1">
-                                      <CheckCircle2 size={9} className="text-emerald-400 shrink-0" />
-                                      <span>PAGO</span>
-                                    </span>
-                                  )}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
-                                  title="Clique para copiar o código da nota"
-                                  className="text-[9px] text-white/30 hover:text-primary-300 font-mono transition-colors cursor-pointer inline-flex items-center gap-1 group"
-                                >
-                                  <span>#{sale.id.slice(-8).toUpperCase()}</span>
-                                  {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' ? (
-                                    <span className="text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
-                                  ) : (
-                                    <Copy size={9} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  )}
-                                </button>
-                                <span className="text-[9px] text-white/30 font-mono">• Criada {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</span>
-                                {sale.updatedAt && Math.abs(new Date(sale.updatedAt).getTime() - new Date(sale.createdAt).getTime()) > 60000 && (
-                                  <span className="text-[9px] text-primary-400 font-mono"> • Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
+                                {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
+                                  <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap">Copiado!</span>
                                 )}
-                              </div>
-                              {/* Etiquetas de origem (Contrato/Orçamento) */}
-                              {(sale.contratoId || sale.orcamentoId) && (
-                                <div className="flex flex-wrap gap-1 mt-1.5">
-                                  {sale.contratoId && (
-                                    <button
-                                      onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
-                                      title="Ver contrato vinculado"
-                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap"
-                                    >
-                                      Contrato
-                                    </button>
-                                  )}
-                                  {sale.orcamentoId && (
-                                    <button
-                                      onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
-                                      title="Ver orçamento vinculado"
-                                      className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition-colors whitespace-nowrap flex items-center gap-1"
-                                    >
-                                      <FileSignature size={9} />
-                                      <span>Orçamento</span>
-                                    </button>
+
+                                {/* Status de Lançamento: [ LANÇADO ] ou [ NÃO LANÇADO ] */}
+                                <div className="shrink-0 whitespace-nowrap">
+                                  {sale.serviceStatus ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/35 text-emerald-300 text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
+                                      <CheckCircle size={10} className="text-emerald-400 shrink-0" />
+                                      <span>LANÇADO</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/35 text-rose-300 text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
+                                      <AlertCircle size={10} className="text-rose-400 shrink-0" />
+                                      <span>NÃO LANÇADO</span>
+                                    </span>
                                   )}
                                 </div>
+                              </div>
+                            </div>
+
+                            {/* Bloco direito: Status / Seletor de Produção */}
+                            <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                              {!sale.serviceStatus ? (
+                                <button
+                                  onClick={() => handleLancarProducao(sale)}
+                                  disabled={lancandoProducaoId === sale.id}
+                                  title="Lançar este pedido para a esteira de Produção / Serviços"
+                                  className="h-7 px-3 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap shadow-sm"
+                                >
+                                  <HardHat size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin", "shrink-0")} />
+                                  <span className="whitespace-nowrap">{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
+                                </button>
+                              ) : (
+                                <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+                                  <select
+                                    value={etapaOf(sale)}
+                                    onChange={(e) => {
+                                      if (e.target.value === '__remover__') {
+                                        handleRemoverDaProducao(sale);
+                                      } else {
+                                        handleUpdateServiceStatus(sale.id, e.target.value);
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Em Produção — Clique para alterar etapa ou desmarcar"
+                                    className={cn(
+                                      "h-7 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px] border shrink-0 whitespace-nowrap",
+                                      etapaOf(sale) === 'produto_entregue'
+                                        ? "bg-sky-500/20 border-sky-500/40 text-sky-200"
+                                        : "bg-amber-500/20 border-amber-500/40 text-amber-200"
+                                    )}
+                                  >
+                                    {STAGE_ORDER.map(id => (
+                                      <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                                    ))}
+                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
+                                  </select>
+                                </div>
+                              )}
+                              {sale.scheduledFor && (
+                                <EntregaCountdown
+                                  scheduledFor={sale.scheduledFor}
+                                  delivered={isSaleDelivered(sale)}
+                                  onEdit={() => handleEditScheduleFromCard(sale)}
+                                  onDeliver={() => handleDeliverFromCard(sale)}
+                                  onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
+                                />
                               )}
                             </div>
                           </div>
-                          
-                          {/* Etapa: Produção / Entrega */}
-                          <div className="flex items-center justify-between sm:justify-end gap-1.5 w-full sm:w-auto shrink-0 flex-wrap">
-                            {!sale.serviceStatus ? (
-                              <button
-                                onClick={() => handleLancarProducao(sale)}
-                                disabled={lancandoProducaoId === sale.id}
-                                title="Lançar este pedido para a esteira de Produção / Serviços"
-                                className="h-7 px-3 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 shadow-sm"
-                              >
-                                <HardHat size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin")} />
-                                <span>{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
-                              </button>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoverDaProducao(sale)}
-                                  title="Trabalho lançado na produção (Com check verde). Clique para desmarcar."
-                                  className="h-7 px-2 bg-emerald-500/20 hover:bg-rose-500/20 border border-emerald-500/35 hover:border-rose-500/40 text-emerald-300 hover:text-rose-300 rounded-full flex items-center gap-1.5 text-[9px] font-black uppercase transition-colors cursor-pointer"
-                                >
-                                  <HardHat size={13} className="text-emerald-400 shrink-0" />
-                                  <CheckCircle size={12} className="text-emerald-400 shrink-0" />
-                                  <span>Lançado</span>
-                                </button>
-                                <select
-                                  value={etapaOf(sale)}
-                                  onChange={(e) => {
-                                    if (e.target.value === '__remover__') {
-                                      handleRemoverDaProducao(sale);
-                                    } else {
-                                      handleUpdateServiceStatus(sale.id, e.target.value);
-                                    }
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  title="Em Produção — Clique para alterar etapa ou desmarcar"
-                                  className={cn(
-                                    "h-7 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px] border",
-                                    etapaOf(sale) === 'produto_entregue'
-                                      ? "bg-sky-500/20 border-sky-500/40 text-sky-200"
-                                      : "bg-amber-500/20 border-amber-500/40 text-amber-200"
-                                  )}
-                                >
-                                  {STAGE_ORDER.map(id => (
-                                    <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                                  ))}
-                                  <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
-                                </select>
-                              </div>
+
+                          {/* Linha inferior do cabeçalho: Código, data e badges de contrato/orçamento */}
+                          <div className="flex items-center gap-2 text-[9px] text-white/40 flex-wrap pl-9">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyHistoryField(sale.id, sale.id, 'nota')}
+                              title="Clique para copiar o código da nota"
+                              className="font-mono hover:text-primary-300 transition-colors cursor-pointer inline-flex items-center gap-1 shrink-0 whitespace-nowrap"
+                            >
+                              <span>#{sale.id.slice(-8).toUpperCase()}</span>
+                              {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'nota' && (
+                                <span className="text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
+                              )}
+                            </button>
+                            <span>•</span>
+                            <span className="font-mono whitespace-nowrap">Criada {safeFormat(sale.createdAt, 'dd/MM/yyyy HH:mm')}</span>
+                            {sale.updatedAt && Math.abs(new Date(sale.updatedAt).getTime() - new Date(sale.createdAt).getTime()) > 60000 && (
+                              <span className="font-mono text-primary-400 whitespace-nowrap">• Ajustada {safeFormat(sale.updatedAt, 'dd/MM/yyyy HH:mm')}</span>
                             )}
-                            {sale.scheduledFor && (
-                              <EntregaCountdown
-                                scheduledFor={sale.scheduledFor}
-                                delivered={isSaleDelivered(sale)}
-                                onEdit={() => handleEditScheduleFromCard(sale)}
-                                onDeliver={() => handleDeliverFromCard(sale)}
-                                onDeleteSchedule={() => handleDeleteScheduleFromCard(sale)}
-                              />
+                            {sale.contratoId && (
+                              <button
+                                onClick={() => { setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }}
+                                title="Ver contrato vinculado"
+                                className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors whitespace-nowrap shrink-0"
+                              >
+                                Contrato
+                              </button>
+                            )}
+                            {sale.orcamentoId && (
+                              <button
+                                onClick={() => { setActiveTab('orcamentos'); setHighlightOrcamentoId(sale.orcamentoId!); setTimeout(() => setHighlightOrcamentoId(null), 4000); }}
+                                title="Ver orçamento vinculado"
+                                className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition-colors whitespace-nowrap shrink-0 flex items-center gap-1"
+                              >
+                                <FileSignature size={9} />
+                                <span>Orçamento</span>
+                              </button>
                             )}
                           </div>
                         </div>
@@ -21641,13 +21622,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         {/* Rentabilidade Exclusiva Admin (Custo, Lucro e Margem) */}
                         {renderRentabilidadeAdmin(sale, 'cards')}
 
-                        {/* Ações: Visualizar, Editar, Quitar e Menu "..." */}
-                        <div className="pt-2.5 border-t border-white/5 flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        {/* Ações: Rodapé Organizado em 2 Grupos */}
+                        <div className="pt-3 border-t border-white/5 space-y-2">
+                          {/* Grupo 1 — Ações Financeiras */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {isPartial && (
                               <Button
                                 size="sm"
-                                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-8 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0"
+                                className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[9px] font-black uppercase tracking-wider px-3 h-8 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0 whitespace-nowrap"
                                 onClick={async () => { if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }}
                                 title="Quitar débito restante"
                               >
@@ -21658,51 +21640,58 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             <Button
                               variant="secondary"
                               size="sm"
-                              className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors"
+                              className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0 whitespace-nowrap"
                               onClick={async () => { if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }}
                               title="Visualizar Recibo"
                             >
                               <Eye size={12} className="shrink-0 text-white/60" />
                               <span>Visualizar</span>
                             </Button>
-                            {canManageHistory && (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors"
-                                onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
-                                title="Editar Pedido"
-                              >
-                                <Pencil size={12} className="shrink-0" />
-                                <span>Editar</span>
-                              </Button>
-                            )}
                           </div>
-                          
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              if (openSaleRowActionsId === sale.id) { setOpenSaleRowActionsId(null); return; }
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const MENU_H_ESTIMADA = 300;
-                              const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
-                              setSaleRowActionsMenuPos({
-                                top: abreParaCima ? undefined : rect.bottom + 6,
-                                bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
-                                left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
-                              });
-                              setOpenSaleRowActionsId(sale.id);
-                            }}
-                            title="Mais opções (...)"
-                            className={cn(
-                              "w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer shrink-0",
-                              openSaleRowActionsId === sale.id
-                                ? "bg-white/15 text-white border-white/20"
-                                : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
-                            )}
-                          >
-                            <MoreVertical size={13} />
-                          </button>
+
+                          {/* Grupo 2 — Ações do Pedido */}
+                          <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {canManageHistory && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0 whitespace-nowrap"
+                                  onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
+                                  title="Editar Pedido"
+                                >
+                                  <Pencil size={12} className="shrink-0" />
+                                  <span>Editar</span>
+                                </Button>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                if (openSaleRowActionsId === sale.id) { setOpenSaleRowActionsId(null); return; }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const MENU_H_ESTIMADA = 300;
+                                const abreParaCima = rect.bottom + MENU_H_ESTIMADA > window.innerHeight;
+                                setSaleRowActionsMenuPos({
+                                  top: abreParaCima ? undefined : rect.bottom + 6,
+                                  bottom: abreParaCima ? window.innerHeight - rect.top + 6 : undefined,
+                                  left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+                                });
+                                setOpenSaleRowActionsId(sale.id);
+                              }}
+                              title="Mais opções (...)"
+                              className={cn(
+                                "h-8 px-3 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer shrink-0 whitespace-nowrap",
+                                openSaleRowActionsId === sale.id
+                                  ? "bg-white/15 text-white border-white/20"
+                                  : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                              )}
+                            >
+                              <MoreVertical size={13} />
+                              <span>Ações do Pedido</span>
+                            </button>
+                          </div>
                         </div>
                         {renderSaleActionsPortal(sale)}
                       </GlassCard>
