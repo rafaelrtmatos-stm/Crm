@@ -14997,6 +14997,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [orcamentoForm, setOrcamentoForm] = useState({ ...emptyOrcamentoForm });
   const [savingOrcamento, setSavingOrcamento] = useState(false);
   const [orcamentoFromCart, setOrcamentoFromCart] = useState(false);
+  const [editingOrcamentoItemIndex, setEditingOrcamentoItemIndex] = useState<number | null>(null);
+  const [editingOrcamentoItemData, setEditingOrcamentoItemData] = useState<any | null>(null);
   const [contratoStatusFilter, setContratoStatusFilter] = useState('todos');
   const [contratoSortBy, setContratoSortBy] = useState<'recentes' | 'antigos' | 'az' | 'za'>('recentes');
   const [signingContrato, setSigningContrato] = useState<Contrato | null>(null);
@@ -16261,7 +16263,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         payment_method: o.formaPagamentoTexto || 'A Combinar',
         payment_status: 'pending',
         status: 'pending',
-        service_status: o.serviceStatus || 'pedido_recebido',
+        service_status: (o as any).serviceStatus || 'pedido_recebido',
         orcamento_id: o.id,
         observacoes: o.observacoes || null,
         created_at: new Date().toISOString(),
@@ -25890,14 +25892,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <input
           onFocus={(e: any) => e.target.select()}
                             type="number"
-                            min={1}
+                            step="any"
+                            min="0"
                             value={item.quantity}
                             onChange={(e) => {
-                               const qty = Math.max(1, Number(e.target.value) || 1);
+                               const qty = e.target.value === '' ? 0 : Number(e.target.value);
                                setOrcamentoForm(prev => ({ ...prev, items: prev.items.map((it, i) => i === idx ? { ...it, quantity: qty } : it) }));
                             }}
                             className="w-12 h-7 bg-slate-900/60 border border-white/10 rounded px-1.5 text-xs text-white text-center"
-                            title="Quantidade"
+                            title="Quantidade (digite livremente)"
                           />
                           <div className="min-w-0 flex-1">
                              <p className="text-xs font-bold text-white truncate">{item.name}</p>

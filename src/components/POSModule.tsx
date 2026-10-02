@@ -34,7 +34,8 @@ import {
   Wifi,
   WifiOff,
   CloudUpload,
-  Copy
+  Copy,
+  Pencil
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
@@ -119,6 +120,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [saleCreditApplied, setSaleCreditApplied] = useState<number>(0);
   const [orderObservacoes, setOrderObservacoes] = useState('');
   const [scheduledFor, setScheduledFor] = useState('');
+  const [editingCartItemIndex, setEditingCartItemIndex] = useState<number | null>(null);
+  const [editingCartItemData, setEditingCartItemData] = useState<any | null>(null);
 
   // Modals state
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -1353,19 +1356,41 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                         <button
                           onClick={() => updateCartItemQuantity(index, item.quantity - 1)}
                           className="w-6 h-6 bg-slate-900/5 hover:bg-slate-900/10 rounded-lg flex items-center justify-center font-bold text-slate-800 text-xs"
+                          title="Diminuir quantidade"
                         >
                           -
                         </button>
-                        <span className="w-5 text-center text-xs font-bold font-mono text-slate-900">{item.quantity}</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={item.quantity}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateCartItemQuantity(index, e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-12 h-6 text-center text-xs font-bold font-mono text-slate-900 bg-slate-900/5 border border-slate-900/10 rounded px-1"
+                          title="Digite a quantidade livremente"
+                        />
                         <button
                           onClick={() => updateCartItemQuantity(index, item.quantity + 1)}
                           className="w-6 h-6 bg-slate-900/5 hover:bg-slate-900/10 rounded-lg flex items-center justify-center font-bold text-slate-800 text-xs"
+                          title="Aumentar quantidade"
                         >
                           +
                         </button>
                         <button
+                          onClick={() => {
+                            setEditingCartItemIndex(index);
+                            setEditingCartItemData({ ...item });
+                          }}
+                          className="p-1 text-slate-600 hover:bg-slate-900/10 rounded-lg"
+                          title="Editar item (Nome, Medidas, Preço, Obs)"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
                           onClick={() => removeFromCart(index)}
-                          className="p-1 text-rose-600 hover:bg-rose-500/10 rounded-lg ml-0.5"
+                          className="p-1 text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                          title="Remover item"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -1920,6 +1945,70 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           </div>
         </div>
       </Modal>
+
+      {/* Edit Cart Item Modal */}
+      {editingCartItemIndex !== null && editingCartItemData && (
+        <Modal isOpen={true} onClose={() => setEditingCartItemIndex(null)} title="Editar Item do Carrinho" className="w-full max-w-[calc(100vw-24px)] sm:max-w-[450px] mx-auto p-4">
+          <div className="space-y-3">
+            <div>
+              <label className="text-[10px] font-black uppercase text-white/60 block mb-1">Nome / Descrição</label>
+              <input
+                type="text"
+                value={editingCartItemData.name || ''}
+                onChange={(e) => setEditingCartItemData({ ...editingCartItemData, name: e.target.value })}
+                className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white font-bold"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-black uppercase text-white/60 block mb-1">Quantidade</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={editingCartItemData.quantity ?? 1}
+                  onChange={(e) => setEditingCartItemData({ ...editingCartItemData, quantity: e.target.value === '' ? '' : Number(e.target.value) })}
+                  className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase text-white/60 block mb-1">Preço Unitário (R$)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={editingCartItemData.price ?? 0}
+                  onChange={(e) => setEditingCartItemData({ ...editingCartItemData, price: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white font-bold"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase text-white/60 block mb-1">Medidas / Dimensões (Ex: 1.5x2m, A4)</label>
+              <input
+                type="text"
+                value={editingCartItemData.dimensions || ''}
+                onChange={(e) => setEditingCartItemData({ ...editingCartItemData, dimensions: e.target.value })}
+                className="w-full h-9 bg-white/5 border border-white/10 rounded-lg px-3 text-xs text-white font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase text-white/60 block mb-1">Observações / Acabamentos do Item</label>
+              <textarea
+                rows={2}
+                value={editingCartItemData.observacao || ''}
+                onChange={(e) => setEditingCartItemData({ ...editingCartItemData, observacao: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-white font-medium resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setEditingCartItemIndex(null)}>Cancelar</Button>
+              <Button size="sm" onClick={() => {
+                setCart(prev => prev.map((it, i) => i === editingCartItemIndex ? { ...editingCartItemData, quantity: Number(editingCartItemData.quantity) || 1, price: Number(editingCartItemData.price) || 0 } : it));
+                setEditingCartItemIndex(null);
+              }}>Salvar Item</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Payment & Checkout Modal */}
       <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} title="Finalizar Cobrança" size="sm" className="max-w-md mx-auto rounded-2xl p-3 sm:p-4">
