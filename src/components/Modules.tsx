@@ -15323,6 +15323,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: 'pending',
           observacoes: contratoForm.observacoes || null,
           orcamento_id: contratoForm.orcamentoId || null,
+          service_status: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
         vendaId = novaVenda.id;
@@ -15992,6 +15993,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           received_value: 0,
           status: 'pending',
           observacoes: orcamentoForm.observacoes || null,
+          service_status: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
         vendaId = novaVenda.id;
@@ -18008,21 +18010,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const handleLancarProducao = async (sale: SaleOrder) => {
     if (lancandoProducaoId) return;
-    if (sale.serviceStatus) {
-      const etapaNome = STAGE_LABELS[sale.serviceStatus] || sale.serviceStatus;
-      const querDesmarcar = await showConfirm(
-        `Este pedido já está na esteira de produção (Etapa atual: ${etapaNome}).\n\nDeseja DESMARCAR e remover este pedido da produção agora?`
-      );
-      if (querDesmarcar) {
-        await handleRemoverDaProducao(sale);
-      } else {
-        const vaiPraServicos = await showConfirm('Deseja abrir a aba de Serviços para gerenciar a produção deste pedido?');
-        if (vaiPraServicos) {
-          setActiveTab('servicos');
-        }
-      }
-      return;
-    }
 
     const confirma = await showConfirm(
       `Lançar o pedido de "${(sale.customerName || 'Cliente Balcão').toUpperCase()}" (#${sale.id.slice(-8).toUpperCase()}) para a esteira de Produção?`
@@ -19378,6 +19365,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           observacoes: orderObservacoes || null,
           orcamento_id: linkedOrcamentoId || null,
           discount_value: saleDiscountValue || null,
+          service_status: 'pedido_recebido',
         }).select().single();
         if (error) throw error;
         insertedVenda = insertedVendaResult;
@@ -28318,6 +28306,7 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
         down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : 0,
         payment_method: 'pix',
         status: isPending ? 'pending' : 'completed',
+        service_status: 'pedido_recebido',
       }).select().single();
       if (vendaErr) throw vendaErr;
       const orderId = vendaRow.id;
