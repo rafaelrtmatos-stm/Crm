@@ -21300,7 +21300,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 )}
                               </div>
                               {/* Item / Descrição */}
-                              <p className="text-[9.5px] text-white/40 italic truncate max-w-[180px] sm:max-w-xs md:max-w-md" title={summary.title}>
+                              <p className="text-[10px] text-white/70 italic whitespace-normal break-words max-w-full" title={summary.title}>
                                 {summary.text}
                               </p>
                             </div>
