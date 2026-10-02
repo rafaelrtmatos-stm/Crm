@@ -106,6 +106,15 @@ html.scrollable-route body {
 p, span, div, h1, h2, h3, h4, h5, h6, th, td, label {
   overflow-wrap: break-word;
   word-break: normal;
+  /* Quebra por sílaba com hífen quando a palavra não cabe (usa lang="pt-BR" do index.html) */
+  -webkit-hyphens: auto;
+  hyphens: auto;
+}
+
+/* Códigos, hashes, valores e campos de digitação não devem ser hifenizados */
+.font-mono, code, pre, input, textarea, [contenteditable] {
+  -webkit-hyphens: manual;
+  hyphens: manual;
 }
 
 img,

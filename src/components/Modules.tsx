@@ -21239,10 +21239,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       return (
                         <div
                           key={sale.id}
-                          className="flex items-center justify-between gap-2 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/15 rounded-xl px-2.5 sm:px-3.5 py-2 transition-all"
+                          className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-2 gap-y-1.5 sm:gap-3 bg-slate-900/60 hover:bg-slate-900 border border-white/5 hover:border-white/15 rounded-xl px-2.5 sm:px-3.5 py-2 transition-all"
                         >
-                          {/* Foto/avatar + Cliente (Nome, Código) + Item */}
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          {/* Foto/avatar + Cliente (Nome, Código) + Item.
+                              No celular ocupa a linha inteira (valor/ações vão para a linha de baixo);
+                              antes ele era espremido a ~1 letra de largura e o texto quebrava letra por letra. */}
+                          <div className="flex items-center gap-2.5 min-w-0 w-full sm:w-auto sm:flex-1">
                             {canManageHistory && (
                               <input
                                 type="checkbox"
