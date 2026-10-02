@@ -20993,6 +20993,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               </div>
 
                               <div className="flex items-center gap-1.5 shrink-0">
+                                <span className={cn("inline-flex items-center gap-1 px-1.5 h-5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(etapaOf(sale) || 'pedido_recebido').bg, stageColorOf(etapaOf(sale) || 'pedido_recebido').text, "border-white/10")} title="Etapa do pedido">
+                                  {React.createElement(stageIconOf(etapaOf(sale) || 'pedido_recebido'), { size: 8, className: "shrink-0" })}
+                                  <span className="truncate max-w-[70px]">{STAGE_LABELS[etapaOf(sale) || 'pedido_recebido'] || etapaOf(sale)}</span>
+                                </span>
                                 {!sale.serviceStatus ? (
                                   <button
                                     type="button"
@@ -21008,11 +21012,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setActiveTab('servicos'); }}
-                                    title={`Em Produção: ${STAGE_LABELS[etapaOf(sale)!] || etapaOf(sale)} (clique para ir a Serviços)`}
+                                    title={`Em Produção: ${STAGE_LABELS[sale.serviceStatus!] || sale.serviceStatus} (clique para ir a Serviços)`}
                                     className="h-5 px-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors"
                                   >
                                     <Factory size={8} className="text-amber-400" />
-                                    <span className="truncate max-w-[85px]">{STAGE_LABELS[etapaOf(sale)!] || etapaOf(sale)}</span>
+                                    <span className="truncate max-w-[85px]">{STAGE_LABELS[sale.serviceStatus!] || sale.serviceStatus}</span>
                                   </button>
                                 )}
 
@@ -21328,7 +21332,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           </div>
 
                           {/* Etapa */}
-                          <div className="shrink-0 hidden md:flex items-center">
+                          <div className="shrink-0 hidden md:flex items-center gap-1.5">
+                            <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(etapaOf(sale) || 'pedido_recebido').bg, stageColorOf(etapaOf(sale) || 'pedido_recebido').text, "border-white/10")} title="Etapa do pedido">
+                              {React.createElement(stageIconOf(etapaOf(sale) || 'pedido_recebido'), { size: 10, className: "shrink-0" })}
+                              <span className="truncate max-w-[90px]">{STAGE_LABELS[etapaOf(sale) || 'pedido_recebido'] || etapaOf(sale)}</span>
+                            </div>
                             {!sale.serviceStatus ? (
                               <button
                                 onClick={() => handleLancarProducao(sale)}
@@ -21340,9 +21348,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <span>{lancandoProducaoId === sale.id ? '...' : '+ Produção'}</span>
                               </button>
                             ) : (
-                              <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-wider", stageColorOf(etapaOf(sale)!).bg, stageColorOf(etapaOf(sale)!).text, "border-white/10")}>
-                                {React.createElement(stageIconOf(etapaOf(sale)!), { size: 10, className: "shrink-0" })}
-                                <span className="truncate max-w-[90px]">{STAGE_LABELS[etapaOf(sale)!] || etapaOf(sale)}</span>
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[8px] font-black uppercase tracking-wider" title="Status da produção">
+                                <Factory size={10} className="shrink-0 text-amber-400" />
+                                <span className="truncate max-w-[90px]">{STAGE_LABELS[sale.serviceStatus!] || sale.serviceStatus}</span>
                               </div>
                             )}
                           </div>
