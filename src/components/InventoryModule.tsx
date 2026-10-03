@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Box, Plus, Search, Filter, AlertTriangle, Edit2, Trash2, 
   Layers, Calculator, Download, Upload, RefreshCw, Check, X,
-  DollarSign, PackageCheck, Wrench, Sparkles, Sliders
+  DollarSign, PackageCheck, Wrench, Sparkles, Sliders, Eye, EyeOff
 } from 'lucide-react';
 import { Company, AppUser, Product, MateriaPrima, MateriaPrimaConsumo } from '../types';
 import { supabase } from '../supabase';
@@ -56,6 +56,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
   const [calcAlturaCm, setCalcAlturaCm] = useState<number>(0);
   const [calcModoAvulso, setCalcModoAvulso] = useState<boolean>(true);
   const [autoSyncCost, setAutoSyncCost] = useState<boolean>(true);
+  // Valores de lucro/margem ficam ocultos por padrão. Apenas ADMIN pode revelá-los.
+  const [showProfitValues, setShowProfitValues] = useState(false);
+  const canViewProfit = user?.isAdmin === true || user?.role === 'admin';
 
   // Quick Raw Material Modal (Add/Edit on the fly)
   const [isMpModalOpen, setIsMpModalOpen] = useState<boolean>(false);
@@ -141,6 +144,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
 
   const handleOpenAddModal = (prod?: any) => {
     loadAvailableMateriasPrimas();
+    setShowProfitValues(false);
     setSelectedMateriaPrimaId('');
     setRawMaterialConsumedQty(1);
     if (prod) {
@@ -1114,15 +1118,28 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ currentCompany
                         {precoVenda > 0 && (
                           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-emerald-500/20 text-[11px]">
                             <div>
-                              <span className="text-white/50 block">Lucro Bruto Estimado:</span>
-                              <span className={`font-mono font-bold ${lucroBruto >= 0 ? 'text-emerald-300' : 'text-rose-400'}`}>
-                                R$ {lucroBruto.toFixed(2)} ({margemPercentual.toFixed(1)}% margem)
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-white/50 block">Lucro Bruto Estimado:</span>
+                                {canViewProfit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowProfitValues(prev => !prev)}
+                                    className="p-0.5 rounded text-white/40 hover:text-white transition-colors cursor-pointer"
+                                    title={showProfitValues ? 'Ocultar lucro' : 'Ver lucro'}
+                                    aria-label={showProfitValues ? 'Ocultar lucro' : 'Ver lucro'}
+                                  >
+                                    {showProfitValues ? <EyeOff size={12} /> : <Eye size={12} />}
+                                  </button>
+                                )}
+                              </div>
+                              <span className={showProfitValues ? (lucroBruto >= 0 ? "font-mono font-bold text-emerald-300" : "font-mono font-bold text-rose-400") : "font-mono font-bold text-white/40"}>
+                                {showProfitValues ? <>R$ {lucroBruto.toFixed(2)} ({margemPercentual.toFixed(1)}% margem)</> : 'R$ ••••••'}
                               </span>
                             </div>
                             <div className="text-right">
                               <span className="text-white/50 block">Markup sobre Insumos:</span>
                               <span className="font-mono font-bold text-sky-300">
-                                {markupPercentual.toFixed(1)}%
+                                {showProfitValues ? `${markupPercentual.toFixed(1)}%` : '••••'}
                               </span>
                             </div>
                           </div>
