@@ -51,10 +51,13 @@ export const ServicesModule: React.FC<ServicesModuleProps> = ({ currentCompany }
   const fetchServices = async () => {
     try {
       setLoading(true);
+      // A lista de Serviços contém somente pedidos explicitamente lançados.
+      // etapa_servico controla a etapa visual; service_status controla o lançamento.
       let query = supabase
         .from('vendas')
         .select('*')
         .is('deleted_at', null)
+        .not('service_status', 'is', null)
         .order('created_at', { ascending: false });
 
       if (currentCompany?.id) {
