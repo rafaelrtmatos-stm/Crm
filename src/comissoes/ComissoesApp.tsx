@@ -14,6 +14,7 @@ import {
   deleteServiceFromSupabase,
   deleteServicesBatchFromSupabase,
   excluirServicoPorOrigem,
+  retirarServicoDaComissaoParaServicos,
   saveColaboradorSettings,
   colaboradorToUserSettings,
   calculateSummaryStats,
@@ -207,32 +208,38 @@ export default function ComissoesApp() {
     setServices((prev) => prev.filter((s) => !idsSet.has(s.id)));
 
     try {
-      const ok = await deleteServicesBatchFromSupabase(ids);
-      if (!ok) {
-        // Fallback item por item
-        let anyFailed = false;
-        for (const item of itemsToDelete) {
-          const okSingle = await deleteServiceFromSupabase(item.id);
-          if (!okSingle) {
-            if (item.origemNotaId && item.origemItemIndex !== undefined && colaborador) {
-              const okOrigem = await excluirServicoPorOrigem(item.origemNotaId, item.origemItemIndex, colaborador.id);
-              if (!okOrigem) anyFailed = true;
-            } else {
-              anyFailed = true;
-            }
+      const servicosDeNota = itemsToDelete.filter((item) => !!item.origemNotaId);
+      const idsManuais = itemsToDelete.filter((item) => !item.origemNotaId).map((item) => item.id);
+      let anyFailed = false;
+
+      // Pedido puxado de uma nota: sai da comissão e volta imediatamente para a aba Serviços.
+      // Não usa deleteServiceFromSupabase, pois essa função manda lançamentos manuais para a Lixeira.
+      for (const item of servicosDeNota) {
+        const okOrigem = await retirarServicoDaComissaoParaServicos(item.id);
+        if (!okOrigem) anyFailed = true;
+      }
+
+      // Lançamentos manuais continuam com o comportamento original de Lixeira.
+      if (idsManuais.length > 0) {
+        const okManuais = await deleteServicesBatchFromSupabase(idsManuais);
+        if (!okManuais) {
+          for (const item of itemsToDelete.filter((i) => !i.origemNotaId)) {
+            const okSingle = await deleteServiceFromSupabase(item.id);
+            if (!okSingle) anyFailed = true;
           }
         }
-        if (anyFailed) {
-          // Reverte os itens se falhar a comunicação
-          setServices((prev) => {
-            const currentIds = new Set(prev.map(s => s.id));
-            const restored = itemsToDelete.filter(i => !currentIds.has(i.id));
-            return [...restored, ...prev];
-          });
-          showToast('Não foi possível excluir alguns serviços.');
-          return;
-        }
       }
+
+      if (anyFailed) {
+        setServices((prev) => {
+          const currentIds = new Set(prev.map(s => s.id));
+          const restored = itemsToDelete.filter(i => !currentIds.has(i.id));
+          return [...restored, ...prev];
+        });
+        showToast('Não foi possível excluir alguns serviços.');
+        return;
+      }
+
       showToast(hasOrigemNota ? 'Serviço removido da planilha. Disponível de novo na aba Serviços.' : 'Serviço movido para a Lixeira.');
     } catch (err) {
       setServices((prev) => {
