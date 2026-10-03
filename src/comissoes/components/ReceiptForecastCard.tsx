@@ -244,7 +244,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             {/* 4. Descontos (faltas, atrasos, etc.) */}
             {totalDiscounts > 0 && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 gap-2">
-                <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Descontos / Faltas</span>
+                <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Descontos</span>
                 <span className="font-bold text-rose-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalDiscounts)}</span>
               </div>
             )}
