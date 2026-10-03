@@ -768,8 +768,8 @@ export const calculateSummaryStats = (
   } else {
     // fixo_comissao
     totalCommission = totalCommissionRaw;
-    totalBaseSalary = baseSalary;
-    forecastTotal = baseSalary + totalCommission;
+    totalBaseSalary = salarioSemanal;
+    forecastTotal = salarioSemanal + totalCommission;
   }
 
   const completedCount = services.filter((s) => s.status === 'CONCLUÍDO').length;
@@ -1111,4 +1111,3 @@ export async function confirmarRetiradaProducao(notaId: string, codigoPedido?: s
     `Desmarcar o lançamento do pedido #${codigo} da esteira de Serviços/Produção?\n\nEle não aparecerá mais para os funcionários na esteira de Serviços até que seja lançado novamente.`
   );
 }
-
