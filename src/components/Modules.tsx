@@ -19102,7 +19102,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const product = products.find(p => p.id === item.productId);
     if (!product || (product.unitType !== 'm2' && product.unitType !== 'metro')) return;
 
-    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\\s*x\\s*([0-9.,]+)m?/i);
+    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\s*x\s*([0-9.,]+)m?/i);
     const width = match?.[1] || '';
     const height = match?.[2] || '';
 
