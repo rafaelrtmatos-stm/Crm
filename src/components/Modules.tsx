@@ -19102,19 +19102,45 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const product = products.find(p => p.id === item.productId);
     if (!product || (product.unitType !== 'm2' && product.unitType !== 'metro')) return;
 
-    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\s*x\s*([0-9.,]+)m?/i);
-    const width = match?.[1] || '';
-    const height = match?.[2] || '';
+    // Os itens antigos podem ter dimensões gravadas com "x" ou "×" e com
+    // diferentes espaços/unidades. Ao editar, precisamos recuperar as DUAS
+    // medidas originais, e não usar apenas a área como fallback da largura.
+    const rawDimensions = String(item.dimensions || '').trim();
+    const match = rawDimensions.match(/([0-9]+(?:[.,][0-9]+)?)\s*m?\s*[x×]\s*([0-9]+(?:[.,][0-9]+)?)\s*m?/i);
+    let width = match?.[1] ? Number(match[1].replace(',', '.')) : 0;
+    let height = match?.[2] ? Number(match[2].replace(',', '.')) : 0;
+
+    // Fallback para registros legados que não tenham o separador de dimensão
+    // reconhecido: usa os dois primeiros números encontrados.
+    if ((!width || !height) && rawDimensions) {
+      const numbers = rawDimensions.match(/[0-9]+(?:[.,][0-9]+)?/g) || [];
+      if (!width && numbers[0]) width = Number(numbers[0].replace(',', '.'));
+      if (!height && numbers[1]) height = Number(numbers[1].replace(',', '.'));
+    }
+
+    // Se só a largura estiver disponível e o item tiver área salva, recupera
+    // a altura pela relação área ÷ largura (ex.: 2m² com largura 2m => 1m).
+    if (width > 0 && height <= 0 && Number(item.area) > 0) {
+      height = Number(item.area) / width;
+    }
+
+    // Último fallback: para registros sem dimensão legível, preserva o
+    // comportamento anterior usando a área como largura, mas nunca deixa a
+    // altura vazia quando a área permite recuperá-la.
+    if (width <= 0 && Number(item.area) > 0) {
+      width = Number(item.area);
+      if (height <= 0) height = 1;
+    }
 
     setEditingCartItemIndex(index);
     setDimensionModalProduct(product);
     setSelectedQty(Math.max(1, Number(item.quantity) || 1));
-    setDimWidth(width ? Number(width.replace(',', '.')) : Number(item.area || 0) || '');
-    setDimHeight(height ? Number(height.replace(',', '.')) : '');
+    setDimWidth(width > 0 ? Number(width.toFixed(6)) : '');
+    setDimHeight(height > 0 ? Number(height.toFixed(6)) : '');
     setDimLarguraMaterial(product.larguraRolo || 0);
 
     // Ao reabrir a metragem, o valor volta ao cálculo automático.
-    // Assim, alterar 2x1 para 2x1,5 recalcula o preço/consumo em vez de congelar
+    // Assim, alterar as medidas recalcula preço e consumo em vez de congelar
     // o valor anterior da linha.
     setDimValorOverride('');
     setDimValorFoiEditado(false);
