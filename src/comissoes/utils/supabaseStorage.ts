@@ -734,7 +734,9 @@ export const calculateSummaryStats = (
   const modalidade = settings?.modalidadeRemuneracao || 'fixo_comissao';
   const metaPerc = Number(settings?.metaPercentual) || 0;
 
-  const salarioSemanal = calcularSalarioSemanal(baseSalary);
+  // No módulo de Comissões, baseSalary já é o valor FIXO SEMANAL.
+  // Não aplicar novamente a conversão mensal 44/220.
+  const salarioSemanal = Number(baseSalary) || 0;
   let totalCommission = totalCommissionRaw;
   let totalBaseSalary = salarioSemanal;
   let forecastTotal = salarioSemanal + totalCommission;
