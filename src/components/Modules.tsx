@@ -14408,6 +14408,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [cart, setCart] = useState<SaleOrderItem[]>([]);
   const [search, setSearch] = useState('');
   const [selectedQty, setSelectedQty] = useState(1);
+  // Índice do item dimensional que está sendo editado diretamente no carrinho.
+  // null = inclusão normal de um novo item.
+  const [editingCartItemIndex, setEditingCartItemIndex] = useState<number | null>(null);
   const [dimensionModalProduct, setDimensionModalProduct] = useState<Product | null>(null);
   const [etiquetaModalProduct, setEtiquetaModalProduct] = useState<Product | null>(null);
   const emptyEtiquetaForm = { quantidade: 100, largura: 8, altura: 8, larguraMaterial: 0, metrosInput: 0, valorInput: 0 };
@@ -18949,17 +18952,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       showAlert('Esse produto tem matéria-prima vinculada — informe a largura do material (metro linear) antes de adicionar ao carrinho.');
       return;
     }
+
     const w = dimWidth === '' ? 0 : Number(dimWidth);
     const h = dimHeight === '' ? 0 : Number(dimHeight);
     if (w <= 0 || h <= 0) {
       showAlert('Informe largura e altura válidas.');
       return;
     }
+
     const area = w * h;
     const dimensions = `${w.toString().replace('.', ',')}x${h.toString().replace('.', ',')}`;
     const product = dimensionModalProduct;
     let consumoUnitario = area;
     const rolo = dimLarguraMaterial || product.larguraRolo || 0;
+
     if (rolo > 0) {
       const cabeComoEsta = w <= rolo;
       const cabeGirada = h <= rolo;
@@ -18968,64 +18974,112 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
       consumoUnitario = calcularConsumoLinear(w, h, rolo);
     }
-    // Se a largura do material foi mudada, salva como novo padrao pra proxima vez
+
     if (dimLarguraMaterial && dimLarguraMaterial !== product.larguraRolo) {
       await supabase.from('produtos').update({ largura_rolo: dimLarguraMaterial }).eq('id', product.id);
     }
 
+    const valorCalculado = product.unitType === 'metro'
+      ? consumoUnitario * product.price * selectedQty
+      : area * product.price * selectedQty;
+    const valorAutomatico = Math.max(valorCalculado, product.valorMinimo || 0);
+    const valorFinal = dimValorOverride === '' ? valorAutomatico : Math.max(0, Number(dimValorOverride));
+
     if (product.unitType === 'metro') {
-      // Metro linear puro: preco cobrado e sobre o consumo linear (lado que "sobra" ao encaixar
-      // a peca na largura do material, sempre preferindo o lado menor quando os dois cabem)
-      const valorCalculado = consumoUnitario * product.price * selectedQty;
-      const valorFinal = Math.max(valorCalculado, product.valorMinimo || 0);
+      // No modo metro, o preço armazenado representa o valor total da linha e a quantidade
+      // permanece 1, mantendo o formato histórico do PDV.
       const dimensoesTexto = `${dimensions} (${consumoUnitario.toFixed(2).replace('.', ',')}m linear)`;
-      setCart(prev => [...prev, {
+      const itemAtualizado: SaleOrderItem = {
         productId: product.id,
         name: product.name,
         price: valorFinal,
         quantity: 1,
         dimensions: dimensoesTexto,
         consumoEstoque: consumoUnitario * selectedQty,
-      }]);
-      setDimensionModalProduct(null);
-      setDimWidth('');
-      setDimHeight('');
-      setSelectedQty(1);
-      return;
-    }
+      };
 
-    // m2: aplica o valor minimo ajustando o preco unitario, pra manter a formula preco x area x qtd
-    // usada em todo o resto do sistema (carrinho, recibo, orcamento) sem precisar mexer nela
-    let precoUnitarioEfetivo = product.price;
-    if (product.valorMinimo && area > 0) {
-      const valorCalculado = product.price * area * selectedQty;
-      if (valorCalculado < product.valorMinimo) {
-        precoUnitarioEfetivo = product.valorMinimo / (area * selectedQty);
+      if (editingCartItemIndex !== null) {
+        setCart(prev => prev.map((item, idx) => idx === editingCartItemIndex ? {
+          ...item,
+          ...itemAtualizado,
+          observacao: item.observacao,
+          precoOriginal: item.precoOriginal,
+          descontoValor: item.descontoValor,
+        } : item));
+      } else {
+        setCart(prev => [...prev, itemAtualizado]);
       }
-    }
+    } else {
+      // Em m², price é unitário e area é por unidade; a quantidade continua livremente editável.
+      let precoUnitarioEfetivo = product.price;
+      if (valorFinal !== valorAutomatico || product.valorMinimo) {
+        const base = area * Math.max(1, selectedQty);
+        if (base > 0) precoUnitarioEfetivo = valorFinal / base;
+      }
 
-    setCart(prev => {
-      const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
-      if (existing) {
-        return prev.map(item => (item.productId === product.id && item.dimensions === dimensions)
-          ? { ...item, quantity: item.quantity + selectedQty }
-          : item
-        );
-      }
-      return [...prev, {
+      const itemAtualizado: SaleOrderItem = {
         productId: product.id,
         name: product.name,
         price: precoUnitarioEfetivo,
-        quantity: selectedQty,
+        quantity: Math.max(1, selectedQty),
         dimensions,
         area,
-        consumoEstoque: consumoUnitario
-      }];
-    });
+        consumoEstoque: consumoUnitario,
+      };
+
+      if (editingCartItemIndex !== null) {
+        setCart(prev => prev.map((item, idx) => idx === editingCartItemIndex ? {
+          ...item,
+          ...itemAtualizado,
+          observacao: item.observacao,
+          precoOriginal: item.precoOriginal,
+          descontoValor: item.descontoValor,
+        } : item));
+      } else {
+        setCart(prev => {
+          const existing = prev.find(item => item.productId === product.id && item.dimensions === dimensions);
+          if (existing) {
+            return prev.map(item => (item.productId === product.id && item.dimensions === dimensions)
+              ? { ...item, quantity: item.quantity + Math.max(1, selectedQty) }
+              : item
+            );
+          }
+          return [...prev, itemAtualizado];
+        });
+      }
+    }
+
+    setEditingCartItemIndex(null);
     setDimensionModalProduct(null);
     setDimWidth('');
     setDimHeight('');
+    setDimValorOverride('');
+    setDimValorFoiEditado(false);
     setSelectedQty(1);
+  };
+
+  const openEditCartItem = (index: number) => {
+    const item = cart[index];
+    if (!item) return;
+    const product = products.find(p => p.id === item.productId);
+    if (!product || (product.unitType !== 'm2' && product.unitType !== 'metro')) return;
+
+    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\\s*x\\s*([0-9.,]+)m?/i);
+    const width = match?.[1] || '';
+    const height = match?.[2] || '';
+
+    setEditingCartItemIndex(index);
+    setDimensionModalProduct(product);
+    setSelectedQty(Math.max(1, Number(item.quantity) || 1));
+    setDimWidth(width ? Number(width.replace(',', '.')) : Number(item.area || 0) || '');
+    setDimHeight(height ? Number(height.replace(',', '.')) : '');
+    setDimLarguraMaterial(product.larguraRolo || 0);
+
+    const currentTotal = item.area
+      ? item.price * item.area * item.quantity
+      : item.price * item.quantity;
+    setDimValorOverride(Number(currentTotal.toFixed(2)));
+    setDimValorFoiEditado(true);
   };
 
   const updateCartQty = (index: number, delta: number) => {
@@ -20200,7 +20254,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        >
                                           -
                                        </button>
-                                       <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 text-slate-900">{item.quantity}</span>
+                                       <input
+                                          type="number"
+                                          min="0"
+                                          step="any"
+                                          value={item.quantity}
+                                          onFocus={(e) => e.currentTarget.select()}
+                                          onChange={(e) => {
+                                            const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                            setCart(prev => {
+                                              if (value <= 0 || !Number.isFinite(value)) return prev.filter((_, i) => i !== idx);
+                                              return prev.map((cartItem, i) => i === idx ? { ...cartItem, quantity: value } : cartItem);
+                                            });
+                                          }}
+                                          className="w-10 sm:w-12 h-4 sm:h-5 bg-white text-slate-900 text-center font-black text-[7.5px] sm:text-[9px] rounded border border-slate-900/10 focus:outline-none focus:border-primary-500"
+                                          title="Digite a quantidade"
+                                       />
                                        <button
                                           onClick={() => updateCartQty(idx, 1)}
                                           className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-white text-slate-800 font-black text-[8px] sm:text-[9px] flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
@@ -20217,6 +20286,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     >
                                        <MessageSquare size={11} />
                                     </button>
+
+                                    {item.dimensions && (products.find(p => p.id === item.productId)?.unitType === 'm2' || products.find(p => p.id === item.productId)?.unitType === 'metro') && (
+                                       <button
+                                          onClick={() => openEditCartItem(idx)}
+                                          className="p-0.5 text-slate-400 hover:text-primary-600 transition-colors cursor-pointer"
+                                          title="Editar medidas"
+                                       >
+                                          <Pencil size={11} />
+                                       </button>
+                                    )}
 
                                     <button
                                        onClick={() => item.descontoValor ? removeItemDiscount(idx) : openItemDiscount(idx)}
