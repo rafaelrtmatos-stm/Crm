@@ -357,45 +357,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return calculateSummaryStats(filteredServices, userSettings.baseSalary, userSettings);
   }, [filteredServices, userSettings]);
 
-  // Calculate specific current week statistics for the bottom section
-  const weeklyBounds = useMemo(
-    () => getWorkWeekBounds(period === 'semana' ? dashboardWeekOffset(weekOffset) : dashboardWeekOffset(0)),
-    [period, weekOffset]
-  );
-
-
-  // O pagamento precisa pertencer ao mesmo caixa do ciclo exibido.
-  // No sábado, isso impede que um pagamento do caixa 19/09–25/09,
-  // registrado em 26/09, seja abatido novamente do fechamento 26/09–02/10.
-  const [caixaPeriodoId, setCaixaPeriodoId] = useState<string | null>(null);
-  const [saldoAnteriorCaixaPeriodo, setSaldoAnteriorCaixaPeriodo] = useState(0);
-  useEffect(() => {
-    if (!colaboradorId) {
-      setCaixaPeriodoId(null);
-      setSaldoAnteriorCaixaPeriodo(0);
-      return;
-    }
-    let cancelled = false;
-    supabase
-      .from('comissoes_caixas_semanais')
-      .select('id, saldo_anterior')
-      .eq('colaborador_id', colaboradorId)
-      .eq('semana_inicio', weeklyBounds.start)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        setCaixaPeriodoId(data?.id ?? null);
-        setSaldoAnteriorCaixaPeriodo(Number(data?.saldo_anterior) || 0);
-      });
-    return () => { cancelled = true; };
-  }, [colaboradorId, weeklyBounds.start]);
-
-  const pagamentosDoPeriodo = useMemo(() => {
-    if (period !== 'semana' || !caixaPeriodoId) return pagamentos;
-    return pagamentos.filter((p) => p.caixaId === caixaPeriodoId);
-  }, [period, caixaPeriodoId, pagamentos]);
-
-
   // ✅ Resumo real do período selecionado (Salário + Comissão - Descontos - Já Pago),
   // usando exatamente a mesma função já corrigida na aba Descontos. Isso é o que garante
   // que o "Total Estimado" do card de Previsão já desconta o que o colaborador recebeu --
@@ -407,7 +368,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!caixa) return null;
     return calcularResumoNoIntervalo(
       dataInicioColaborador || caixa.semanaInicio,
-      userSettings.baseSalary, recentServices, descontos, pagamentosDoPeriodo, start, end,
+      userSettings.baseSalary, recentServices, descontos, pagamentos, start, end,
       {
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
@@ -417,7 +378,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentosDoPeriodo, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
@@ -426,10 +387,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const saldoAnteriorAoPeriodo = useMemo(() => {
     if (!caixa) return 0;
     // No sábado o card representa o fechamento do ciclo que terminou na sexta.
-    // Portanto, usa o saldo anterior do PRÓPRIO caixa exibido (ex.: -R$66,00),
-    // e não o saldo de um ciclo diferente.
+    // O saldo anterior do caixa aberto pertence ao novo ciclo e não pode ser somado
+    // novamente ao fechamento de 26/09 a 02/10.
     if (new Date().getDay() === 6 && period === 'semana' && weekOffset === 0) {
-      return saldoAnteriorCaixaPeriodo;
+      return 0;
     }
     // Se houver dívida real de semana passada (saldo negativo), abatemos:
     if (caixa.saldoAnterior < 0) {
@@ -438,9 +399,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     // Para períodos normais (Hoje, Ontem, Semana, Mês) a previsão da semana
     // é Salário + Comissões - Descontos - Já Pago. Não soma créditos passados que inflariam a previsão.
     return 0;
-  }, [caixa, period, weekOffset, saldoAnteriorCaixaPeriodo]);
+  }, [caixa, period, weekOffset]);
 
-
+  // Calculate specific current week statistics for the bottom section
+  const weeklyBounds = useMemo(
+    () => getWorkWeekBounds(period === 'semana' ? dashboardWeekOffset(weekOffset) : dashboardWeekOffset(0)),
+    [period, weekOffset]
+  );
   const weeklyServices = useMemo(() => {
     return recentServices.filter(
       (s) => s.date >= weeklyBounds.start && s.date <= weeklyBounds.end && s.status !== 'CANCELADO'
@@ -452,7 +417,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!caixa) return null;
     return calcularResumoNoIntervalo(
       dataInicioColaborador || caixa.semanaInicio,
-      userSettings.baseSalary, recentServices, descontos, pagamentosDoPeriodo, weeklyBounds.start, weeklyBounds.end,
+      userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds.start, weeklyBounds.end,
       {
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
@@ -462,7 +427,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentosDoPeriodo, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   const weeklyStats = useMemo(() => {
     const prod = weeklyServices.reduce((acc, s) => acc + s.productionValue, 0);
