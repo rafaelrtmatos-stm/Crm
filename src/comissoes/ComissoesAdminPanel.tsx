@@ -211,13 +211,13 @@ export default function ComissoesAdminPanel() {
   // Offset de semanas (0 = semana atual, -1 = semana passada, -2 = 2 semanas atrás, etc.)
   const [weekOffset, setWeekOffset] = useState<number>(0);
 
-  // No sábado, a aba Funcionários mostra o fechamento do ciclo Sábado a Sexta
-  // encerrado ontem. A produção do sábado pertence ao novo ciclo.
+  // A comissão é da semana vigente. O saldo do ponto/salário é da semana anterior.
+  // Assim, o ponto da semana atual fica reservado para o próximo pagamento.
+  const commissionWeekOffset = weekOffset;
+  const pointWeekOffset = weekOffset - 1;
+  const weekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
+  const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
   const isSaturday = new Date().getDay() === 6;
-  const effectiveWeekOffset = isSaturday ? weekOffset - 1 : weekOffset;
-
-  // Limites da semana efetivamente exibida.
-  const weekBounds = useMemo(() => getWorkWeekBounds(effectiveWeekOffset), [effectiveWeekOffset]);
 
   // Estados de busca, filtros e visualização
   const [searchQuery, setSearchQuery] = useState('');
@@ -265,7 +265,7 @@ export default function ComissoesAdminPanel() {
 
       // 2. Busca dados da semana atual para cálculo do Total Estimado e contas de usuários
       const { start, end } = weekBounds;
-      const descBounds = getDescontosValesBounds(start, end);
+      const descBounds = getDescontosValesBounds(pointWeekBounds.start, pointWeekBounds.end);
 
       const [servicosRes, descontosRes, pagamentosRes, usuariosRes, caixasRes, vendasRes] = await Promise.all([
         supabase
@@ -290,7 +290,7 @@ export default function ComissoesAdminPanel() {
         supabase
           .from('comissoes_caixas_semanais')
           .select('id, colaborador_id, saldo_anterior, semana_inicio, semana_fim, status')
-          .eq('semana_inicio', start),
+          .eq('semana_inicio', pointWeekBounds.start),
         supabase
           .from('vendas')
           .select('total, status, down_payment, created_at')
@@ -318,9 +318,8 @@ export default function ComissoesAdminPanel() {
       const pagamentos = pagamentosRes.data || [];
       const caixas = caixasRes.data || [];
 
-      // Mapeia o caixa do ciclo efetivamente exibido por colaborador.
-      // No sábado isso aponta para o ciclo encerrado na sexta, inclusive para
-      // obter corretamente a dívida carregada e separar pagamentos de outro ciclo.
+      // Mapeia o caixa do ciclo de ponto anterior por colaborador.
+      // Pagamentos e dívidas desse ciclo não são misturados com a comissão vigente.
       const caixasByColab: Record<string, { id: string; saldoAnterior: number }> = {};
       caixas.forEach((cx: any) => {
         caixasByColab[cx.colaborador_id] = {
@@ -1153,7 +1152,7 @@ export default function ComissoesAdminPanel() {
                   Visualizando Semana Histórica: {formatDateBR(weekBounds.start)} a {formatDateBR(weekBounds.end)} ({Math.abs(weekOffset)} {Math.abs(weekOffset) === 1 ? 'semana' : 'semanas'} atrás)
                 </p>
                 <p className="text-[11px] text-amber-300/80 font-medium mt-0.5">
-                  Todos os totais estimados, faturamentos, comissões e descontos da equipe abaixo correspondem aos registros dessa semana passada.
+                  O saldo do ponto vem da semana anterior; as comissões e a produção vêm da semana vigente.
                 </p>
               </div>
             </div>
@@ -1539,7 +1538,7 @@ export default function ComissoesAdminPanel() {
                       <div className="pt-2 border-t border-[var(--border-color)]/60 grid grid-cols-3 gap-1 text-[10px] text-center">
                         <div className="space-y-0.5">
                           <span className="text-[9px] font-semibold text-[var(--text-muted)] block">
-                            {stats.modalidade === 'fixo' ? 'Salário Fixo' : stats.modalidade === 'meta' ? 'Fixo' : 'Salário Base'}
+                            'Saldo do Ponto (semana anterior)'
                           </span>
                           <span className="font-bold text-[var(--text-main)] truncate block">
                             {stats.modalidade === 'meta' ? 'R$ 0,00' : formatCurrencyBR(stats.salarioBase)}
@@ -1547,7 +1546,7 @@ export default function ComissoesAdminPanel() {
                         </div>
                         <div className="space-y-0.5 border-x border-[var(--border-color)]/60">
                           <span className="text-[9px] font-semibold text-emerald-400 block">
-                            {stats.modalidade === 'meta' ? `+ Meta (${stats.metaPercentual || 0}%)` : stats.modalidade === 'fixo' ? 'Comissão' : '+ Comissões'}
+                            {stats.modalidade === 'meta' ? '+ Meta da semana vigente' : stats.modalidade === 'fixo' ? 'Comissão da semana vigente' : '+ Comissões da semana vigente'}
                           </span>
                           <span className="font-bold text-emerald-400 truncate block">
                             {stats.modalidade === 'fixo' ? 'R$ 0,00' : `+${formatCurrencyBR(stats.totalComissao)}`}

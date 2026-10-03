@@ -110,7 +110,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span>Previsão de Recebimento</span>
             </div>
             <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
-              {isHojeSabado ? 'Fechamento (até Sexta)' : 'Semanal (Sáb a Sex)'}
+              'Ponto anterior + comissão atual'
             </span>
           </div>
 
@@ -121,7 +121,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 Total a Receber
               </span>
               <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                {isHojeSabado ? 'Fechamento oficial da semana' : 'Previsão líquida da semana'}
+                'Ponto anterior + comissão da semana vigente'
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
@@ -200,7 +200,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               Composição do Valor
             </span>
             <span className="text-[10px] text-white/70 font-mono font-normal whitespace-nowrap">
-              {cycleDates || 'Ciclo Sáb a Sex'}
+              {cycleDates || 'Ponto: semana anterior • Comissão: semana vigente'}
             </span>
           </div>
 
@@ -209,7 +209,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             {modalidadeRemuneracao !== 'meta' && (baseSalary > 0 || modalidadeRemuneracao === 'fixo') && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
                 <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
-                  {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : 'Salário Base'}
+                  'Saldo do Ponto (Semana Anterior)'
                 </span>
                 <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
               </div>
@@ -288,7 +288,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
-                ℹ️ Fechamento até sexta-feira. Produções de hoje (sábado) contam na próxima semana; vales e descontos de hoje entram neste acerto.
+                ℹ️ O saldo do ponto considera a semana anterior. A comissão exibida é da semana vigente; o ponto desta semana fica para o próximo pagamento.
               </div>
             )}
           </div>

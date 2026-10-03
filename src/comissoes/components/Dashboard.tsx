@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { ServiceItem, UserSettings, SummaryStats } from '../types';
 import { formatCurrency, formatDateBR, calculateSummaryStats } from '../utils/storage';
-import { Desconto } from '../utils/supabaseStorage';
+import { Desconto, calcularSalarioSemanal } from '../utils/supabaseStorage';
 import {
   WeeklyCaixa,
   Pagamento,
@@ -242,9 +242,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [colaboradorId]);
 
 
-  // No sábado, o ciclo exibido para fechamento é o ciclo encerrado na sexta-feira.
-  // Portanto, 03/10 deve mostrar 26/09 a 02/10; a produção do próprio sábado inicia o próximo ciclo.
+  // O ponto/salário é pago com referência à semana anterior, enquanto a comissão
+  // é acumulada na semana vigente. O ponto da semana atual ficará para o próximo sábado.
   const dashboardWeekOffset = (offset: number) => new Date().getDay() === 6 ? offset - 1 : offset;
+  const commissionWeekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
+  const pointWeekBounds = useMemo(() => getWorkWeekBounds(weekOffset - 1), [weekOffset]);
 
   // Receita da loja no ciclo semanal de Sábado a Sexta (apenas notas 100% quitadas/recebidas)
   const [receitaLojaSemana, setReceitaLojaSemana] = useState(0);
@@ -379,6 +381,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     );
   }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+
+  // Resumo da comissão da semana vigente, independente do fechamento do ponto.
+  const resumoComissaoSemanaVigente = useMemo(() => {
+    if (!caixa) return null;
+    return calcularResumoNoIntervalo(
+      dataInicioColaborador || caixa.semanaInicio,
+      userSettings.baseSalary,
+      recentServices,
+      descontos,
+      pagamentos,
+      commissionWeekBounds.start,
+      commissionWeekBounds.end,
+      {
+        modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
+        metaPercentual: userSettings.metaPercentual,
+        comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+        metasValores: userSettings.metasValores,
+        metaValorMinimo: userSettings.metaValorMinimo,
+        metaValorMaximo: userSettings.metaValorMaximo,
+      }
+    );
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, commissionWeekBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
@@ -686,14 +710,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Featured Card de Previsão de Recebimento */}
         <div className="lg:col-span-1">
           <ReceiptForecastCard
-            baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : userSettings.baseSalary}
-            totalCommission={userSettings.modalidadeRemuneracao === 'meta' ? (metaCalculada?.comissaoEfetiva ?? 0) : (period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalComissao : weeklyStats.weeklyCommission)}
+            baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : calcularSalarioSemanal(userSettings.baseSalary)}
+            totalCommission={resumoComissaoSemanaVigente?.totalComissao ?? 0}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
-            totalDiscounts={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalDescontos : (resumoSemanaAtual?.totalDescontos ?? 0)}
-            totalPaid={period === 'semana' && resumoPeriodoAtivo ? resumoPeriodoAtivo.totalPago : (resumoSemanaAtual?.totalPago ?? 0)}
+            totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
+            totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
             previousBalance={saldoAnteriorAoPeriodo}
-            cycleDates={`${formatDateBR(weeklyBounds.start)} a ${formatDateBR(weeklyBounds.end)}`}
+            cycleDates={`Ponto: ${formatDateBR(pointWeekBounds.start)} a ${formatDateBR(pointWeekBounds.end)} • Comissão: ${formatDateBR(commissionWeekBounds.start)} a ${formatDateBR(commissionWeekBounds.end)}`}
             modalidadeRemuneracao={userSettings.modalidadeRemuneracao}
             metaPercentual={userSettings.metaPercentual}
             metasValores={userSettings.metasValores}
