@@ -1436,6 +1436,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
   const [showLinhaLucro, setShowLinhaLucro] = useState(true);
+  const [showProfitValues, setShowProfitValues] = useState(false);
   const [expandedLucroFat, setExpandedLucroFat] = useState(false);
   const [expandedLucroQuit, setExpandedLucroQuit] = useState(false);
   const [revenueDataPoint, setRevenueDataPoint] = useState<any>(null);
@@ -2475,6 +2476,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                 ))}
               </div>
 
+              <button
+                type="button"
+                onClick={() => setShowProfitValues(prev => !prev)}
+                className="h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider"
+                title={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+              >
+                {showProfitValues ? <Eye size={14} /> : <EyeOff size={14} />}
+                {showProfitValues ? 'Ocultar lucro' : 'Mostrar lucro'}
+              </button>
+
               {period === 'Personalizado' && (
                 <div className="flex gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-2">
                    <input 
@@ -2655,8 +2666,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             },
             { 
               label: 'Lucro — Faturamento', 
-              val: `R$ ${lucroLiquidoFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
-              diff: `Margem: ${margemFaturamento.toFixed(1)}%`, 
+              val: showProfitValues ? `R$ ${lucroLiquidoFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'R$ ••••••',
+               diff: showProfitValues ? `Margem: ${margemFaturamento.toFixed(1)}%` : 'Margem: •••%', 
               color: 'text-emerald-300 font-black', 
               borderHover: 'hover:border-emerald-400 border-emerald-500/30 bg-emerald-500/5',
               glow: 'bg-emerald-500/20',
@@ -2665,8 +2676,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             },
             { 
               label: 'Lucro — Receita Quitada', 
-              val: `R$ ${lucroLiquidoQuitada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
-              diff: `Margem: ${margemQuitada.toFixed(1)}%`, 
+              val: showProfitValues ? `R$ ${lucroLiquidoQuitada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'R$ ••••••',
+               diff: showProfitValues ? `Margem: ${margemQuitada.toFixed(1)}%` : 'Margem: •••%', 
               color: 'text-teal-300 font-black', 
               borderHover: 'hover:border-teal-400 border-teal-500/30 bg-teal-500/5',
               glow: 'bg-teal-500/20',
@@ -2695,7 +2706,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
                         {item.diff}
                       </span>
-                      {item.isExpanded && (
+                      {item.isExpanded && showProfitValues && (
                         <div className="text-[7.5px] font-mono text-white/60 space-y-0.5 mt-2 pt-2 border-t border-white/10 w-full leading-tight animate-in fade-in duration-200">
                           <div>Faturamento bruto: R$ {faturamentoTotal.toFixed(2).replace('.', ',')}</div>
                           <div>(-) Insumos: R$ {custoInsumosFaturamento.toFixed(2).replace('.', ',')}</div>
@@ -2711,7 +2722,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
                         {item.diff}
                       </span>
-                      {item.isExpanded && (
+                      {item.isExpanded && showProfitValues && (
                         <div className="text-[7.5px] font-mono text-white/60 space-y-0.5 mt-2 pt-2 border-t border-white/10 w-full leading-tight animate-in fade-in duration-200">
                           <div>Receita quitada: R$ {receitaQuitadas.toFixed(2).replace('.', ',')}</div>
                           <div>(-) Insumos correspondentes: R$ {custoInsumosQuitadas.toFixed(2).replace('.', ',')}</div>
@@ -3434,8 +3445,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       </div>
                       <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
                          <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro Líquido</p>
-                         <p className="text-base font-black text-emerald-400">R$ {analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Margem: {analiseDetalhada.periodo.margemLucro.toFixed(1)}%</p>
+                         <p className="text-base font-black text-emerald-400">{showProfitValues ? `R$ ${analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'R$ ••••••'}</p>
+                         <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Margem: {showProfitValues ? `${analiseDetalhada.periodo.margemLucro.toFixed(1)}%` : '••%'}</p>
                       </div>
                       <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
                          <p className="text-[8px] font-black uppercase text-rose-400 tracking-widest mb-1">Custos & Insumos</p>
@@ -3445,7 +3456,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <div className="p-3 bg-white/5 rounded-xl border border-white/10">
                          <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária</p>
                          <p className="text-base font-black text-white">R$ {analiseDetalhada.mediaDiariaPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400 mt-0.5 font-bold">Lucro/dia: R$ {analiseDetalhada.mediaLucroDiario.toFixed(2)}</p>
+                         <p className="text-[8px] text-emerald-400 mt-0.5 font-bold">Lucro/dia: {showProfitValues ? `R$ ${analiseDetalhada.mediaLucroDiario.toFixed(2)}` : 'R$ ••••••'}</p>
                       </div>
                       <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
                          <p className="text-[8px] font-black uppercase text-purple-300 tracking-widest mb-1">Ticket Médio</p>
@@ -3501,7 +3512,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                      formatter={(value: any, name: string) => [`R$ ${Number(value).toFixed(2).replace('.', ',')}`, name === 'faturamento' ? 'Faturamento' : 'Lucro']}
                                   />
                                   {showLinhaFaturamento && <Line type="monotone" dataKey="faturamento" stroke="#4cc9f0" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />}
-                                  {showLinhaLucro && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />}
+                                  {showLinhaLucro && showProfitValues && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />}
                                </LineChart>
                             </ResponsiveContainer>
                             </ChartErrorBoundary>
@@ -3703,7 +3714,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right hidden sm:block">
                                       <span className="text-[8px] font-bold text-emerald-400/60 uppercase block">Lucro Estimado</span>
-                                      <span className="text-xs font-black text-emerald-300">R$ {prod.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                      <span className="text-xs font-black text-emerald-300">{showProfitValues ? `R$ ${prod.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'R$ ••••••'}</span>
                                    </div>
                                 </div>
                              </div>
@@ -3932,7 +3943,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right shrink-0 flex items-center gap-3">
                                       <div className="text-right">
-                                         <span className="text-[8px] text-emerald-400/70 font-bold block">Lucro: R$ {venda.lucroVenda.toFixed(2)}</span>
+                                         <span className="text-[8px] text-emerald-400/70 font-bold block">Lucro: {showProfitValues ? `R$ ${venda.lucroVenda.toFixed(2)}` : 'R$ ••••••'}</span>
                                          <p className="text-xs font-black text-white">R$ {venda.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                       </div>
                                       <ArrowRight className="w-3 h-3 text-white/20" />
@@ -14450,6 +14461,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [insulfilmPecas, setInsulfilmPecas] = useState<{ id: string; largura: number | ''; altura: number | '' }[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [showLucroRaioXModal, setShowLucroRaioXModal] = useState(false);
+  const [showProfitValues, setShowProfitValues] = useState(false);
   const [allowExtraPaymentEntry, setAllowExtraPaymentEntry] = useState(false);
   const [settlingOrder, setSettlingOrder] = useState<SaleOrder | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -15524,7 +15536,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: 'pending',
           observacoes: contratoForm.observacoes || null,
           orcamento_id: contratoForm.orcamentoId || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
@@ -15600,7 +15612,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         politica_cancelamento_texto: contratoForm.politicaCancelamentoTexto || null,
         observacoes: contratoForm.observacoes || null,
         texto_contrato: textoContrato,
-        service_status: contratoForm.serviceStatus || 'pedido_recebido',
+        service_status: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -16195,7 +16207,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           received_value: 0,
           status: 'pending',
           observacoes: orcamentoForm.observacoes || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
@@ -16252,7 +16264,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         juros_percentual: orcamentoForm.jurosPercentual,
         dias_tolerancia: orcamentoForm.diasTolerancia,
         validade: orcamentoForm.validade || null,
-        service_status: orcamentoForm.serviceStatus || 'pedido_recebido',
+        service_status: null,
       };
       let newId: string | null = null;
       if (editingOrcamento) {
@@ -16439,7 +16451,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         payment_method: o.formaPagamentoTexto || 'A Combinar',
         payment_status: 'pending',
         status: 'pending',
-        service_status: (o as any).serviceStatus || 'pedido_recebido',
+        service_status: null,
         orcamento_id: o.id,
         observacoes: o.observacoes || null,
         created_at: new Date().toISOString(),
@@ -17024,20 +17036,22 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-          title={r.isParcial
-            ? `Caixa Hoje: R$ ${r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} • Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro Previsto: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`
-            : `Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`}
-          className="text-[8.5px] font-mono block truncate w-full text-right hover:underline mt-0.5 cursor-pointer"
+           title={showProfitValues
+             ? (r.isParcial
+               ? `Caixa Hoje: R$ ${r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} • Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro Previsto: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`
+               : `Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`)
+             : 'Clique para ver os custos da nota'}
+           className="text-[8.5px] font-mono block truncate w-full text-right hover:underline mt-0.5 cursor-pointer"
         >
           <div className="flex items-center justify-end gap-1.5 flex-wrap">
             <span className="text-white/40">Custo: <strong className="text-white/70">R$ {r.custoTotal.toFixed(0)}</strong></span>
             <span className="text-white/20">•</span>
             <span className={cn(r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-              Lucro: <strong>R$ {r.lucroPrevisto.toFixed(0)}</strong>
+              Lucro: <strong>{showProfitValues ? `R$ ${r.lucroPrevisto.toFixed(0)}` : 'R$ ••••••'}</strong>
             </span>
             <span className="text-white/20">•</span>
             <span className="text-cyan-300 font-bold">
-              {r.margemPrevista.toFixed(0)}%
+              {showProfitValues ? `${r.margemPrevista.toFixed(0)}%` : '••%'}
             </span>
           </div>
         </button>
@@ -17067,14 +17081,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             <div className="flex items-baseline gap-1">
               <span className="text-[8.5px] text-white/40 uppercase">Lucro:</span>
               <strong className={cn(r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                R$ {r.lucroPrevisto.toFixed(2).replace('.', ',')}
+                {showProfitValues ? `R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}
               </strong>
             </div>
             <span className="text-white/20 hidden sm:inline">•</span>
             <div className="flex items-baseline gap-1">
               <span className="text-[8.5px] text-cyan-400/80 uppercase">Margem:</span>
               <strong className="text-cyan-300">
-                {r.margemPrevista.toFixed(1)}%
+                {showProfitValues ? r.margemPrevista.toFixed(1) + '%' : '••%'}
               </strong>
             </div>
           </div>
@@ -17087,17 +17101,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-        title={`Custo: R$ ${r.custoTotal.toFixed(2)} | Lucro: R$ ${r.lucroPrevisto.toFixed(2)} | Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`}
+        title={showProfitValues ? `Custo: R$ ${r.custoTotal.toFixed(2)} | Lucro: R$ ${r.lucroPrevisto.toFixed(2)} | Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)` : 'Clique para ver os custos da nota'}
         className="inline-flex items-center gap-1 text-[8px] font-mono text-white/50 hover:text-emerald-400 transition-colors cursor-pointer mt-0.5"
       >
         <Calculator size={10} className="text-emerald-400/70 shrink-0" />
         <span className="text-white/40">Custo: <strong className="text-white/70">R$ {r.custoTotal.toFixed(0)}</strong></span>
         <span className="text-white/20">|</span>
         <span className={cn(r.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-          Lucro: <strong>R$ {r.lucroPrevisto.toFixed(0)}</strong>
+          Lucro: <strong>{showProfitValues ? `R$ ${r.lucroPrevisto.toFixed(0)}` : 'R$ ••••••'}</strong>
         </span>
         <span className="text-white/20">|</span>
-        <span className="text-cyan-300 font-bold">{r.margemPrevista.toFixed(0)}%</span>
+        <span className="text-cyan-300 font-bold">{showProfitValues ? r.margemPrevista.toFixed(0) + '%' : '••%'}</span>
       </button>
     );
   };
@@ -19064,14 +19078,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const product = products.find(p => p.id === item.productId);
     if (!product || (product.unitType !== 'm2' && product.unitType !== 'metro')) return;
 
-    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\\s*x\\s*([0-9.,]+)m?/i);
+    // Recupera a largura e a altura gravadas no item. Nunca usa item.area como largura:
+    // a área (ex.: 5,85 m²) não permite reconstruir a medida original (ex.: 1,30 x 4,50).
+    const dimensionsText = String(item.dimensions || '').trim();
+    const match = dimensionsText.match(/([0-9]+(?:[.,][0-9]+)?)\s*m?\s*[x×]\s*([0-9]+(?:[.,][0-9]+)?)/i);
     const width = match?.[1] || '';
     const height = match?.[2] || '';
 
     setEditingCartItemIndex(index);
     setDimensionModalProduct(product);
     setSelectedQty(Math.max(1, Number(item.quantity) || 1));
-    setDimWidth(width ? Number(width.replace(',', '.')) : Number(item.area || 0) || '');
+    setDimWidth(width ? Number(width.replace(',', '.')) : '');
     setDimHeight(height ? Number(height.replace(',', '.')) : '');
     setDimLarguraMaterial(product.larguraRolo || 0);
 
@@ -19703,7 +19720,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           observacoes: orderObservacoes || null,
           orcamento_id: linkedOrcamentoId || null,
           discount_value: saleDiscountValue || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (error) throw error;
@@ -20150,59 +20167,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
 
-               {/* Total Banner */}
-               <div className="py-2 sm:py-2.5 px-2.5 sm:px-3.5 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-1.5 gap-2 shrink-0 flex-nowrap">
-                  <div className="min-w-0 flex-1">
-                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[7px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/50">Total da Nota</p>
-                        {saleDiscountValue > 0 && (
-                           <span className="text-[6.5px] sm:text-[8px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded whitespace-nowrap">
-                              Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
-                           </span>
-                        )}
-                        {saleCreditApplied > 0 && (
-                           <span className="text-[6.5px] sm:text-[8px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded whitespace-nowrap">
-                              Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
-                           </span>
-                        )}
-                        {user?.isAdmin && cart.length > 0 && (() => {
-                           const breakdownNota = detalharCustoDaNota({
-                              items: cart,
-                              custoPorId: produtosCostMap,
-                              produtoPorId: produtoPorIdMap,
-                              materiasPrimasAtuais: materiasPrimasAtuaisMap,
-                              custoMaquinaM2PorCategoria,
-                              custoMaquinaOperacionalM2PorCategoria,
-                              custoTintaM2PorCategoria,
-                              consumoTintaMlM2PorCategoria,
-                              maquinas: maquinasCadastradas,
-                              maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
-                              maquinasPorId: maquinasPorIdMap,
-                              maquinasPorCategoria: maquinasPorCategoriaMap,
-                           });
-                           const custoTotal = breakdownNota.custoTotal;
-                           const lucro = total - custoTotal;
-                           const margem = total > 0 ? (lucro / total) * 100 : 0;
-                           return (
-                              <span className={cn(
-                                 "text-[6.5px] sm:text-[8px] font-black px-1.5 py-0.2 rounded border flex items-center gap-0.5 whitespace-nowrap",
-                                 lucro >= 0 ? "text-emerald-700 bg-emerald-500/15 border-emerald-500/30" : "text-rose-700 bg-rose-500/15 border-rose-500/30"
-                              )} title={`Custo estimado: R$ ${custoTotal.toFixed(2).replace('.', ',')}`}>
-                                 <TrendingUp size={9} /> Lucro: R$ {lucro.toFixed(2).replace('.', ',')} ({margem.toFixed(0)}%)
-                              </span>
-                           );
-                        })()}
-                     </div>
-                     <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate mt-0.5">
-                        R$ {total.toFixed(2).replace('.', ',')}
-                     </h1>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                     <Badge className="bg-slate-900 text-white border-none py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-full font-black uppercase tracking-wider text-[7.5px] sm:text-[9px] shrink-0 whitespace-nowrap">
-                        {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
-                     </Badge>
-                  </div>
-               </div>
                {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
                <div className="flex-1 min-h-0 my-1 sm:my-1.5 bg-white/70 backdrop-blur-xs rounded-xl sm:rounded-2xl border border-slate-900/10 p-2 sm:p-3 flex flex-col overflow-hidden shadow-inner">
                   <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-900/10 mb-1.5 sm:mb-2 shrink-0">
@@ -20287,7 +20251,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        <MessageSquare size={11} />
                                     </button>
 
-                                    {item.dimensions && (products.find(p => p.id === item.productId)?.unitType === 'm2' || products.find(p => p.id === item.productId)?.unitType === 'metro') && (
+                                    {(products.find(p => p.id === item.productId)?.unitType === 'm2' || products.find(p => p.id === item.productId)?.unitType === 'metro') && (
                                        <button
                                           onClick={() => openEditCartItem(idx)}
                                           className="p-0.5 text-slate-400 hover:text-primary-600 transition-colors cursor-pointer"
@@ -20337,6 +20301,70 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   )}
                </div>
 
+               {/* Total Banner */}
+               <div className="py-2 sm:py-2.5 px-2.5 sm:px-3.5 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-1.5 gap-2 shrink-0 flex-nowrap">
+                  <div className="min-w-0 flex-1">
+                     <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-[7px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/50">Total da Nota</p>
+                        {saleDiscountValue > 0 && (
+                           <span className="text-[6.5px] sm:text-[8px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded whitespace-nowrap">
+                              Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
+                           </span>
+                        )}
+                        {saleCreditApplied > 0 && (
+                           <span className="text-[6.5px] sm:text-[8px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded whitespace-nowrap">
+                              Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
+                           </span>
+                        )}
+                        {user?.isAdmin && cart.length > 0 && (() => {
+                           const breakdownNota = detalharCustoDaNota({
+                              items: cart,
+                              custoPorId: produtosCostMap,
+                              produtoPorId: produtoPorIdMap,
+                              materiasPrimasAtuais: materiasPrimasAtuaisMap,
+                              custoMaquinaM2PorCategoria,
+                              custoMaquinaOperacionalM2PorCategoria,
+                              custoTintaM2PorCategoria,
+                              consumoTintaMlM2PorCategoria,
+                              maquinas: maquinasCadastradas,
+                              maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+                              maquinasPorId: maquinasPorIdMap,
+                              maquinasPorCategoria: maquinasPorCategoriaMap,
+                           });
+                           const custoTotal = breakdownNota.custoTotal;
+                           const lucro = total - custoTotal;
+                           const margem = total > 0 ? (lucro / total) * 100 : 0;
+                           return (
+                              <span className={cn(
+                                 "text-[6.5px] sm:text-[8px] font-black px-1.5 py-0.2 rounded border flex items-center gap-0.5 whitespace-nowrap",
+                                 lucro >= 0 ? "text-emerald-700 bg-emerald-500/15 border-emerald-500/30" : "text-rose-700 bg-rose-500/15 border-rose-500/30"
+                              )} title={`Custo estimado: R$ ${custoTotal.toFixed(2).replace('.', ',')}`}>
+                                 <TrendingUp size={9} /> Lucro: {showProfitValues ? `R$ ${lucro.toFixed(2).replace('.', ',')} (${margem.toFixed(0)}%)` : 'R$ •••••• (••%)'}
+                              </span>
+                           );
+                        })()}
+                     </div>
+                     <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate mt-0.5">
+                        R$ {total.toFixed(2).replace('.', ',')}
+                     </h1>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                     {user?.isAdmin && (
+                       <button
+                         type="button"
+                         onClick={() => setShowProfitValues(prev => !prev)}
+                         className="w-7 h-7 rounded-lg bg-white/60 border border-slate-900/10 text-slate-500 hover:text-slate-900 hover:bg-white flex items-center justify-center transition-colors"
+                         title={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+                         aria-label={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+                       >
+                         {showProfitValues ? <Eye size={13} /> : <EyeOff size={13} />}
+                       </button>
+                     )}
+                     <Badge className="bg-slate-900 text-white border-none py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-full font-black uppercase tracking-wider text-[7.5px] sm:text-[9px] shrink-0 whitespace-nowrap">
+                        {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
+                     </Badge>
+                  </div>
+               </div>
                {/* Bottom Automation Bar */}
                <div className="pt-1.5 sm:pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900 gap-1.5 shrink-0 flex-nowrap">
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -21922,7 +21950,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </div>
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Lucro</p>
-                       <p className="text-xl font-black text-primary-400 italic mt-1">R$ {servicosResumo.lucro.toFixed(2).replace('.', ',')}</p>
+                       <p className="text-xl font-black text-primary-400 italic mt-1">{showProfitValues ? `R$ ${servicosResumo.lucro.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}</p>
                        {!servicosResumo.temCustoRegistrado && (
                          <p className="text-[8px] text-amber-400/70 font-bold mt-1">Sem custo cadastrado nos produtos — lucro = líquido</p>
                        )}
@@ -23254,9 +23282,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </Badge>
                   </div>
                   <p className="text-[9px] text-white/40 mt-0.5">
-                    Total do Pedido: <b className="text-white/80">R$ {totalVenda.toFixed(2).replace('.', ',')}</b> • Custo Total: <b className="text-rose-400">R$ {totalCustosNota.toFixed(2).replace('.', ',')}</b> • Entrada Recebida: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && <span className="text-rose-400 font-bold ml-1">(Falta R$ {(totalVenda - down).toFixed(2).replace('.', ',')})</span>}
+                    Custo Total: <b className="text-rose-400">R$ {totalCustosNota.toFixed(2).replace('.', ',')}</b> • Entrada Recebida: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && <span className="text-rose-400 font-bold ml-1">(Falta R$ {(totalVenda - down).toFixed(2).replace('.', ',')})</span>}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowProfitValues(prev => !prev)}
+                  className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white hover:bg-white/10 flex items-center justify-center shrink-0"
+                  title={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+                  aria-label={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+                >
+                  {showProfitValues ? <Eye size={14} /> : <EyeOff size={14} />}
+                </button>
                 {!isFullyPaid ? (
                   <div className="flex items-center gap-3 text-right">
                     <div>
@@ -23268,15 +23305,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div className="border-l border-white/10 pl-3">
                       <span className="text-[7.5px] uppercase font-bold text-white/40 block">Caixa Hoje</span>
                       <span className={cn("text-xs font-black font-mono", lucroCaixaHoje >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                        R$ {lucroCaixaHoje.toFixed(2).replace('.', ',')}
+                        {showProfitValues ? `R$ ${lucroCaixaHoje.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}
                       </span>
                     </div>
                     <div className="border-l border-white/10 pl-3">
                       <span className="text-[7.5px] uppercase font-bold text-cyan-400/80 block">Lucro Previsto</span>
                       <span className="text-sm font-black font-mono text-cyan-300">
-                        R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}
+                        {showProfitValues ? `R$ ${lucroPrevistoNota.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}
                       </span>
-                      <span className="text-[7.5px] text-white/30 block font-mono">({margemPrevista.toFixed(0)}% margem)</span>
+                      <span className="text-[7.5px] text-white/30 block font-mono">({showProfitValues ? margemPrevista.toFixed(0) + '% margem' : '••% margem'})</span>
                     </div>
                   </div>
                 ) : (
@@ -23290,11 +23327,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div className="border-l border-white/10 pl-3 text-right">
                       <span className="text-[8px] uppercase font-bold text-white/40 block">Lucro Líquido Real</span>
                       <span className={cn("text-sm font-black font-mono", lucroPrevistoNota >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                        R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')} ({margemPrevista.toFixed(0)}%)
+                        {showProfitValues ? `R$ ${lucroPrevistoNota.toFixed(2).replace('.', ',')} (${margemPrevista.toFixed(0)}%)` : 'R$ •••••• (••%)'}
                       </span>
                     </div>
                   </div>
                 )}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-[8px] font-black uppercase tracking-widest text-white/40 block">Total da Nota</span>
+                  <span className="text-[9px] text-white/30">Valor total do pedido</span>
+                </div>
+                <span className="text-xl font-black font-mono text-white">R$ {totalVenda.toFixed(2).replace('.', ',')}</span>
               </div>
 
               {/* 1. Custos de Produção Automáticos com Valores Separados */}
@@ -23510,13 +23553,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     <div>
                       <span className="text-[7.5px] uppercase font-bold text-emerald-400/80 block">Caixa Hoje</span>
                       <span className={cn("text-[10px] font-black font-mono", lucroCaixaHoje >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                        R$ {lucroCaixaHoje.toFixed(2).replace('.', ',')}
+                        {showProfitValues ? `R$ ${lucroCaixaHoje.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}
                       </span>
                     </div>
                     <div>
                       <span className="text-[7.5px] uppercase font-bold text-cyan-400/80 block">Lucro Previsto</span>
                       <span className="text-[10px] font-black font-mono text-cyan-300">
-                        R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}
+                        {showProfitValues ? `R$ ${lucroPrevistoNota.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}
                       </span>
                       {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-400 block font-mono">atualizado ao digitar</span>}
                     </div>
@@ -23524,7 +23567,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                 ) : (
                   <div className="bg-emerald-950/30 border border-emerald-500/20 rounded-lg py-1 px-1.5 flex flex-col justify-center">
                     <span className="text-[7.5px] uppercase font-black text-emerald-400 block">Lucro Líquido Real</span>
-                    <span className="text-[11px] font-black font-mono text-emerald-400">R$ {lucroPrevistoNota.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-[11px] font-black font-mono text-emerald-400">{showProfitValues ? `R$ ${lucroPrevistoNota.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}</span>
                     {pendenteDigitado > 0 && <span className="text-[7px] text-cyan-400 block font-mono">atualizado ao digitar</span>}
                   </div>
                 )}
@@ -23771,7 +23814,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 <TrendingUp size={10} className="text-cyan-400" /> Lucro Previsto (Admin)
                              </p>
                              <p className={cn("text-xs sm:text-sm font-black font-mono tracking-tight leading-none", lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                                R$ {lucroPrevisto.toFixed(2).replace('.', ',')} <span className="text-[9px] text-white/40 font-normal">({margem.toFixed(0)}% margem)</span>
+                                {showProfitValues ? `R$ ${lucroPrevisto.toFixed(2).replace('.', ',')}` : 'R$ ••••••'} <span className="text-[9px] text-white/40 font-normal">({showProfitValues ? `${margem.toFixed(0)}% margem` : '••% margem'})</span>
                              </p>
                           </div>
                           <div className="text-right">
@@ -27375,7 +27418,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          <div className="flex justify-between text-xs text-white/80 font-bold">
                            <span>Lucro Líquido Previsto</span>
                            <span className={cn("font-mono font-black", rentabilidade.lucroPrevisto >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                             R$ {rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} ({rentabilidade.margemPrevista.toFixed(0)}%)
+                             {showProfitValues ? `R$ ${rentabilidade.lucroPrevisto.toFixed(2).replace('.', ',')} (${rentabilidade.margemPrevista.toFixed(0)}%)` : 'R$ •••••• (••%)'}
                            </span>
                          </div>
                        </div>
@@ -28457,7 +28500,7 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
                       </div>
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                          <p className="text-[9px] font-black uppercase text-white/40">Lucro Total</p>
-                         <p className="text-lg font-black text-emerald-400">R$ {lucro.toFixed(2).replace('.', ',')}</p>
+                         <p className="text-lg font-black text-emerald-400">{showProfitValues ? `R$ ${lucro.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}</p>
                       </div>
                       <div className="bg-emerald-500/10 rounded-xl p-3 border border-emerald-500/20">
                          <p className="text-[9px] font-black uppercase text-emerald-400/70">Valor Líquido Recebido</p>
@@ -28537,7 +28580,7 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
         down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : 0,
         payment_method: 'pix',
         status: isPending ? 'pending' : 'completed',
-        service_status: 'pedido_recebido',
+        service_status: null,
         etapa_servico: 'pedido_recebido',
       }).select().single();
       if (vendaErr) throw vendaErr;
@@ -29893,7 +29936,7 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
           </div>
         )}
         <div className="min-w-0">
-           <p title={pedido.customerName || 'Balcão'} className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {formatNamePreview((pedido.customerName || 'Balcão').toUpperCase(), 14)}</p>
+           <p title={pedido.customerName || 'Balcão'} className="font-bold text-white text-[9px] leading-tight break-words">#{pedido.id.slice(-6).toUpperCase()} — {pedido.customerName || 'Balcão'}</p>
            <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
         </div>
         {pedido.scheduledFor && (
@@ -30074,7 +30117,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   );
 
   const loadPedidos = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
+    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).not('service_status', 'is', null).neq('status', 'canceled').order('created_at', { ascending: true });
     setPedidos((data || []).map(mapVendaRow));
     setLoading(false);
   };
