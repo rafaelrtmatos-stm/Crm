@@ -19922,123 +19922,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   </div>
                </div>
 
-               {/* Barra de Identificação e Seleção de Cliente no Terminal */}
-               <div className="bg-slate-900/10 border border-slate-900/15 rounded-lg sm:rounded-xl px-2.5 sm:px-3 py-1.5 sm:py-2 my-1 shrink-0 flex items-center justify-between gap-2 min-h-[52px]">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                     <div className={cn(
-                        "w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-black shadow-sm",
-                        selectedCustomer ? "bg-emerald-600 text-white" : "bg-slate-900/15 text-slate-800"
-                      )}>
-                        {selectedCustomer ? <UserCheck size={14} /> : <User size={13} />}
-                     </div>
-                     <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                           <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider text-slate-900/60 whitespace-nowrap">
-                              {selectedCustomer ? 'Cliente Identificado' : 'Cliente da Venda'}
-                           </span>
-                           {selectedCustomer && (
-                              <span className="text-[6.5px] sm:text-[7.5px] font-black uppercase bg-emerald-600/20 text-emerald-800 border border-emerald-600/30 px-1 py-0.2 rounded whitespace-nowrap">
-                                 Vinculado
-                              </span>
-                           )}
-                           {selectedCustomer && (() => {
-                              const cDet = selectedCustomer.id ? allCustomers.find(c => c.id === selectedCustomer.id) : null;
-                              const saldo = Number(cDet?.saldo_credito || 0);
-                              return saldo > 0 ? (
-                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-blue-500/20 text-blue-900 border border-blue-500/30 px-1.5 py-0.2 rounded whitespace-nowrap">
-                                    Crédito: R$ {saldo.toFixed(2).replace('.', ',')}
-                                 </span>
-                              ) : null;
-                           })()}
-                           {selectedCustomer && (() => {
-                              const st = selectedCustomer.id ? customerSalesStats[selectedCustomer.id] : null;
-                              return st?.hasPending ? (
-                                 <span className="text-[6.5px] sm:text-[8px] font-black bg-amber-500/20 text-amber-900 border border-amber-500/30 px-1.5 py-0.2 rounded flex items-center gap-0.5 whitespace-nowrap">
-                                    <AlertCircle size={9} /> Débito: R$ {st.pendingBalance.toFixed(2).replace('.', ',')}
-                                 </span>
-                              ) : null;
-                           })()}
-                        </div>
-                        <p className="text-[11px] sm:text-xs font-black text-slate-900 truncate leading-tight mt-0.5" title={selectedCustomer?.name}>
-                           {selectedCustomer ? (selectedCustomer.name || 'Cliente Sem Nome').toUpperCase() : 'Cliente de Balcão (Não Identificado)'}
-                        </p>
-                        {selectedCustomer?.phone && (
-                           <p className="text-[8px] sm:text-[9px] text-slate-900/70 font-medium truncate">
-                              {selectedCustomer.phone}
-                           </p>
-                        )}
-                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                     {selectedCustomer ? (
-                        <>
-                           {!isLinkedChatOpen && (Boolean(selectedCustomer.phone || linkedLeadChat)) && (
-                              <button
-                                 type="button"
-                                 onClick={handleToggleLinkedChat}
-                                 className="px-2 py-1 rounded-md text-[7.5px] sm:text-[9px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0 bg-emerald-600/20 text-emerald-950 border border-emerald-600/30 hover:bg-emerald-600/30"
-                                 title="Abrir conversa deste cliente no WhatsApp"
-                              >
-                                 <MessageSquare size={11} className="text-emerald-800 shrink-0" />
-                                 <span className="inline">Conversa</span>
-                              </button>
-                           )}
-                           <button
-                              onClick={() => {
-                                 setCustomerModalIntent('preselect');
-                                 setCustomerModalMode('search');
-                                 setCustomerSearchTerm('');
-                                 setIsCustomerModalOpen(true);
-                              }}
-                              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[8px] sm:text-[9.5px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                              title="Alterar ou trocar cliente da venda"
-                           >
-                              <Search size={11} className="shrink-0" />
-                              <span className="inline">Alterar</span>
-                           </button>
-                           <button
-                              onClick={() => {
-                                 setSelectedCustomer(null);
-                              }}
-                              className="p-1 sm:p-1.5 rounded-lg hover:bg-rose-500/20 text-rose-700 transition-all cursor-pointer shrink-0"
-                              title="Desvincular cliente (voltar para Cliente de Balcão)"
-                           >
-                              <X size={12} />
-                           </button>
-                        </>
-                     ) : (
-                        <div className="flex items-center gap-1 shrink-0">
-                           <button
-                              onClick={() => {
-                                 setCustomerModalIntent('preselect');
-                                 setCustomerModalMode('search');
-                                 setCustomerSearchTerm('');
-                                 setIsCustomerModalOpen(true);
-                              }}
-                              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[7.5px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer shrink-0"
-                              title="Pesquisar e selecionar cliente cadastrado"
-                           >
-                              <Search size={11} className="text-primary-400 shrink-0" />
-                              <span>Selecionar Cliente</span>
-                           </button>
-                           <button
-                              onClick={() => {
-                                 setCustomerModalIntent('preselect');
-                                 setCustomerModalMode('create');
-                                 setNewCustomerForm({ ...emptyCustomerForm });
-                                 setIsCustomerModalOpen(true);
-                              }}
-                              className="px-1.5 sm:px-2 py-1 sm:py-1.5 rounded-lg bg-slate-900/10 hover:bg-slate-900/20 text-slate-900 text-[7.5px] sm:text-[9.5px] font-bold uppercase transition-all flex items-center gap-0.5 cursor-pointer shrink-0"
-                              title="Cadastrar novo cliente rapidamente"
-                           >
-                              <Plus size={11} className="shrink-0" />
-                              <span>Novo</span>
-                           </button>
-                        </div>
-                     )}
-                  </div>
-               </div>
 
                {/* Total Banner */}
                <div className="py-2 sm:py-2.5 px-2.5 sm:px-3.5 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-1.5 gap-2 shrink-0 flex-nowrap">
@@ -20088,20 +19971,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      </h1>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                     <button
-                        type="button"
-                        onClick={() => setIsSaleDiscountModalOpen(true)}
-                        className={cn(
-                           "px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-black uppercase text-[7.5px] sm:text-[9px] transition-all flex items-center gap-1 cursor-pointer border shrink-0 whitespace-nowrap",
-                           saleDiscountValue > 0
-                              ? "bg-emerald-600 border-emerald-700 text-white shadow-sm hover:bg-emerald-700 active:scale-95"
-                              : "bg-white/90 hover:bg-white text-slate-800 border-slate-900/10 shadow-xs active:scale-95"
-                        )}
-                        title="Lançar desconto geral na nota"
-                     >
-                        <Percent size={11} className={saleDiscountValue > 0 ? "text-white shrink-0" : "text-slate-600 shrink-0"} />
-                        <span>{saleDiscountValue > 0 ? `Desc R$ ${saleDiscountValue.toFixed(2).replace('.', ',')}` : 'Desconto'}</span>
-                     </button>
                      <Badge className="bg-slate-900 text-white border-none py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-full font-black uppercase tracking-wider text-[7.5px] sm:text-[9px] shrink-0 whitespace-nowrap">
                         {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
                      </Badge>
@@ -21516,11 +21385,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
                     return (
                       <GlassCard key={sale.id} className="p-3.5 sm:p-5 md:p-6 border-white/10 space-y-3 sm:space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
-                        {/* Cabeçalho do Card: Foto/Avatar + Cliente (Nome) + Status Lançamento + Status Produção */}
+                        {/* Cabeçalho do Card: Foto/Avatar + Cliente (Nome) + 2 Status Independentes (Esquerda: Produção, Direita: Pedido) */}
                         <div className="border-b border-white/5 pb-3 space-y-2">
-                          <div className="flex items-center justify-between gap-3 min-w-0">
-                            {/* Bloco esquerdo: Checkbox + Avatar + Nome + Status Lançado/Não Lançado */}
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="flex items-start sm:items-center justify-between gap-3 min-w-0 flex-col sm:flex-row">
+                            {/* Bloco esquerdo: Checkbox + Avatar + Nome do Cliente */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1 w-full">
                               {canManageHistory && (
                                 <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 shrink-0 accent-primary-500" />
                               )}
@@ -21530,76 +21399,69 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 className="w-9 h-9 rounded-full bg-slate-800 border-white/10 shrink-0"
                                 textClassName="text-xs font-bold text-white/70"
                               />
-                              <div className="min-w-0 flex-1 flex items-center gap-2 overflow-hidden">
+                              <div className="min-w-0 flex-1">
                                 <button
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
-                                  title="Clique para copiar o nome do cliente"
-                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer min-w-0 truncate"
-                                  style={{ flex: '1', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                  title={sale.customerName || 'Cliente de Balcão'}
+                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer block truncate w-full"
                                 >
                                   {sale.customerName || 'Cliente de Balcão'}
                                 </button>
                                 {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
                                   <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap">Copiado!</span>
                                 )}
-
-                                {/* Status de Lançamento: [ LANÇADO ] ou [ NÃO LANÇADO ] */}
-                                <div className="shrink-0 whitespace-nowrap">
-                                  {sale.serviceStatus ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/35 text-emerald-300 text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
-                                      <CheckCircle size={10} className="text-emerald-400 shrink-0" />
-                                      <span>LANÇADO</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/35 text-rose-300 text-[8px] font-black uppercase tracking-wider shrink-0 whitespace-nowrap">
-                                      <AlertCircle size={10} className="text-rose-400 shrink-0" />
-                                      <span>NÃO LANÇADO</span>
-                                    </span>
-                                  )}
-                                </div>
                               </div>
                             </div>
 
-                            {/* Bloco direito: Status / Seletor de Produção */}
-                            <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                            {/* Bloco direito: DOIS STATUS INDEPENDENTES (Lado a lado) */}
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap">
+                              {/* 1. ESQUERDA = STATUS DE PRODUÇÃO */}
                               {!sale.serviceStatus ? (
                                 <button
                                   onClick={() => handleLancarProducao(sale)}
                                   disabled={lancandoProducaoId === sale.id}
-                                  title="Lançar este pedido para a esteira de Produção / Serviços"
-                                  className="h-7 px-3 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap shadow-sm"
+                                  title="Lançar para Produção"
+                                  className="h-7 px-2.5 flex items-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-full text-[8.5px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap shadow-sm"
                                 >
-                                  <HardHat size={12} className={cn(lancandoProducaoId === sale.id && "animate-spin", "shrink-0")} />
-                                  <span className="whitespace-nowrap">{lancandoProducaoId === sale.id ? 'Lançando...' : 'Lançar Produção'}</span>
+                                  <HardHat size={11} className={cn(lancandoProducaoId === sale.id && "animate-spin", "shrink-0")} />
+                                  <span>{lancandoProducaoId === sale.id ? 'Lançando...' : '🟡 Lançar Produção'}</span>
                                 </button>
                               ) : (
-                                <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
-                                  <select
-                                    value={etapaOf(sale)}
-                                    onChange={(e) => {
-                                      if (e.target.value === '__remover__') {
-                                        handleRemoverDaProducao(sale);
-                                      } else {
-                                        handleUpdateServiceStatus(sale.id, e.target.value);
-                                      }
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    title="Em Produção — Clique para alterar etapa ou desmarcar"
-                                    className={cn(
-                                      "h-7 rounded-full pl-2.5 pr-2 text-[9px] font-black uppercase focus:outline-none focus:border-primary-500 cursor-pointer max-w-[150px] border shrink-0 whitespace-nowrap",
-                                      etapaOf(sale) === 'produto_entregue'
-                                        ? "bg-sky-500/20 border-sky-500/40 text-sky-200"
-                                        : "bg-amber-500/20 border-amber-500/40 text-amber-200"
-                                    )}
-                                  >
-                                    {STAGE_ORDER.map(id => (
-                                      <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
-                                    ))}
-                                    <option value="__remover__" className="bg-slate-900 text-rose-300 font-bold">Desmarcar Produção</option>
-                                  </select>
-                                </div>
+                                <button
+                                  onClick={() => handleRemoverDaProducao(sale)}
+                                  title="Trabalho lançado na produção. Clique para desmarcar."
+                                  className="h-7 px-2.5 flex items-center gap-1 bg-emerald-500/15 hover:bg-rose-500/20 border border-emerald-500/30 hover:border-rose-500/40 text-emerald-300 hover:text-rose-300 rounded-full text-[8.5px] font-black uppercase tracking-wider transition-colors shrink-0 cursor-pointer whitespace-nowrap shadow-sm"
+                                >
+                                  <CheckCircle size={11} className="text-emerald-400 shrink-0" />
+                                  <span>🟢 Lançado</span>
+                                </button>
                               )}
+
+                              {/* 2. DIREITA = STATUS DO PEDIDO (Etapa Comercial) */}
+                              <select
+                                value={etapaOf(sale)}
+                                onChange={(e) => {
+                                  if (e.target.value === '__remover__') {
+                                    handleRemoverDaProducao(sale);
+                                  } else {
+                                    handleUpdateServiceStatus(sale.id, e.target.value);
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                title="Etapa / Status do Pedido — Clique para alterar"
+                                className={cn(
+                                  "h-7 rounded-full pl-2.5 pr-2 text-[8.5px] font-black uppercase focus:outline-none focus:border-primary-500 cursor-pointer max-w-[140px] border shrink-0 whitespace-nowrap shadow-sm",
+                                  etapaOf(sale) === 'produto_entregue'
+                                    ? "bg-sky-500/20 border-sky-500/40 text-sky-200"
+                                    : "bg-indigo-500/20 border-indigo-500/40 text-indigo-200"
+                                )}
+                              >
+                                {STAGE_ORDER.map(id => (
+                                  <option key={id} value={id} className="bg-slate-900">{STAGE_LABELS[id]}</option>
+                                ))}
+                              </select>
+
                               {sale.scheduledFor && (
                                 <EntregaCountdown
                                   scheduledFor={sale.scheduledFor}

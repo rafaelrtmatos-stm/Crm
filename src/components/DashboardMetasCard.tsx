@@ -72,13 +72,36 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
           const soma = data.reduce((acc, c: any) => acc + (Number(c.salario_base) || 0), 0);
           if (soma > 0) {
             setFolhaSupabase(soma > 10000 ? soma : soma * 4);
+          } else {
+            setFolhaSupabase(0);
           }
+        } else {
+          setFolhaSupabase(0);
         }
       } catch (err) {
         console.warn('Erro ao carregar salários de colaboradores para o Ponto de Equilíbrio:', err);
       }
     };
     loadFolha();
+
+    const colabChannel = supabase
+      .channel('dashboard-colaboradores-folha')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'colaboradores' }, () => {
+        loadFolha();
+      })
+      .subscribe();
+
+    const handleUpdate = () => {
+      loadFolha();
+    };
+    window.addEventListener('focus', handleUpdate);
+    window.addEventListener('rpro-colab-updated', handleUpdate);
+
+    return () => {
+      supabase.removeChannel(colabChannel);
+      window.removeEventListener('focus', handleUpdate);
+      window.removeEventListener('rpro-colab-updated', handleUpdate);
+    };
   }, []);
 
   // Soma dos salários fixos mínimos dos funcionários ativos para compor o Ponto de Equilíbrio

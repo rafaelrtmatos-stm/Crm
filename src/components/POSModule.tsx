@@ -1304,13 +1304,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 )}
               </div>
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setIsSaleDiscountModalOpen(true)}
-                  className="px-2.5 py-1.5 bg-white/80 hover:bg-white text-slate-800 border border-slate-900/10 rounded-xl text-[10px] font-bold flex items-center gap-1 shadow-sm"
-                >
-                  <Percent size={12} />
-                  <span>Desconto</span>
-                </button>
                 <Badge className="bg-slate-900 text-white px-2.5 py-1 rounded-full text-[10px] font-mono">
                   {cart.length} {cart.length === 1 ? 'item' : 'itens'}
                 </Badge>
@@ -1404,24 +1397,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                   ))}
                 </div>
               )}
+
+              {/* Rodapé do card de itens com quantidade total e soma no canto inferior direito */}
+              {cart.length > 0 && (
+                <div className="pt-2 mt-1.5 border-t border-slate-900/10 flex items-center justify-between text-right shrink-0">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Resumo</span>
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-slate-800 block">{cart.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)} itens</span>
+                    <span className="text-xs font-black text-slate-900 font-mono">R$ {cartSubtotal.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Bottom Actions and Customer Selector */}
+            {/* Bottom Actions */}
             <div className="pt-2 border-t border-slate-900/10 flex flex-col gap-2 shrink-0">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setIsCustomerModalOpen(true)}
-                  className="flex-1 px-3 py-2 bg-white/80 hover:bg-white text-slate-800 border border-slate-900/10 rounded-xl text-xs font-bold truncate text-left flex items-center gap-2 shadow-sm"
-                >
-                  <User size={14} className="text-slate-600 shrink-0" />
-                  <span className="truncate">{selectedCustomer ? selectedCustomer.name : 'Cliente de Balcão (Selecionar)'}</span>
-                </button>
-                <button
                   onClick={() => setIsNotaObservacoesModalOpen(true)}
-                  className="p-2 bg-white/80 hover:bg-white text-slate-800 border border-slate-900/10 rounded-xl shadow-sm"
+                  className="w-full p-2.5 bg-white/80 hover:bg-white text-slate-800 border border-slate-900/10 rounded-xl shadow-sm text-xs font-bold uppercase flex items-center justify-center gap-1.5"
                   title="Observações da Nota"
                 >
                   <FileText size={15} />
+                  <span>Observações da Nota</span>
                 </button>
               </div>
 
