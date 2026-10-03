@@ -953,6 +953,20 @@ export default function ComissoesAdminPanel() {
     }
 
     const targetId = editingId || savedData?.id;
+    const telefoneWhatsapp = form.telefoneWhatsapp.replace(/\D/g, '');
+    const colaboradorAnterior = editingId ? colaboradores.find((c) => c.id === editingId) : null;
+
+    // Busca automaticamente a foto quando há WhatsApp novo, número alterado ou foto ainda ausente.
+    // O botão "Buscar foto" continua disponível para forçar uma nova consulta.
+    if (
+      targetId &&
+      telefoneWhatsapp &&
+      (!editingId ||
+        telefoneWhatsapp !== (colaboradorAnterior?.telefone_whatsapp || '') ||
+        !colaboradorAnterior?.foto_url)
+    ) {
+      await buscarFotoWhatsApp(targetId, telefoneWhatsapp, true);
+    }
 
     // Gerencia o anexo da conta de usuário escolhida ou criação de nova conta
     if (targetId) {
