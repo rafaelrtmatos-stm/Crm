@@ -436,8 +436,8 @@ export default function ComissoesAdminPanel() {
         // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
         const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
 
-        // Fórmula: Total Estimado = Remuneração Bruta da Semana - Descontos - Pagamentos - Dívida Anterior
-        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago - dividaAnterior);
+        // Fórmula exibida: Salário + Comissões - Descontos
+        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos);
         const baseMetaExibida = modalidade === 'meta' ? receitaLojaQuitadasSemana : colabServicos.totalProducao;
         const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (baseMetaExibida / metaSemanalEfetiva) * 100 : 0;
 
@@ -1190,7 +1190,7 @@ export default function ComissoesAdminPanel() {
                   Visualizando Semana Histórica: {formatDateBR(weekBounds.start)} a {formatDateBR(weekBounds.end)} ({Math.abs(weekOffset)} {Math.abs(weekOffset) === 1 ? 'semana' : 'semanas'} atrás)
                 </p>
                 <p className="text-[11px] text-amber-300/80 font-medium mt-0.5">
-                  O saldo do ponto vem da semana anterior; as comissões e a produção vêm da semana vigente.
+                  A previsão considera somente salário, comissões e descontos.
                 </p>
               </div>
             </div>
@@ -1226,7 +1226,7 @@ export default function ComissoesAdminPanel() {
               </span>
             </div>
             <p className="mt-2 text-[10px] text-[var(--text-muted)] font-medium">
-              Previsão semanal a repassar (Base + Comissões - Descontos)
+              Previsão semanal (Salário + Comissões - Descontos)
             </p>
           </div>
 
@@ -1576,7 +1576,7 @@ export default function ComissoesAdminPanel() {
                       <div className="pt-2 border-t border-[var(--border-color)]/60 grid grid-cols-3 gap-1 text-[10px] text-center">
                         <div className="space-y-0.5">
                           <span className="text-[9px] font-semibold text-[var(--text-muted)] block">
-                            'Saldo do Ponto (semana anterior)'
+                            'Salário'
                           </span>
                           <span className="font-bold text-[var(--text-main)] truncate block">
                             {stats.modalidade === 'meta' ? 'R$ 0,00' : formatCurrencyBR(stats.salarioBase)}
@@ -1584,7 +1584,7 @@ export default function ComissoesAdminPanel() {
                         </div>
                         <div className="space-y-0.5 border-x border-[var(--border-color)]/60">
                           <span className="text-[9px] font-semibold text-emerald-400 block">
-                            {stats.modalidade === 'meta' ? '+ Meta da semana vigente' : stats.modalidade === 'fixo' ? 'Comissão da semana vigente' : '+ Comissões da semana vigente'}
+                            {stats.modalidade === 'meta' ? '+ Meta' : stats.modalidade === 'fixo' ? 'Comissões' : '+ Comissões'}
                           </span>
                           <span className="font-bold text-emerald-400 truncate block">
                             {stats.modalidade === 'fixo' ? 'R$ 0,00' : `+${formatCurrencyBR(stats.totalComissao)}`}
@@ -1592,7 +1592,7 @@ export default function ComissoesAdminPanel() {
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[9px] font-semibold text-rose-400 block">
-                            {stats.dividaAnterior > 0 ? '- Desc / Dívida' : '- Descontos'}
+                            - Descontos
                           </span>
                           <span className="font-bold text-rose-400 truncate block">
                             -{formatCurrencyBR(stats.totalDescontos + stats.dividaAnterior)}
