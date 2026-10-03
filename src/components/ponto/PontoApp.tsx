@@ -956,7 +956,6 @@ export function PontoApp() {
             setEditFuncModal(null);
             await carregar();
           }}
-          buscarFoto={buscarFoto}
         />
       )}
 
