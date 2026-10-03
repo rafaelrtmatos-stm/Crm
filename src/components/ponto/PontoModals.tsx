@@ -181,19 +181,16 @@ export function EditFuncModal({
   colabs,
   onClose,
   onSaved,
-  buscarFoto,
 }: {
   func: FuncionarioItem;
   colabs: ColaboradorOption[];
   onClose: () => void;
   onSaved: () => void;
-  buscarFoto: (c: any, tel: string, silencioso?: boolean) => Promise<void>;
 }) {
   const [numero, setNumero] = useState(func.numero_relogio);
   const [nome, setNome] = useState(func.nome_relogio || '');
   const [colabId, setColabId] = useState(func.colaborador_id || '');
   const [tol, setTol] = useState(String(func.tolerancia_minutos));
-  const [tel, setTel] = useState(func.colaboradores?.telefone_whatsapp || '');
 
   const salvar = async () => {
     const { error } = await supabase
@@ -216,19 +213,6 @@ export function EditFuncModal({
       return;
     }
 
-    if (colabId) {
-      const atual = colabs.find((c) => c.id === colabId);
-      const telNovo = tel.replace(/\D/g, '');
-      if (telNovo !== (func.colaboradores?.telefone_whatsapp || '')) {
-        await supabase
-          .from('colaboradores')
-          .update({ telefone_whatsapp: telNovo || null })
-          .eq('id', colabId);
-      }
-      if (atual && telNovo && !func.colaboradores?.foto_url) {
-        await buscarFoto(atual, telNovo);
-      }
-    }
     showAlert('Dados do funcionário atualizados.');
     onSaved();
   };
@@ -257,31 +241,6 @@ export function EditFuncModal({
             </option>
           ))}
         </select>
-      </Field>
-      <Field
-        label="WhatsApp do funcionário (com DDD)"
-        helpText="Digite o número e pesquise a foto pública do WhatsApp. A foto fica salva no cadastro do colaborador e aparece no Ponto e em Funcionários / Comissões."
-      >
-        <div className="flex gap-2">
-          <input
-            className={inputCls}
-            value={tel}
-            onChange={(e) => setTel(e.target.value)}
-            placeholder="ex.: 93 99999-9999"
-            disabled={!colabId}
-          />
-          <button
-            type="button"
-            disabled={!colabId || !tel.replace(/\D/g, '')}
-            onClick={() => {
-              const colab = func.colaboradores;
-              if (colab) buscarFoto(colab, tel);
-            }}
-            className="shrink-0 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 font-black text-[10px] uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            Buscar foto
-          </button>
-        </div>
       </Field>
       <Field label="Tolerância de atraso (minutos)">
         <input
