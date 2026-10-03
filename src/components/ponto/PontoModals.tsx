@@ -258,14 +258,30 @@ export function EditFuncModal({
           ))}
         </select>
       </Field>
-      <Field label="WhatsApp do funcionário (com DDD)">
-        <input
-          className={inputCls}
-          value={tel}
-          onChange={(e) => setTel(e.target.value)}
-          placeholder="ex.: 93 99999-9999"
-          disabled={!colabId}
-        />
+      <Field
+        label="WhatsApp do funcionário (com DDD)"
+        helpText="Digite o número e pesquise a foto pública do WhatsApp. A foto fica salva no cadastro do colaborador e aparece no Ponto e em Funcionários / Comissões."
+      >
+        <div className="flex gap-2">
+          <input
+            className={inputCls}
+            value={tel}
+            onChange={(e) => setTel(e.target.value)}
+            placeholder="ex.: 93 99999-9999"
+            disabled={!colabId}
+          />
+          <button
+            type="button"
+            disabled={!colabId || !tel.replace(/\D/g, '')}
+            onClick={() => {
+              const colab = func.colaboradores;
+              if (colab) buscarFoto(colab, tel);
+            }}
+            className="shrink-0 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 font-black text-[10px] uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Buscar foto
+          </button>
+        </div>
       </Field>
       <Field label="Tolerância de atraso (minutos)">
         <input
