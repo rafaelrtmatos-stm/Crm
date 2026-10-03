@@ -1370,7 +1370,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                         <button
                           onClick={() => {
                             const product = products.find(p => p.id === item.productId);
-                            if (product && (product.unitType === 'm2' || product.unitType === 'metro') && (item.area || item.dimensions)) {
+                            if (product && (product.unitType === 'm2' || product.unitType === 'metro')) {
                               setEditingCartItemIndex(index);
                               setEditingCartItemData({ ...item });
                               setDimensionModalProduct(product);
