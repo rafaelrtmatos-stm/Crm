@@ -402,12 +402,32 @@ async function drawDigitalSignatureStamp(
 /** Monta o documento jsPDF em si (sem salvar/baixar) -- reaproveitado pelo download direto e pela geracao do Blob pro Storage. */
 async function buildContratoPdfDoc(numero: string, textoContrato: string, auditStamp?: AuditStamp) {
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
+  // O contrato não deve ser refluído para A4: a altura da página acompanha o conteúdo,
+  // preservando a mesma proporção visual da versão exibida como imagem.
+  const PAGE_WIDTH_MM = 210;
+  const MIN_PAGE_HEIGHT_MM = 320;
   const marginX = 20;
   const marginTop = 22;
   const marginBottom = auditStamp ? 16 : 18;
+
+  const measureDoc = new jsPDF({ unit: 'mm', format: [PAGE_WIDTH_MM, 1000], orientation: 'portrait' });
+  const linhasMedidas = textoContrato.split('\n');
+  let measuredHeight = marginTop + 16;
+  for (const linha of linhasMedidas) {
+    if (linha.trim() === '') { measuredHeight += 3; continue; }
+    const trimmed = linha.trim();
+    const isTitulo = /^\d+\.\s/.test(trimmed);
+    const isAssinatura = !!auditStamp && /—\s*(CONTRATANTE|CONTRATADA)\s*$/i.test(trimmed);
+    measureDoc.setFont('helvetica', isTitulo || isAssinatura ? 'bold' : 'normal');
+    measureDoc.setFontSize(isTitulo ? 10 : 9.5);
+    const wrapped = measureDoc.splitTextToSize(linha, PAGE_WIDTH_MM - marginX * 2);
+    measuredHeight += wrapped.length * (isTitulo ? 5.5 : 5) + (isTitulo ? 2 : 0);
+    if (isAssinatura) measuredHeight += STAMP_HEIGHT + 6;
+  }
+  const pageHeight = Math.max(MIN_PAGE_HEIGHT_MM, Math.ceil(measuredHeight + marginBottom + 8));
+  const doc = new jsPDF({ unit: 'mm', format: [PAGE_WIDTH_MM, pageHeight], orientation: 'portrait' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   let y = marginTop;
 
   const addFooter = () => {
