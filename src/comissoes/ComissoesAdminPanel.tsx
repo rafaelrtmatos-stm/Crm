@@ -378,14 +378,16 @@ export default function ComissoesAdminPanel() {
       const statsMap: Record<string, ColaboradorWeeklyStats> = {};
 
       colabs.forEach((c) => {
-        const salarioBaseMensal = Number(c.salario_base) || 0;
+        // salario_base no cadastro do colaborador já representa o salário semanal
+        // usado pelo perfil/DescontosView. Não converter novamente por 44/220,
+        // pois isso transformaria R$ 400,00 em R$ 80,00 no card externo.
+        const salarioBaseCadastrado = Number(c.salario_base) || 0;
         const caixaFechado = caixasByColab[c.id]?.status === 'fechado';
-        // No fechamento de sábado, o card externo deve usar exatamente o salário
-        // congelado no mesmo caixa semanal mostrado em MeuSalarioView.
+        // Se houver snapshot do fechamento, ele tem prioridade; ele já está em valor semanal.
         const salarioBaseFechado = caixasByColab[c.id]?.salarioBase;
         const salarioBase = caixaFechado && salarioBaseFechado != null
           ? salarioBaseFechado
-          : calcularSalarioSemanal(salarioBaseMensal);
+          : salarioBaseCadastrado;
         const metaSemanal = Number(c.meta_semanal) || 0;
         const colabServicos = servicosByColab[c.id] || { totalComissao: 0, totalProducao: 0, count: 0 };
         const colabDescontos = descontosByColab[c.id] || [];
@@ -431,20 +433,34 @@ export default function ComissoesAdminPanel() {
         // FIXO + COMISSÃO: salario_base + comissao existente
         // FATURAMENTO GERAL: % sobre o faturamento geral da empresa/período
         // META: valores estipulados para cada meta batida (ou % sobre produção)
-        const remuneracao = calcularRemuneracaoSemanal(
-          {
-            modalidade,
-            salarioBase,
-            comissaoPadraoPercentual: isFixo ? 0 : (Number(c.comissao_padrao_percentual) || 0),
-            metaPercentual,
-            metasValores,
-            metaValorMinimo,
-            metaValorMaximo,
-            faturamentoGeral: receitaLojaQuitadasSemana,
-          },
-          colabServicos.totalProducao,
-          colabServicos.totalComissao
-        );
+        // FIXO e FIXO + COMISSÃO usam diretamente o salário semanal cadastrado,
+        // exatamente como o perfil do funcionário. O helper genérico converte salário
+        // mensal para semanal e, se usado aqui, causaria a conversão indevida de
+        // R$ 400,00 -> R$ 80,00.
+        const remuneracao =
+          modalidade === 'fixo' || modalidade === 'fixo_comissao'
+            ? {
+                modalidade,
+                salarioBaseEfetivo: salarioBase,
+                comissaoEfetiva: modalidade === 'fixo' ? 0 : colabServicos.totalComissao,
+                totalBruto: salarioBase + (modalidade === 'fixo' ? 0 : colabServicos.totalComissao),
+              }
+            : calcularRemuneracaoSemanal(
+                {
+                  modalidade,
+                  // Para META/FATURAMENTO GERAL o helper não usa salário-base como
+                  // remuneração fixa; mantém a configuração original para essas modalidades.
+                  salarioBase: salarioBaseCadastrado,
+                  comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 0,
+                  metaPercentual,
+                  metasValores,
+                  metaValorMinimo,
+                  metaValorMaximo,
+                  faturamentoGeral: receitaLojaQuitadasSemana,
+                },
+                colabServicos.totalProducao,
+                colabServicos.totalComissao
+              );
 
         const saldoAnterior = caixasByColab[c.id]?.saldoAnterior || 0;
         // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
