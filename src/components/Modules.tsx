@@ -23269,6 +23269,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     Custo Total: <b className="text-rose-400">R$ {totalCustosNota.toFixed(2).replace('.', ',')}</b> • Entrada Recebida: <b className="text-emerald-400">R$ {down.toFixed(2).replace('.', ',')}</b> {!isFullyPaid && <span className="text-rose-400 font-bold ml-1">(Falta R$ {(totalVenda - down).toFixed(2).replace('.', ',')})</span>}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowProfitValues(prev => !prev)}
+                  className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white hover:bg-white/10 flex items-center justify-center shrink-0"
+                  title={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+                  aria-label={showProfitValues ? 'Ocultar valores de lucro' : 'Mostrar valores de lucro'}
+                >
+                  {showProfitValues ? <Eye size={14} /> : <EyeOff size={14} />}
+                </button>
                 {!isFullyPaid ? (
                   <div className="flex items-center gap-3 text-right">
                     <div>
