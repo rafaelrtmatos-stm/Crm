@@ -290,6 +290,10 @@ import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCu
 import { format } from 'date-fns';
 import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 import { getDespesasFixasTotalMensal } from './DespesasFixasModule';
+import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
+import { calculateDescontosNoPeriodo } from '../comissoes/utils/supabaseStorage';
+import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
+import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
 import { DashboardMetasCard } from './DashboardMetasCard';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -1461,16 +1465,43 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [despesasFixasBaseMensal, setDespesasFixasBaseMensal] = useState<number>(() => getDespesasFixasTotalMensal());
   const [showLucroFatDetails, setShowLucroFatDetails] = useState(false);
   const [showLucroQuitDetails, setShowLucroQuitDetails] = useState(false);
+
+  // O Dashboard deve sempre revalidar a fonte atual; localStorage é apenas fallback/offline.
   useEffect(() => {
-    const handleUpdate = (e: any) => {
-      if (e?.detail?.totalMensal) {
-        setDespesasFixasBaseMensal(Number(e.detail.totalMensal) || getDespesasFixasTotalMensal());
-      } else {
-        setDespesasFixasBaseMensal(getDespesasFixasTotalMensal());
+    let mounted = true;
+
+    const loadDespesasFixasAtualizadas = async () => {
+      try {
+        const items = await fetchDespesasFixas('rafa-arts');
+        if (!mounted) return;
+        const totalMensal = (items || []).reduce((acc: number, item: any) => acc + (Number(item.valor) || 0), 0);
+        setDespesasFixasBaseMensal(totalMensal);
+      } catch {
+        if (mounted) setDespesasFixasBaseMensal(getDespesasFixasTotalMensal());
       }
     };
+
+    const handleUpdate = (e: any) => {
+      if (typeof e?.detail?.totalMensal === 'number') {
+        setDespesasFixasBaseMensal(e.detail.totalMensal);
+      }
+      loadDespesasFixasAtualizadas();
+    };
+
+    loadDespesasFixasAtualizadas();
+
+    const channel = supabase
+      .channel('dashboard-despesas-fixas')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'despesas_fixas' }, loadDespesasFixasAtualizadas)
+      .subscribe();
+
     window.addEventListener('rpro-despesas-fixas-updated', handleUpdate);
-    return () => window.removeEventListener('rpro-despesas-fixas-updated', handleUpdate);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('rpro-despesas-fixas-updated', handleUpdate);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const [totalEstimadoFuncionarios, setTotalEstimadoFuncionarios] = useState<number>(() => {
@@ -1482,32 +1513,174 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   });
 
   useEffect(() => {
-    const handleColabUpdate = (e: any) => {
-      if (typeof e?.detail?.totalEstimadoEquipe === 'number') {
-        setTotalEstimadoFuncionarios(e.detail.totalEstimadoEquipe);
-      }
-    };
-    window.addEventListener('rpro-colab-stats-updated', handleColabUpdate);
+    let mounted = true;
 
     const loadEquipeTotal = async () => {
       try {
-        const cached = typeof window !== 'undefined' ? localStorage.getItem('rpro_equipe_total_estimado') : null;
-        if (cached && Number(cached) > 0) {
-          setTotalEstimadoFuncionarios(Number(cached));
-          return;
-        }
-        const { data: colabs } = await supabase.from('colaboradores').select('id, salario_base, ativo').eq('ativo', true);
-        if (colabs && colabs.length > 0) {
-          const somaBase = colabs.reduce((acc: number, c: any) => acc + (Number(c.salario_base) || 0), 0);
-          setTotalEstimadoFuncionarios(somaBase);
+        // No sábado, o Dashboard mostra o ciclo encerrado na sexta-feira.
+        // De domingo a sexta, mostra o ciclo atual em apuração.
+        const isSaturday = new Date().getDay() === 6;
+        const { start, end } = getWorkWeekBounds(isSaturday ? -1 : 0);
+        const descBounds = getDescontosValesBounds(start, end);
+
+        const [colabsRes, servicosRes, descontosRes, pagamentosRes, caixasRes, vendasRes] = await Promise.all([
+          supabase.from('colaboradores').select('*').eq('ativo', true),
+          supabase.from('comissoes_servicos')
+            .select('colaborador_id, comissao_valor, valor_producao, status')
+            .gte('data', start).lte('data', end).is('deleted_at', null),
+          supabase.from('comissoes_descontos').select('*').eq('ativo', true),
+          supabase.from('comissoes_pagamentos')
+            .select('colaborador_id, valor')
+            .gte('data', descBounds.start).lte('data', descBounds.end),
+          supabase.from('comissoes_caixas_semanais')
+            .select('colaborador_id, saldo_anterior, saldo_final, status')
+            .eq('semana_inicio', start).eq('semana_fim', end),
+          supabase.from('vendas')
+            .select('total, status, down_payment, created_at')
+            .gte('created_at', start).lte('created_at', end).is('deleted_at', null),
+        ]);
+
+        const colabs = colabsRes.data || [];
+        const servicos = servicosRes.data || [];
+        const descontos = descontosRes.data || [];
+        const pagamentos = pagamentosRes.data || [];
+        const caixas = caixasRes.data || [];
+        const vendas = vendasRes.data || [];
+
+        const receitaLojaQuitadasSemana = vendas
+          .filter((v: any) => {
+            if (v.status === 'canceled') return false;
+            const total = Number(v.total) || 0;
+            const down = Number(v.down_payment) || 0;
+            return total > 0 && (v.status === 'completed' || down >= total);
+          })
+          .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
+
+        const servicosByColab: Record<string, { totalComissao: number; totalProducao: number }> = {};
+        servicos.forEach((s: any) => {
+          if (s.status === 'CANCELADO') return;
+          const id = s.colaborador_id;
+          if (!id) return;
+          if (!servicosByColab[id]) servicosByColab[id] = { totalComissao: 0, totalProducao: 0 };
+          servicosByColab[id].totalComissao += Number(s.comissao_valor) || 0;
+          servicosByColab[id].totalProducao += Number(s.valor_producao) || 0;
+        });
+
+        const descontosByColab: Record<string, any[]> = {};
+        descontos.forEach((d: any) => {
+          if (!descontosByColab[d.colaborador_id]) descontosByColab[d.colaborador_id] = [];
+          descontosByColab[d.colaborador_id].push(d);
+        });
+
+        const pagamentosByColab: Record<string, number> = {};
+        pagamentos.forEach((p: any) => {
+          pagamentosByColab[p.colaborador_id] = (pagamentosByColab[p.colaborador_id] || 0) + (Number(p.valor) || 0);
+        });
+
+        const caixasByColab: Record<string, any> = {};
+        caixas.forEach((cx: any) => { caixasByColab[cx.colaborador_id] = cx; });
+
+        let totalEquipe = 0;
+
+        colabs.forEach((c: any) => {
+          let localExtra: any = null;
+          try {
+            const raw = localStorage.getItem(`rpro_colab_remun_${c.id}`);
+            if (raw) localExtra = JSON.parse(raw);
+          } catch {}
+
+          const modalidade =
+            c.modalidade_remuneracao ||
+            localExtra?.modalidade ||
+            (Number(c.meta_percentual || localExtra?.metaPercentual) > 0 ||
+              (Array.isArray(localExtra?.metasValores) && localExtra.metasValores.length > 0)
+                ? 'meta'
+                : 'fixo_comissao');
+
+          const isFixo = modalidade === 'fixo';
+          const metasValores = Array.isArray(localExtra?.metasValores)
+            ? localExtra.metasValores
+            : (Array.isArray(c.metas_valores) ? c.metas_valores : undefined);
+
+          const metaPercentual = Number(c.meta_percentual ?? localExtra?.metaPercentual) || 0;
+          const metaValorMinimo = Number(c.meta_valor_minimo ?? localExtra?.metaValorMinimo) || 0;
+          const metaValorMaximo = Number(c.meta_valor_maximo ?? localExtra?.metaValorMaximo) || 0;
+
+          const producao = servicosByColab[c.id]?.totalProducao || 0;
+          const comissao = servicosByColab[c.id]?.totalComissao || 0;
+
+          const remuneracao = calcularRemuneracaoSemanal(
+            {
+              modalidade,
+              salarioBase: Number(c.salario_base) || 0,
+              comissaoPadraoPercentual: isFixo ? 0 : (Number(c.comissao_padrao_percentual) || 0),
+              metaPercentual,
+              metasValores,
+              metaValorMinimo,
+              metaValorMaximo,
+              faturamentoGeral: receitaLojaQuitadasSemana,
+            },
+            producao,
+            comissao
+          );
+
+          const caixa = caixasByColab[c.id];
+          const saldoAnterior = Number(caixa?.saldo_anterior) || 0;
+          const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
+          const totalDescontos = calculateDescontosNoPeriodo(
+            descontosByColab[c.id] || [],
+            descBounds.start,
+            descBounds.end
+          );
+          const totalPago = pagamentosByColab[c.id] || 0;
+
+          // No sábado, se o ciclo já estiver fechado, o saldo_final é a referência
+          // congelada do acerto. Caso ainda esteja aberto, calcula normalmente até sexta.
+          const cicloFechado = isSaturday && caixa?.status === 'fechado' && caixa?.saldo_final != null;
+          const totalEstimado = cicloFechado
+            ? Math.max(0, Number(caixa.saldo_final) || 0)
+            : Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago - dividaAnterior);
+
+          totalEquipe += totalEstimado;
+        });
+
+        if (mounted) {
+          setTotalEstimadoFuncionarios(totalEquipe);
+          localStorage.setItem('rpro_equipe_total_estimado', String(totalEquipe));
         }
       } catch (err) {
-        // ignore
+        // Mantém o último cache somente como fallback de indisponibilidade.
+        console.warn('Dashboard: falha ao revalidar total de funcionários:', err);
+        if (mounted) {
+          const cached = localStorage.getItem('rpro_equipe_total_estimado');
+          if (cached) setTotalEstimadoFuncionarios(Number(cached) || 0);
+        }
       }
     };
+
+    const handleColabUpdate = () => {
+      loadEquipeTotal();
+    };
+
     loadEquipeTotal();
 
-    return () => window.removeEventListener('rpro-colab-stats-updated', handleColabUpdate);
+    const channel = supabase
+      .channel('dashboard-funcionarios')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'colaboradores' }, handleColabUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_servicos' }, handleColabUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_descontos' }, handleColabUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_pagamentos' }, handleColabUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_caixas_semanais' }, handleColabUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vendas' }, handleColabUpdate)
+      .subscribe();
+
+    window.addEventListener('rpro-colab-stats-updated', handleColabUpdate);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('rpro-colab-stats-updated', handleColabUpdate);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const { setCurrentCompany, setPrefilledCustomer } = React.useContext(AppContext)!;
