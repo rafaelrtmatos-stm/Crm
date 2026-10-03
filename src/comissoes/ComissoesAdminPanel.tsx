@@ -531,7 +531,7 @@ export default function ComissoesAdminPanel() {
         if (stats) {
           totalComissaoSemana += stats.totalComissao;
           totalProducaoSemana += stats.totalProducao;
-          totalDescontosSemana += stats.totalDescontos + stats.dividaAnterior;
+          totalDescontosSemana += stats.totalDescontos;
           totalEstimadoEquipe += stats.totalEstimado;
         } else {
           totalEstimadoEquipe += calcularSalarioSemanal(Number(c.salario_base) || 0);
@@ -1595,7 +1595,7 @@ export default function ComissoesAdminPanel() {
                             - Descontos
                           </span>
                           <span className="font-bold text-rose-400 truncate block">
-                            -{formatCurrencyBR(stats.totalDescontos + stats.dividaAnterior)}
+                            -{formatCurrencyBR(stats.totalDescontos)}
                           </span>
                         </div>
                       </div>
