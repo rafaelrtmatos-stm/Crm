@@ -1,4 +1,4 @@
-import { ModalidadeRemuneracao } from './supabaseStorage';
+import { ModalidadeRemuneracao, calcularSalarioSemanal } from './supabaseStorage';
 import { MetaValorItem } from '../types';
 
 export interface ParametrosRemuneracao {
@@ -27,11 +27,11 @@ export interface ResultadoRemuneracao {
  * Calcula a remuneração bruta semanal de um funcionário de acordo com a sua modalidade:
  * 
  * 1. FIXO:
- *    remuneracao = salario_base
+ *    remuneracao = (salario_mensal / 220) * 44
  *    (produção não altera a remuneração)
  * 
  * 2. FIXO + COMISSÃO:
- *    remuneracao = salario_base + comissao_existente
+ *    remuneracao = ((salario_mensal / 220) * 44) + comissao_existente
  * 
  * 3. FATURAMENTO GERAL:
  *    O colaborador recebe um percentual sobre o faturamento geral da empresa/período.
@@ -47,7 +47,8 @@ export function calcularRemuneracaoSemanal(
   comissaoExistente: number
 ): ResultadoRemuneracao {
   const modalidade = params.modalidade || 'fixo_comissao';
-  const salarioBase = Number(params.salarioBase) || 0;
+  const salarioMensal = Number(params.salarioBase) || 0;
+  const salarioBase = modalidade === 'meta' || modalidade === 'faturamento_geral' ? 0 : calcularSalarioSemanal(salarioMensal);
   const producao = Number(producaoIndividual) || 0;
   const comissao = Number(comissaoExistente) || 0;
   const metaPerc = Number(params.metaPercentual) || 0;

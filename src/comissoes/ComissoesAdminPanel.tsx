@@ -45,7 +45,7 @@ import {
   ShieldCheck,
   Clock
 } from 'lucide-react';
-import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow } from './utils/supabaseStorage';
+import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow, calcularSalarioSemanal } from './utils/supabaseStorage';
 import { MetaValorItem } from './types';
 import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
@@ -373,7 +373,8 @@ export default function ComissoesAdminPanel() {
       const statsMap: Record<string, ColaboradorWeeklyStats> = {};
 
       colabs.forEach((c) => {
-        const salarioBase = Number(c.salario_base) || 0;
+        const salarioBaseMensal = Number(c.salario_base) || 0;
+        const salarioBase = calcularSalarioSemanal(salarioBaseMensal);
         const metaSemanal = Number(c.meta_semanal) || 0;
         const colabServicos = servicosByColab[c.id] || { totalComissao: 0, totalProducao: 0, count: 0 };
         const colabDescontos = descontosByColab[c.id] || [];
@@ -516,7 +517,7 @@ export default function ComissoesAdminPanel() {
       if (c.ativo) {
         const stats = weeklyStatsMap[c.id];
         const isFixo = stats?.modalidade === 'fixo' || c.modalidade_remuneracao === 'fixo';
-        folhaBaseAtivos += Number(c.salario_base) || 0;
+        folhaBaseAtivos += calcularSalarioSemanal(Number(c.salario_base) || 0);
 
         // Funcionário fixo NÃO tem meta nem taxa de comissão
         if (!isFixo) {
@@ -531,7 +532,7 @@ export default function ComissoesAdminPanel() {
           totalDescontosSemana += stats.totalDescontos + stats.dividaAnterior;
           totalEstimadoEquipe += stats.totalEstimado;
         } else {
-          totalEstimadoEquipe += Number(c.salario_base) || 0;
+          totalEstimadoEquipe += calcularSalarioSemanal(Number(c.salario_base) || 0);
         }
       }
     });
@@ -1453,12 +1454,12 @@ export default function ComissoesAdminPanel() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
             {filteredColaboradores.map((c) => {
               const stats = weeklyStatsMap[c.id] || {
-                salarioBase: Number(c.salario_base) || 0,
+                salarioBase: calcularSalarioSemanal(Number(c.salario_base) || 0),
                 totalComissao: 0,
                 totalProducao: 0,
                 totalDescontos: 0,
                 totalPago: 0,
-                totalEstimado: Number(c.salario_base) || 0,
+                totalEstimado: calcularSalarioSemanal(Number(c.salario_base) || 0),
                 qtdServicos: 0,
                 metaSemanal: Number(c.meta_semanal) || 0,
                 percentualMeta: 0,
@@ -1744,12 +1745,12 @@ export default function ComissoesAdminPanel() {
                 <tbody className="divide-y divide-[var(--border-color)]">
                   {filteredColaboradores.map((c) => {
                     const stats = weeklyStatsMap[c.id] || {
-                      salarioBase: Number(c.salario_base) || 0,
+                      salarioBase: calcularSalarioSemanal(Number(c.salario_base) || 0),
                       totalComissao: 0,
                       totalProducao: 0,
                       totalDescontos: 0,
                       totalPago: 0,
-                      totalEstimado: Number(c.salario_base) || 0,
+                      totalEstimado: calcularSalarioSemanal(Number(c.salario_base) || 0),
                       qtdServicos: 0,
                       metaSemanal: Number(c.meta_semanal) || 0,
                       percentualMeta: 0,
@@ -2244,14 +2245,14 @@ export default function ComissoesAdminPanel() {
                       <div className="space-y-3">
                         <label className="space-y-1 block max-w-sm">
                           <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                            Salário Fixo Semanal (R$) *
+                            Salário Base Mensal (R$) *
                           </span>
                           <input
                             type="number"
                             step="0.01"
                             value={form.salarioBase || ''}
                             onChange={(e) => setForm({ ...form, salarioBase: Number(e.target.value) || 0, metaSemanal: 0, comissaoPadraoPercentual: 0 })}
-                            placeholder="Ex: 350.00"
+                            placeholder="Ex: 2000.00"
                             className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
                           />
                         </label>
@@ -2259,7 +2260,7 @@ export default function ComissoesAdminPanel() {
                         <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center gap-2.5">
                           <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
                           <span>
-                            <strong>Funcionário fixo não tem meta:</strong> A remuneração é 100% semanal e não depende de meta nem de volume de produção.
+                            <strong>Funcionário fixo não tem meta:</strong> O salário é cadastrado mensalmente e convertido automaticamente para a base semanal de 44 horas.
                           </span>
                         </div>
                       </div>
@@ -2270,14 +2271,14 @@ export default function ComissoesAdminPanel() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                         <label className="space-y-1 block">
                           <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                            Salário Fixo Semanal (R$) *
+                            Salário Base Mensal (R$) *
                           </span>
                           <input
                             type="number"
                             step="0.01"
                             value={form.salarioBase || ''}
                             onChange={(e) => setForm({ ...form, salarioBase: Number(e.target.value) || 0 })}
-                            placeholder="Ex: 350.00"
+                            placeholder="Ex: 2000.00"
                             className="w-full h-11 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
                           />
                         </label>

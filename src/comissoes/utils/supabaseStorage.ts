@@ -2,6 +2,13 @@ import { supabase } from '../../supabase';
 import { showConfirm } from '../../lib/notify';
 import { ServiceItem, UserSettings, SummaryStats, ThemeMode, MetaValorItem } from '../types';
 
+/** Converte o salário mensal cadastrado em base semanal pela jornada padrão de 220h/mês e 44h/semana. */
+export function calcularSalarioSemanal(salarioMensal: number, horasSemanais = 44, horasMensais = 220): number {
+  const mensal = Number(salarioMensal) || 0;
+  if (mensal <= 0 || horasMensais <= 0 || horasSemanais <= 0) return 0;
+  return (mensal / horasMensais) * horasSemanais;
+}
+
 // 'livre' = colaborador pode usar lançamento manual E puxar de nota;
 // 'somente_nota' = só pode puxar de nota (lançamento manual fica oculto).
 export type ModoLancamentoComissao = 'livre' | 'somente_nota';
@@ -727,14 +734,15 @@ export const calculateSummaryStats = (
   const modalidade = settings?.modalidadeRemuneracao || 'fixo_comissao';
   const metaPerc = Number(settings?.metaPercentual) || 0;
 
+  const salarioSemanal = calcularSalarioSemanal(baseSalary);
   let totalCommission = totalCommissionRaw;
-  let totalBaseSalary = baseSalary;
-  let forecastTotal = baseSalary + totalCommission;
+  let totalBaseSalary = salarioSemanal;
+  let forecastTotal = salarioSemanal + totalCommission;
 
   if (modalidade === 'fixo') {
     totalCommission = 0;
-    totalBaseSalary = baseSalary;
-    forecastTotal = baseSalary;
+    totalBaseSalary = salarioSemanal;
+    forecastTotal = salarioSemanal;
   } else if (modalidade === 'meta') {
     const ordenadas = (settings?.metasValores || []).filter(
       (m: any) => Number(m.valorProducao) > 0 && Number(m.valorReceber) > 0
@@ -753,8 +761,8 @@ export const calculateSummaryStats = (
     forecastTotal = totalCommission;
   } else if (modalidade === 'faturamento_geral') {
     totalCommission = metaPerc > 0 ? (totalProduction * metaPerc) / 100 : 0;
-    totalBaseSalary = baseSalary;
-    forecastTotal = baseSalary + totalCommission;
+    totalBaseSalary = salarioSemanal;
+    forecastTotal = salarioSemanal + totalCommission;
   } else {
     // fixo_comissao
     totalCommission = totalCommissionRaw;

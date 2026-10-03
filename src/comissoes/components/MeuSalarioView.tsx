@@ -2,17 +2,58 @@ import React,{useEffect,useMemo,useState}from'react';
 import{CalendarClock,CircleDollarSign,MinusCircle,Wallet,LockKeyhole}from'lucide-react';
 import{supabase}from'../../supabase';
 import{formatCurrency}from'../utils/storage';
-import{calculateDescontosNoPeriodo,getDescontosFromSupabase}from'../utils/supabaseStorage';
+import{calculateDescontosNoPeriodo,getDescontosFromSupabase,calcularSalarioSemanal}from'../utils/supabaseStorage';
+import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStorage';
 
 export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number}>=({colaboradorId,nome,salarioBase})=>{
- const[caixas,setCaixas]=useState<any[]>([]),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[loading,setLoading]=useState(true);
- const hoje=new Date(),y=hoje.getFullYear(),m=hoje.getMonth(),pad=(n:number)=>String(n).padStart(2,'0'),inicio=y+'-'+pad(m+1)+'-01',fim=new Date(y,m+1,0).toLocaleDateString('sv-SE'),disponivel=hoje.getDate()>=12;
- useEffect(()=>{let ok=true;(async()=>{const[c,s,d]=await Promise.all([supabase.from('comissoes_caixas_semanais').select('id,semana_inicio,semana_fim,status,salario_base,total_comissao,total_descontos,total_pago,saldo_anterior').eq('colaborador_id',colaboradorId).gte('semana_inicio',inicio).lte('semana_inicio',fim).order('semana_inicio'),supabase.from('comissoes_servicos').select('data,comissao_valor').eq('colaborador_id',colaboradorId).gte('data',inicio).lte('data',fim).is('deleted_at',null).neq('status','CANCELADO'),getDescontosFromSupabase(colaboradorId)]);if(ok){setCaixas(c.data||[]);setServicos(s.data||[]);setDescontos(d||[]);setLoading(false)}})();return()=>{ok=false}},[colaboradorId,inicio,fim]);
- const calc=useMemo(()=>{const semanas=caixas.length||Math.max(1,Math.ceil(hoje.getDate()/7));const base=caixas.reduce((s,c)=>s+(Number(c.salario_base)||salarioBase),0)||salarioBase*semanas;const comissao=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0);const desc=calculateDescontosNoPeriodo(descontos,inicio,fim);const pago=caixas.reduce((s,c)=>s+(Number(c.total_pago)||0),0);const saldo=caixas.length?Number(caixas[0].saldo_anterior||0):0;return{base,comissao,desc,pago,saldo,total:base+comissao-desc-pago+saldo}},[caixas,servicos,descontos,inicio,fim,salarioBase]);
- const pagamento=new Date(y,m,17).toLocaleDateString('pt-BR',{day:'2-digit',month:'long'});
+ const[caixa,setCaixa]=useState<any>(null),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[pagamentos,setPagamentos]=useState<any[]>([]),[loading,setLoading]=useState(true);
+ const hoje=new Date(),ehSabado=hoje.getDay()===6,bounds=useMemo(()=>getWorkWeekBounds(ehSabado?-1:0),[ehSabado]),descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
+ const salarioSemanal=calcularSalarioSemanal(salarioBase);
+ useEffect(()=>{let ok=true;(async()=>{
+   const[c,s,d,p]=await Promise.all([
+     supabase.from('comissoes_caixas_semanais').select('id,semana_inicio,semana_fim,status,salario_base,total_comissao,total_descontos,total_pago,saldo_anterior,saldo_final').eq('colaborador_id',colaboradorId).eq('semana_inicio',bounds.start).maybeSingle(),
+     supabase.from('comissoes_servicos').select('data,comissao_valor,valor_producao').eq('colaborador_id',colaboradorId).gte('data',bounds.start).lte('data',bounds.end).is('deleted_at',null).neq('status','CANCELADO'),
+     getDescontosFromSupabase(colaboradorId),
+     supabase.from('comissoes_pagamentos').select('id,caixa_id,valor,data').eq('colaborador_id',colaboradorId).gte('data',descBounds.start).lte('data',descBounds.end)
+   ]);
+   if(ok){setCaixa(c.data||null);setServicos(s.data||[]);setDescontos(d||[]);setPagamentos(p.data||[]);setLoading(false)}
+ })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end]);
+
+ const calc=useMemo(()=>{
+   const fechado=caixa?.status==='fechado';
+   const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||salarioSemanal:salarioSemanal;
+   const comissao=fechado&&caixa?.total_comissao!==null&&caixa?.total_comissao!==undefined?Number(caixa.total_comissao)||0:servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0);
+   const desc=fechado&&caixa?.total_descontos!==null&&caixa?.total_descontos!==undefined?Number(caixa.total_descontos)||0:calculateDescontosNoPeriodo(descontos,descBounds.start,descBounds.end);
+   const pago=fechado&&caixa?.total_pago!==null&&caixa?.total_pago!==undefined?Number(caixa.total_pago)||0:pagamentos.filter(p=>!caixa?.id||p.caixa_id===caixa.id).reduce((s,p)=>s+(Number(p.valor)||0),0);
+   const saldoAnterior=Number(caixa?.saldo_anterior)||0;
+   return{base,comissao,desc,pago,saldoAnterior,total:base+comissao-desc-pago+saldoAnterior};
+ },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal]);
+
+ const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
+ const cicloLabel=`${bounds.start.split('-').reverse().join('/')} a ${bounds.end.split('-').reverse().join('/')}`;
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Calculando Meu Salário...</div>;
- return <div className="space-y-5"><div><h2 className="text-2xl font-black">Meu Salário</h2><p className="text-sm text-[var(--text-muted)] mt-1">{nome} · pagamento previsto para {pagamento}</p></div>
- {!disponivel?<div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-6 flex gap-4 items-center"><LockKeyhole className="w-6 h-6 text-[var(--accent-red)]"/><div><b>Valor ainda não disponível</b><p className="text-sm text-[var(--text-muted)] mt-1">O detalhamento do pagamento fica disponível a partir do dia 12. O pagamento está previsto para o dia 17.</p></div></div>:
- <><div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4"><Wallet className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.base)}</b><p className="text-xs text-[var(--text-muted)]">Salário base</p></div><div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4"><CircleDollarSign className="w-5 h-5 mb-3 text-emerald-500"/><b className="text-xl">{formatCurrency(calc.comissao)}</b><p className="text-xs text-[var(--text-muted)]">Comissões</p></div><div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4"><MinusCircle className="w-5 h-5 mb-3 text-rose-500"/><b className="text-xl">-{formatCurrency(calc.desc)}</b><p className="text-xs text-[var(--text-muted)]">Descontos</p></div><div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4"><CalendarClock className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.total)}</b><p className="text-xs text-[var(--text-muted)]">Previsto dia 17</p></div></div>
- <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5"><h3 className="font-black mb-4">Composição do valor</h3><div className="space-y-2 text-sm"><div className="flex justify-between"><span>Salário base</span><b>{formatCurrency(calc.base)}</b></div><div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div><div className="flex justify-between"><span>Descontos</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>{calc.pago>0&&<div className="flex justify-between"><span>Já recebido</span><b>-{formatCurrency(calc.pago)}</b></div>}{calc.saldo!==0&&<div className="flex justify-between"><span>Saldo anterior</span><b>{calc.saldo>=0?'+':'-'}{formatCurrency(Math.abs(calc.saldo))}</b></div>}<div className="pt-3 mt-3 border-t border-[var(--border-color)] flex justify-between text-base"><b>Total previsto</b><b>{formatCurrency(calc.total)}</b></div></div></div></>}</div>
+ return <div className="space-y-5">
+   <div><h2 className="text-2xl font-black">Meu Salário</h2><p className="text-sm text-[var(--text-muted)] mt-1">{nome} · ciclo {cicloLabel} · pagamento {pagamentoLabel}</p></div>
+   <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5">
+     <div className="flex items-center gap-3 mb-4"><Wallet className="w-6 h-6 text-[var(--accent-red)]"/><div><p className="text-xs text-[var(--text-muted)] uppercase font-bold">Salário cadastrado</p><b className="text-2xl">{formatCurrency(salarioBase)}</b><p className="text-xs text-[var(--text-muted)] mt-1">Base semanal calculada: {formatCurrency(salarioSemanal)}</p></div></div>
+     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><Wallet className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.base)}</b><p className="text-xs text-[var(--text-muted)]">Base semanal</p></div>
+       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><CircleDollarSign className="w-5 h-5 mb-3 text-emerald-500"/><b className="text-xl">{formatCurrency(calc.comissao)}</b><p className="text-xs text-[var(--text-muted)]">Comissões</p></div>
+       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><MinusCircle className="w-5 h-5 mb-3 text-rose-500"/><b className="text-xl">-{formatCurrency(calc.desc)}</b><p className="text-xs text-[var(--text-muted)]">Descontos</p></div>
+       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><CalendarClock className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.total)}</b><p className="text-xs text-[var(--text-muted)]">A receber {pagamentoLabel}</p></div>
+     </div>
+   </div>
+   <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5">
+     <h3 className="font-black mb-4">Composição do fechamento</h3>
+     <div className="space-y-2 text-sm">
+       <div className="flex justify-between"><span>Base semanal</span><b>{formatCurrency(calc.base)}</b></div>
+       <div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>
+       <div className="flex justify-between"><span>Descontos</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>
+       {calc.pago>0&&<div className="flex justify-between"><span>Já recebido</span><b>-{formatCurrency(calc.pago)}</b></div>}
+       {calc.saldoAnterior!==0&&<div className="flex justify-between"><span>Saldo anterior</span><b>{calc.saldoAnterior>=0?'+':'-'}{formatCurrency(Math.abs(calc.saldoAnterior))}</b></div>}
+       <div className="pt-3 mt-3 border-t border-[var(--border-color)] flex justify-between text-base"><b>Total a receber {pagamentoLabel}</b><b>{formatCurrency(calc.total)}</b></div>
+     </div>
+   </div>
+   {!caixa&&<div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5 flex gap-3 items-center"><LockKeyhole className="w-5 h-5 text-[var(--accent-red)]"/><p className="text-sm text-[var(--text-muted)]">O fechamento deste ciclo ainda não foi criado no sistema. A base semanal continua sendo calculada pelo salário mensal.</p></div>}
+ </div>;
 };
