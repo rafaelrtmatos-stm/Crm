@@ -36,7 +36,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   metaValorMinimo = 600,
   onOpenDescontos,
 }) => {
-  const forecastTotal = baseSalary + totalCommission - totalDiscounts - totalPaid + previousBalance;
+  const forecastTotal = baseSalary + totalCommission - totalDiscounts;
   const isHojeSabado = new Date().getDay() === 6;
 
   // Cálculo detalhado da modalidade META
@@ -110,7 +110,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span>Previsão de Recebimento</span>
             </div>
             <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
-              'Ponto anterior + comissão atual'
+              'Salário + comissão'
             </span>
           </div>
 
@@ -121,7 +121,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 Total a Receber
               </span>
               <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                'Ponto anterior + comissão da semana vigente'
+                'Salário + comissões - descontos'
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
@@ -200,7 +200,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               Composição do Valor
             </span>
             <span className="text-[10px] text-white/70 font-mono font-normal whitespace-nowrap">
-              {cycleDates || 'Ponto: semana anterior • Comissão: semana vigente'}
+              {cycleDates || 'Salário • Comissões • Descontos'}
             </span>
           </div>
 
@@ -209,7 +209,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             {modalidadeRemuneracao !== 'meta' && (baseSalary > 0 || modalidadeRemuneracao === 'fixo') && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
                 <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
-                  'Saldo do Ponto (Semana Anterior)'
+                  'Salário'
                 </span>
                 <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
               </div>
@@ -235,7 +235,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
                   {modalidadeRemuneracao === 'faturamento_geral'
                     ? `+ Comissão (${metaPercentual || 0}% do Faturamento Geral)`
-                    : '+ Comissões da Semana'}
+                    : '+ Comissões'}
                 </span>
                 <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
               </div>
@@ -249,38 +249,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
-            {/* 5. Já Recebido na Semana (Vales/Adiantamentos) */}
-            {totalPaid > 0 && (
-              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-amber-950/40 border border-amber-500/30 gap-2">
-                <span className="text-amber-200 font-semibold text-xs whitespace-nowrap">- Já Recebido (Vales)</span>
-                <span className="font-bold text-amber-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalPaid)}</span>
-              </div>
-            )}
-
-            {/* 6. Saldo Anterior do Caixa (Crédito ou Dívida fora do ciclo) */}
-            {previousBalance !== 0 && (
-              <div
-                className={`flex items-center justify-between py-1.5 px-3 rounded-xl gap-2 ${
-                  previousBalance > 0
-                    ? 'bg-emerald-950/40 border border-emerald-500/30'
-                    : 'bg-rose-950/40 border border-rose-500/30'
-                }`}
-              >
-                <span className={`font-semibold text-xs whitespace-nowrap ${previousBalance > 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
-                  {previousBalance > 0 ? '+ Crédito Caixa' : '- Dívida Caixa'}
-                </span>
-                <span
-                  className={`font-bold font-mono text-sm whitespace-nowrap ${
-                    previousBalance > 0 ? 'text-emerald-300' : 'text-rose-300'
-                  }`}
-                >
-                  {previousBalance > 0 ? '+' : '-'}
-                  {formatCurrency(Math.abs(previousBalance))}
-                </span>
-              </div>
-            )}
-
-            {/* 7. Linha de Fechamento Líquido */}
+            {/* 5. Linha de Fechamento Líquido */}
             <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/20 border border-white/30 shadow-sm mt-1 gap-2">
               <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
               <span className="font-black text-white font-mono text-base whitespace-nowrap">{formatCurrency(forecastTotal)}</span>
@@ -288,7 +257,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
-                ℹ️ O saldo do ponto considera a semana anterior. A comissão exibida é da semana vigente; o ponto desta semana fica para o próximo pagamento.
+                ℹ️ O total é calculado por salário + comissões − descontos.
               </div>
             )}
           </div>
