@@ -19061,23 +19061,46 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const openEditCartItem = (index: number) => {
     const item = cart[index];
     if (!item) return;
+
     const product = products.find(p => p.id === item.productId);
     if (!product || (product.unitType !== 'm2' && product.unitType !== 'metro')) return;
 
-    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\\s*x\\s*([0-9.,]+)m?/i);
-    const width = match?.[1] || '';
-    const height = match?.[2] || '';
+    // A medida salva no próprio item é a fonte da verdade para reabrir a edição.
+    // Aceita x/×, vírgula/ponto e medidas com ou sem a unidade "m".
+    const rawDimensions = String(item.dimensions || '').trim();
+    const match = rawDimensions.match(
+      /([0-9]+(?:[.,][0-9]+)?)\s*m?\s*[x×]\s*([0-9]+(?:[.,][0-9]+)?)\s*m?/i
+    );
+
+    let width = match?.[1] || '';
+    let height = match?.[2] || '';
+
+    // Fallback para formatos antigos que tenham números separados no texto.
+    if (!width || !height) {
+      const numbers = rawDimensions.match(/[0-9]+(?:[.,][0-9]+)?/g) || [];
+      if (!width) width = numbers[0] || '';
+      if (!height) height = numbers[1] || '';
+    }
+
+    // Para itens m² antigos que não guardaram a altura no texto, recupera pela área.
+    if (!height && product.unitType === 'm2' && width) {
+      const savedArea = Number(item.area) || 0;
+      const savedWidth = Number(String(width).replace(',', '.')) || 0;
+      if (savedArea > 0 && savedWidth > 0) {
+        height = String(savedArea / savedWidth);
+      }
+    }
 
     setEditingCartItemIndex(index);
     setDimensionModalProduct(product);
     setSelectedQty(Math.max(1, Number(item.quantity) || 1));
-    setDimWidth(width ? Number(width.replace(',', '.')) : Number(item.area || 0) || '');
-    setDimHeight(height ? Number(height.replace(',', '.')) : '');
-    setDimLarguraMaterial(product.larguraRolo || 0);
+    setDimWidth(width ? Number(String(width).replace(',', '.')) : '');
+    setDimHeight(height ? Number(String(height).replace(',', '.')) : '');
+    setDimLarguraMaterial(
+      Number((item as any).larguraMaterial || (item as any).larguraRolo || product.larguraRolo || 0)
+    );
 
     // Ao reabrir a metragem, o valor volta ao cálculo automático.
-    // Assim, alterar 2x1 para 2x1,5 recalcula o preço/consumo em vez de congelar
-    // o valor anterior da linha.
     setDimValorOverride('');
     setDimValorFoiEditado(false);
   };
