@@ -3551,7 +3551,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                    </div>
 
                    {/* Resumo Rápido de Produtos & Clientes */}
-                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Top 4 Produtos */}
                       <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3.5">
                          <div className="flex items-center justify-between mb-2">
@@ -21622,7 +21622,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             // --- MODO CARDS ---
             return (
               <div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {visibleSales.map(sale => {
                     const down = sale.downPayment || 0;
                     const balance = sale.total - down;
