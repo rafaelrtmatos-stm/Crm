@@ -14357,7 +14357,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingEditOrderId, setPendingEditOrderId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -18109,6 +18109,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setEditingPaymentsList(sale.payments ? sale.payments.map(p => ({ ...p })) : []);
     setActiveTab('venda');
   };
+
+  // Ordem de Serviço pode solicitar a edição completa de um pedido sem duplicar a nota.
+  useEffect(() => {
+    if (!pendingEditOrderId) return;
+    const saleId = pendingEditOrderId;
+    setPendingEditOrderId(null);
+    let ativo = true;
+    supabase.from('vendas').select('*').eq('id', saleId).maybeSingle().then(({ data, error }) => {
+      if (!ativo) return;
+      if (error || !data) {
+        showAlert('Não foi possível abrir o pedido para edição.');
+        return;
+      }
+      handleStartFullEdit(mapVendaRow(data));
+    });
+    return () => { ativo = false; };
+  }, [pendingEditOrderId]);
 
   const startEditSale = (sale: SaleOrder) => {
     setEditingSale(sale);
@@ -29865,7 +29882,8 @@ const stageColorOf = (stageId: string) => STAGE_COLORS[stageId] || STAGE_COLORS.
 // Antigas constantes removidas: ORCAMENTO_CONTRATO_STAGES, ORCAMENTO_CONTRATO_LABELS
 
 const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onToggleSelect }: { key?: any; pedido: SaleOrder; onDropdownChange: (pedido: SaleOrder, novaEtapa: string) => void; selectMode?: boolean; selected?: boolean; onToggleSelect?: (id: string) => void }) => {
-  const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId } = React.useContext(AppContext)!;
+  const { setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingEditOrderId, user } = React.useContext(AppContext)!;
+  const canManageHistory = !!(user?.isAdmin || user?.allowedActions?.includes('canManageSaleHistory'));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: pedido.id,
     data: { type: 'card', pedido },
@@ -29893,7 +29911,27 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
           </div>
         )}
         <div className="min-w-0">
-           <p title={pedido.customerName || 'Balcão'} className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {formatNamePreview((pedido.customerName || 'Balcão').toUpperCase(), 14)}</p>
+           <div className="flex items-start justify-between gap-1.5">
+             <div className="min-w-0 flex-1">
+               <p className="text-[7px] text-white/35 font-black uppercase tracking-wider truncate">#{pedido.id.slice(-6).toUpperCase()}</p>
+               <p title={pedido.customerName || 'Balcão'} className="font-black text-white text-[10px] truncate leading-tight">{formatNamePreview((pedido.customerName || 'Balcão').toUpperCase(), 22)}</p>
+             </div>
+             {canManageHistory && (
+               <button
+                 type="button"
+                 onPointerDown={(e) => e.stopPropagation()}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setPendingEditOrderId(pedido.id);
+                   setRootActiveTab('pos');
+                 }}
+                 className="w-6 h-6 rounded-md bg-primary-500/10 hover:bg-primary-500/20 border border-primary-500/20 text-primary-300 flex items-center justify-center shrink-0 cursor-pointer"
+                 title="Editar pedido"
+               >
+                 <Pencil size={10} />
+               </button>
+             )}
+           </div>
            <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
         </div>
         {pedido.scheduledFor && (
