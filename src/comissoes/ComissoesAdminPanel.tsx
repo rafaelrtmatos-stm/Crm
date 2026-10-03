@@ -292,7 +292,7 @@ export default function ComissoesAdminPanel() {
           .order('name', { ascending: true }),
         supabase
           .from('comissoes_caixas_semanais')
-          .select('id, colaborador_id, saldo_anterior, semana_inicio, semana_fim, status')
+          .select('id, colaborador_id, saldo_anterior, semana_inicio, semana_fim, status, salario_base, total_descontos')
           .eq('semana_inicio', pointWeekBounds.start),
         supabase
           .from('vendas')
@@ -323,11 +323,14 @@ export default function ComissoesAdminPanel() {
 
       // Mapeia o caixa do ciclo de ponto anterior por colaborador.
       // Pagamentos e dívidas desse ciclo não são misturados com a comissão vigente.
-      const caixasByColab: Record<string, { id: string; saldoAnterior: number }> = {};
+      const caixasByColab: Record<string, { id: string; saldoAnterior: number; salarioBase: number | null; totalDescontos: number | null; status: string | null }> = {};
       caixas.forEach((cx: any) => {
         caixasByColab[cx.colaborador_id] = {
           id: cx.id,
           saldoAnterior: Number(cx.saldo_anterior) || 0,
+          salarioBase: cx.salario_base != null ? Number(cx.salario_base) : null,
+          totalDescontos: cx.total_descontos != null ? Number(cx.total_descontos) : null,
+          status: cx.status ?? null,
         };
       });
 
@@ -376,11 +379,22 @@ export default function ComissoesAdminPanel() {
 
       colabs.forEach((c) => {
         const salarioBaseMensal = Number(c.salario_base) || 0;
-        const salarioBase = calcularSalarioSemanal(salarioBaseMensal);
+        const caixaFechado = caixasByColab[c.id]?.status === 'fechado';
+        // No fechamento de sábado, o card externo deve usar exatamente o salário
+        // congelado no mesmo caixa semanal mostrado em MeuSalarioView.
+        const salarioBaseFechado = caixasByColab[c.id]?.salarioBase;
+        const salarioBase = caixaFechado && salarioBaseFechado != null
+          ? salarioBaseFechado
+          : calcularSalarioSemanal(salarioBaseMensal);
         const metaSemanal = Number(c.meta_semanal) || 0;
         const colabServicos = servicosByColab[c.id] || { totalComissao: 0, totalProducao: 0, count: 0 };
         const colabDescontos = descontosByColab[c.id] || [];
-        const totalDescontos = calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end);
+        // Se o caixa já foi fechado, usa o desconto congelado do fechamento.
+        // Assim o card não recalcula R$109,33 enquanto MeuSalarioView mostra R$100,00.
+        const totalDescontosFechado = caixasByColab[c.id]?.totalDescontos;
+        const totalDescontos = caixaFechado && totalDescontosFechado != null
+          ? totalDescontosFechado
+          : calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end);
         const totalPago = pagamentosByColab[c.id] || 0;
 
         // Carrega eventual configuração persistida localmente (resiliência caso a migration SQL ainda não tenha rodado)
