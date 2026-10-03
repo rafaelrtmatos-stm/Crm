@@ -19,7 +19,6 @@ import {
   inserirServicosDeNota,
   deleteServiceFromSupabase,
   deleteServicesBatchFromSupabase,
-  excluirServicoPorOrigem,
   retirarServicoDaComissaoParaServicos,
   saveColaboradorSettings,
   colaboradorToUserSettings,
