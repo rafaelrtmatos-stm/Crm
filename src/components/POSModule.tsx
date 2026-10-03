@@ -1419,29 +1419,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               )}
             </div>
 
-            {/* Total da Nota — no rodapé do carrinho */}
-            <div className="my-2 p-3 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between shrink-0">
-              <div>
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-900/60 block">Total da Nota</span>
-                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
-                  R$ {total.toFixed(2).replace('.', ',')}
-                </h2>
-                {saleDiscountValue > 0 && (
-                  <span className="text-[10px] font-bold text-emerald-700 block">
-                    Desconto: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
-                  </span>
-                )}
-                {saleCreditApplied > 0 && (
-                  <span className="text-[10px] font-bold text-blue-700 block">
-                    Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
-                  </span>
-                )}
-              </div>
-              <Badge className="bg-slate-900 text-white px-2.5 py-1 rounded-full text-[10px] font-mono">
-                {cart.length} {cart.length === 1 ? 'item' : 'itens'}
-              </Badge>
-            </div>
-
             {/* Bottom Actions */}
             <div className="pt-2 border-t border-slate-900/10 flex flex-col gap-2 shrink-0">
               <div className="flex items-center gap-2">
@@ -1473,6 +1450,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 </button>
               </div>
             </div>
+
+            {/* Total da Nota — no rodapé do terminal */}
+            <div className="mt-2 p-3 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between shrink-0">
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-900/60 block">Total da Nota</span>
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+                  R$ {total.toFixed(2).replace('.', ',')}
+                </h2>
+                {saleDiscountValue > 0 && (
+                  <span className="text-[10px] font-bold text-emerald-700 block">
+                    Desconto: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
+                  </span>
+                )}
+                {saleCreditApplied > 0 && (
+                  <span className="text-[10px] font-bold text-blue-700 block">
+                    Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
+                  </span>
+                )}
+              </div>
+              <Badge className="bg-slate-900 text-white px-2.5 py-1 rounded-full text-[10px] font-mono">
+                {cart.length} {cart.length === 1 ? 'item' : 'itens'}
+              </Badge>
+            </div>
+
           </div>
 
           {/* Direita: Catálogo de Produtos e Insumos */}
