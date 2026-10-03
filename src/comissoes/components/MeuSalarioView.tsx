@@ -7,7 +7,7 @@ import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStora
 
 export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number}>=({colaboradorId,nome,salarioBase})=>{
  const[caixa,setCaixa]=useState<any>(null),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[pagamentos,setPagamentos]=useState<any[]>([]),[loading,setLoading]=useState(true);
- const hoje=new Date(),ehSabado=hoje.getDay()===6,bounds=useMemo(()=>getWorkWeekBounds(-1),[]),comissaoBounds=useMemo(()=>getWorkWeekBounds(0),[]),descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
+ const hoje=new Date(),ehSabado=hoje.getDay()===6,comissaoOffset=ehSabado?-1:0,comissaoBounds=useMemo(()=>getWorkWeekBounds(comissaoOffset),[comissaoOffset]),bounds=useMemo(()=>getWorkWeekBounds(comissaoOffset-1),[comissaoOffset]),descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
  const salarioSemanal=calcularSalarioSemanal(salarioBase);
  useEffect(()=>{let ok=true;(async()=>{
    const[c,s,d,p]=await Promise.all([

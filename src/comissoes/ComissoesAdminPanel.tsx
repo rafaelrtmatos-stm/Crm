@@ -211,10 +211,11 @@ export default function ComissoesAdminPanel() {
   // Offset de semanas (0 = semana atual, -1 = semana passada, -2 = 2 semanas atrás, etc.)
   const [weekOffset, setWeekOffset] = useState<number>(0);
 
-  // A comissão é da semana vigente. O saldo do ponto/salário é da semana anterior.
-  // Assim, o ponto da semana atual fica reservado para o próximo pagamento.
-  const commissionWeekOffset = weekOffset;
-  const pointWeekOffset = weekOffset - 1;
+  // No sábado, a comissão exibida é a do ciclo encerrado na sexta-feira
+  // (26/09 a 02/10). O saldo do ponto/salário permanece no ciclo anterior.
+  // A produção do sábado fica para o próximo recebimento.
+  const commissionWeekOffset = new Date().getDay() === 6 ? weekOffset - 1 : weekOffset;
+  const pointWeekOffset = commissionWeekOffset - 1;
   const weekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
   const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
   const isSaturday = new Date().getDay() === 6;

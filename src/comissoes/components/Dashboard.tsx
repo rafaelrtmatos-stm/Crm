@@ -242,11 +242,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [colaboradorId]);
 
 
-  // O ponto/salário é pago com referência à semana anterior, enquanto a comissão
-  // é acumulada na semana vigente. O ponto da semana atual ficará para o próximo sábado.
+  // No sábado, a comissão exibida é a do ciclo encerrado na sexta-feira
+  // (26/09 a 02/10). O saldo do ponto/salário permanece no ciclo anterior.
+  // A produção do sábado inicia o próximo ciclo e fica para o próximo recebimento.
   const dashboardWeekOffset = (offset: number) => new Date().getDay() === 6 ? offset - 1 : offset;
-  const commissionWeekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
-  const pointWeekBounds = useMemo(() => getWorkWeekBounds(weekOffset - 1), [weekOffset]);
+  const commissionWeekOffset = dashboardWeekOffset(weekOffset);
+  const pointWeekOffset = commissionWeekOffset - 1;
+  const commissionWeekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
+  const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
 
   // Receita da loja no ciclo semanal de Sábado a Sexta (apenas notas 100% quitadas/recebidas)
   const [receitaLojaSemana, setReceitaLojaSemana] = useState(0);
