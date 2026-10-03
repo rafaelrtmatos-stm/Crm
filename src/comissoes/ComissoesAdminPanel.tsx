@@ -211,8 +211,13 @@ export default function ComissoesAdminPanel() {
   // Offset de semanas (0 = semana atual, -1 = semana passada, -2 = 2 semanas atrás, etc.)
   const [weekOffset, setWeekOffset] = useState<number>(0);
 
-  // Limites da semana de trabalho (domingo a sábado) considerando o retroagir de semanas
-  const weekBounds = useMemo(() => getWorkWeekBounds(weekOffset), [weekOffset]);
+  // No sábado, a aba Funcionários mostra o fechamento do ciclo Sábado a Sexta
+  // encerrado ontem. A produção do sábado pertence ao novo ciclo.
+  const isSaturday = new Date().getDay() === 6;
+  const effectiveWeekOffset = isSaturday ? weekOffset - 1 : weekOffset;
+
+  // Limites da semana efetivamente exibida.
+  const weekBounds = useMemo(() => getWorkWeekBounds(effectiveWeekOffset), [effectiveWeekOffset]);
 
   // Estados de busca, filtros e visualização
   const [searchQuery, setSearchQuery] = useState('');
@@ -275,7 +280,7 @@ export default function ComissoesAdminPanel() {
           .eq('ativo', true),
         supabase
           .from('comissoes_pagamentos')
-          .select('colaborador_id, valor')
+          .select('colaborador_id, caixa_id, valor')
           .gte('data', descBounds.start)
           .lte('data', descBounds.end),
         supabase
@@ -284,8 +289,8 @@ export default function ComissoesAdminPanel() {
           .order('name', { ascending: true }),
         supabase
           .from('comissoes_caixas_semanais')
-          .select('colaborador_id, saldo_anterior')
-          .eq('status', 'aberto'),
+          .select('id, colaborador_id, saldo_anterior, semana_inicio, semana_fim, status')
+          .eq('semana_inicio', start),
         supabase
           .from('vendas')
           .select('total, status, down_payment, created_at')
@@ -313,10 +318,15 @@ export default function ComissoesAdminPanel() {
       const pagamentos = pagamentosRes.data || [];
       const caixas = caixasRes.data || [];
 
-      // Mapeia saldo anterior do caixa aberto por colaborador
-      const caixasByColab: Record<string, number> = {};
+      // Mapeia o caixa do ciclo efetivamente exibido por colaborador.
+      // No sábado isso aponta para o ciclo encerrado na sexta, inclusive para
+      // obter corretamente a dívida carregada e separar pagamentos de outro ciclo.
+      const caixasByColab: Record<string, { id: string; saldoAnterior: number }> = {};
       caixas.forEach((cx: any) => {
-        caixasByColab[cx.colaborador_id] = Number(cx.saldo_anterior) || 0;
+        caixasByColab[cx.colaborador_id] = {
+          id: cx.id,
+          saldoAnterior: Number(cx.saldo_anterior) || 0,
+        };
       });
 
       // Mapeia descontos por colaborador
@@ -348,10 +358,14 @@ export default function ComissoesAdminPanel() {
         servicosByColab[cId].count += 1;
       });
 
-      // Mapeia pagamentos por colaborador
+      // Mapeia pagamentos por colaborador somente quando pertencem ao caixa
+      // do ciclo exibido. Isso impede que um pagamento de um ciclo anterior,
+      // mesmo registrado no sábado de fechamento, seja abatido novamente.
       const pagamentosByColab: Record<string, number> = {};
       pagamentos.forEach((p: any) => {
         const cId = p.colaborador_id;
+        const caixaExibido = caixasByColab[cId];
+        if (!caixaExibido || p.caixa_id !== caixaExibido.id) return;
         pagamentosByColab[cId] = (pagamentosByColab[cId] || 0) + (Number(p.valor) || 0);
       });
 
@@ -415,13 +429,14 @@ export default function ComissoesAdminPanel() {
           colabServicos.totalComissao
         );
 
-        const saldoAnterior = caixasByColab[c.id] || 0;
-        // Dívida herdada de semanas anteriores (< 0) abate da previsão da semana:
+        const saldoAnterior = caixasByColab[c.id]?.saldoAnterior || 0;
+        // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
         const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
 
         // Fórmula: Total Estimado = Remuneração Bruta da Semana - Descontos - Pagamentos - Dívida Anterior
         const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago - dividaAnterior);
-        const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (colabServicos.totalProducao / metaSemanalEfetiva) * 100 : 0;
+        const baseMetaExibida = modalidade === 'meta' ? receitaLojaQuitadasSemana : colabServicos.totalProducao;
+        const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (baseMetaExibida / metaSemanalEfetiva) * 100 : 0;
 
         statsMap[c.id] = {
           salarioBase: remuneracao.salarioBaseEfetivo,
