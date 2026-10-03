@@ -202,6 +202,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // diferente de caixa.semanaInicio, que agora é sempre a semana atual (o caixa fecha
   // automaticamente todo sábado, ver avancarCaixaSeNecessario abaixo).
   const [dataInicioColaborador, setDataInicioColaborador] = useState<string | null>(null);
+  // Snapshot do mesmo fechamento semanal usado em MeuSalarioView.
+  // No sábado, o salário e os descontos do card devem vir do caixa fechado
+  // do ciclo de ponto correspondente, e não do cálculo genérico do salário mensal.
+  const [fechamentoPrevisao, setFechamentoPrevisao] = useState<{
+    salarioBase: number | null;
+    totalDescontos: number | null;
+  }>({ salarioBase: null, totalDescontos: null });
   useEffect(() => {
     if (!colaboradorId) return;
     let cancelled = false;
@@ -250,6 +257,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const pointWeekOffset = commissionWeekOffset - 1;
   const commissionWeekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
   const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
+
+  // Mantém a Previsão de Recebimento alinhada com MeuSalarioView:
+  // busca o snapshot fechado do ciclo de ponto usado para o salário/descontos.
+  useEffect(() => {
+    if (!colaboradorId) {
+      setFechamentoPrevisao({ salarioBase: null, totalDescontos: null });
+      return;
+    }
+
+    let cancelled = false;
+    supabase
+      .from('comissoes_caixas_semanais')
+      .select('salario_base, total_descontos, status')
+      .eq('colaborador_id', colaboradorId)
+      .eq('semana_inicio', pointWeekBounds.start)
+      .eq('status', 'fechado')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setFechamentoPrevisao({
+          salarioBase: data?.salario_base != null ? Number(data.salario_base) : null,
+          totalDescontos: data?.total_descontos != null ? Number(data.total_descontos) : null,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [colaboradorId, pointWeekBounds.start]);
 
   // Receita da loja no ciclo semanal de Sábado a Sexta (apenas notas 100% quitadas/recebidas)
   const [receitaLojaSemana, setReceitaLojaSemana] = useState(0);
@@ -713,11 +749,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Featured Card de Previsão de Recebimento */}
         <div className="lg:col-span-1">
           <ReceiptForecastCard
-            baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : calcularSalarioSemanal(userSettings.baseSalary)}
+            baseSalary={
+              userSettings.modalidadeRemuneracao === 'meta'
+                ? 0
+                : (fechamentoPrevisao.salarioBase ?? resumoComissaoSemanaVigente?.salarioBase ?? calcularSalarioSemanal(userSettings.baseSalary))
+            }
             totalCommission={resumoComissaoSemanaVigente?.totalComissao ?? 0}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
-            totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
+            totalDiscounts={fechamentoPrevisao.totalDescontos ?? resumoPeriodoAtivo?.totalDescontos ?? 0}
             totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
             previousBalance={saldoAnteriorAoPeriodo}
             cycleDates={`Ponto: ${formatDateBR(pointWeekBounds.start)} a ${formatDateBR(pointWeekBounds.end)} • Comissão: ${formatDateBR(commissionWeekBounds.start)} a ${formatDateBR(commissionWeekBounds.end)}`}
