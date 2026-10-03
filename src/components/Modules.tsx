@@ -16333,8 +16333,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleDownloadOrcamentoPdf = async (o: Orcamento, mode: 'detalhado' | 'simples' = orcamentoViewMode) => {
     try {
       const canvas = mode === 'simples'
-        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact })
-        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
+        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl, companyContact })
+        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl, companyContact });
       await downloadCanvasAsPdf(canvas, buildFileName(mode === 'simples' ? 'Orcamento_Simples' : 'Orcamento_Detalhado', o.customerName, o.createdAt, 'pdf'));
     } catch (err) {
       console.error('Erro ao gerar PDF do orçamento:', err);
@@ -16345,8 +16345,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handleDownloadOrcamentoImagem = async (o: Orcamento, mode: 'detalhado' | 'simples' = orcamentoViewMode) => {
     try {
       const canvas = mode === 'simples'
-        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact })
-        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
+        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl, companyContact })
+        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl, companyContact });
       downloadCanvasAsPng(canvas, buildFileName(mode === 'simples' ? 'Orcamento_Simples' : 'Orcamento_Detalhado', o.customerName, o.createdAt, 'png'));
     } catch (err) {
       console.error('Erro ao gerar imagem do orçamento:', err);
@@ -16357,8 +16357,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const handlePrintOrcamento = async (o: Orcamento, mode: 'detalhado' | 'simples' = orcamentoViewMode) => {
     try {
       const canvas = mode === 'simples'
-        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact })
-        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoDarkUrl, companyContact });
+        ? await renderOrcamentoSimplesCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl, companyContact })
+        : await renderOrcamentoCanvas({ orcamento: o, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl, companyContact });
       const dataUrl = canvas.toDataURL('image/png');
       const win = window.open('', '_blank');
       if (!win) return;

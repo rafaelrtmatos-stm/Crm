@@ -38,6 +38,7 @@ export const ProductionModule: React.FC<ProductionModuleProps> = ({ currentCompa
         .from('vendas')
         .select('*')
         .is('deleted_at', null)
+        .not('service_status', 'is', null)
         .neq('service_status', 'produto_entregue')
         .order('created_at', { ascending: true });
 
@@ -48,21 +49,23 @@ export const ProductionModule: React.FC<ProductionModuleProps> = ({ currentCompa
       const { data, error } = await query;
       if (error) throw error;
 
-      const mapped: SaleOrder[] = (data || []).map((row: any) => ({
-        id: row.id,
-        companyId: row.company_id,
-        customerId: row.customer_id,
-        customerName: row.customer_name || 'Cliente Balcão',
-        customerPhone: row.customer_phone || '',
-        items: Array.isArray(row.items) ? row.items : [],
-        total: Number(row.total) || 0,
-        status: row.status || 'completed',
-        serviceStatus: row.service_status || 'aguardando_arte',
-        responsavel: row.responsavel || '',
-        observacoes: row.observacoes || '',
-        scheduledFor: row.scheduled_for || '',
-        createdAt: row.created_at || new Date().toISOString()
-      }));
+      const mapped: SaleOrder[] = (data || [])
+        .filter((row: any) => Boolean(row.service_status && String(row.service_status).trim() !== '') && row.service_status !== 'produto_entregue')
+        .map((row: any) => ({
+          id: row.id,
+          companyId: row.company_id,
+          customerId: row.customer_id,
+          customerName: row.customer_name || 'Cliente Balcão',
+          customerPhone: row.customer_phone || '',
+          items: Array.isArray(row.items) ? row.items : [],
+          total: Number(row.total) || 0,
+          status: row.status || 'completed',
+          serviceStatus: row.service_status,
+          responsavel: row.responsavel || '',
+          observacoes: row.observacoes || '',
+          scheduledFor: row.scheduled_for || '',
+          createdAt: row.created_at || new Date().toISOString()
+        }));
 
       setOrders(mapped);
     } catch (err) {

@@ -95,7 +95,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     setPendingGoToHistorico,
     pendingGoToServicos,
     setPendingGoToServicos,
-    openWhatsAppChat
+    openWhatsAppChat,
+    logoLightUrl,
+    logoDarkUrl,
   } = useApp();
 
   // Navigation & Tabs
@@ -262,8 +264,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     try {
       const formatted = formatOrcamentoObj(o);
       const canvas = mode === 'simples'
-        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' })
-        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' });
+        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl })
+        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl });
       const dataUrl = canvas.toDataURL('image/png');
       const win = window.open('', '_blank');
       if (!win) return;
@@ -279,8 +281,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     try {
       const formatted = formatOrcamentoObj(o);
       const canvas = mode === 'simples'
-        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' })
-        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' });
+        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl })
+        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl });
       await downloadCanvasAsPdf(canvas, `Orcamento_${formatted.numero}_${mode}.pdf`);
     } catch (err) {
       console.error('Erro ao baixar PDF:', err);
@@ -292,8 +294,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     try {
       const formatted = formatOrcamentoObj(o);
       const canvas = mode === 'simples'
-        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' })
-        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics' });
+        ? await renderOrcamentoSimplesCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl })
+        : await renderOrcamentoCanvas({ orcamento: formatted as any, companyName: currentCompany?.name || 'Rafa Arts Graphics', logoLightUrl, logoDarkUrl });
       downloadCanvasAsPng(canvas, `Orcamento_${formatted.numero}_${mode}.png`);
     } catch (err) {
       console.error('Erro ao baixar PNG:', err);
@@ -2411,8 +2413,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           isOpen={!!viewingOrcamentoPos}
           onClose={() => setViewingOrcamentoPos(null)}
           title={`Orçamento Nº ${viewingOrcamentoPos.numero || viewingOrcamentoPos.id?.slice(-6)}`}
-          size="sm"
-          className="max-w-md mx-auto rounded-2xl p-3 sm:p-4"
+          size="md"
+          className="max-w-xl mx-auto rounded-2xl sm:rounded-3xl p-3 sm:p-4"
         >
           <div className="space-y-4 p-1">
             {/* Format toggle: Detalhado vs Simples (Recibo) */}
