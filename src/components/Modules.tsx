@@ -19075,11 +19075,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setDimHeight(height ? Number(height.replace(',', '.')) : '');
     setDimLarguraMaterial(product.larguraRolo || 0);
 
-    const currentTotal = item.area
-      ? item.price * item.area * item.quantity
-      : item.price * item.quantity;
-    setDimValorOverride(Number(currentTotal.toFixed(2)));
-    setDimValorFoiEditado(true);
+    // Ao reabrir a metragem, o valor volta ao cálculo automático.
+    // Assim, alterar 2x1 para 2x1,5 recalcula o preço/consumo em vez de congelar
+    // o valor anterior da linha.
+    setDimValorOverride('');
+    setDimValorFoiEditado(false);
   };
 
   const updateCartQty = (index: number, delta: number) => {
