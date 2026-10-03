@@ -20188,59 +20188,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
 
 
-               {/* Total Banner */}
-               <div className="py-2 sm:py-2.5 px-2.5 sm:px-3.5 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-1.5 gap-2 shrink-0 flex-nowrap">
-                  <div className="min-w-0 flex-1">
-                     <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-[7px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/50">Total da Nota</p>
-                        {saleDiscountValue > 0 && (
-                           <span className="text-[6.5px] sm:text-[8px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded whitespace-nowrap">
-                              Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
-                           </span>
-                        )}
-                        {saleCreditApplied > 0 && (
-                           <span className="text-[6.5px] sm:text-[8px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded whitespace-nowrap">
-                              Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
-                           </span>
-                        )}
-                        {user?.isAdmin && cart.length > 0 && (() => {
-                           const breakdownNota = detalharCustoDaNota({
-                              items: cart,
-                              custoPorId: produtosCostMap,
-                              produtoPorId: produtoPorIdMap,
-                              materiasPrimasAtuais: materiasPrimasAtuaisMap,
-                              custoMaquinaM2PorCategoria,
-                              custoMaquinaOperacionalM2PorCategoria,
-                              custoTintaM2PorCategoria,
-                              consumoTintaMlM2PorCategoria,
-                              maquinas: maquinasCadastradas,
-                              maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
-                              maquinasPorId: maquinasPorIdMap,
-                              maquinasPorCategoria: maquinasPorCategoriaMap,
-                           });
-                           const custoTotal = breakdownNota.custoTotal;
-                           const lucro = total - custoTotal;
-                           const margem = total > 0 ? (lucro / total) * 100 : 0;
-                           return (
-                              <span className={cn(
-                                 "text-[6.5px] sm:text-[8px] font-black px-1.5 py-0.2 rounded border flex items-center gap-0.5 whitespace-nowrap",
-                                 lucro >= 0 ? "text-emerald-700 bg-emerald-500/15 border-emerald-500/30" : "text-rose-700 bg-rose-500/15 border-rose-500/30"
-                              )} title={`Custo estimado: R$ ${custoTotal.toFixed(2).replace('.', ',')}`}>
-                                 <TrendingUp size={9} /> Lucro: R$ {lucro.toFixed(2).replace('.', ',')} ({margem.toFixed(0)}%)
-                              </span>
-                           );
-                        })()}
-                     </div>
-                     <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate mt-0.5">
-                        R$ {total.toFixed(2).replace('.', ',')}
-                     </h1>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                     <Badge className="bg-slate-900 text-white border-none py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-full font-black uppercase tracking-wider text-[7.5px] sm:text-[9px] shrink-0 whitespace-nowrap">
-                        {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
-                     </Badge>
-                  </div>
-               </div>
                {/* Visualizador de Itens no PDV (Compact Items Cart List) */}
                <div className="flex-1 min-h-0 my-1 sm:my-1.5 bg-white/70 backdrop-blur-xs rounded-xl sm:rounded-2xl border border-slate-900/10 p-2 sm:p-3 flex flex-col overflow-hidden shadow-inner">
                   <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-900/10 mb-1.5 sm:mb-2 shrink-0">
@@ -20375,6 +20322,59 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   )}
                </div>
 
+               {/* Total Banner */}
+               <div className="py-2 sm:py-2.5 px-2.5 sm:px-3.5 bg-slate-900/5 rounded-lg sm:rounded-2xl border border-slate-900/10 flex items-center justify-between my-1 sm:my-1.5 gap-2 shrink-0 flex-nowrap">
+                  <div className="min-w-0 flex-1">
+                     <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-[7px] sm:text-[8.5px] font-black uppercase tracking-[1px] sm:tracking-[2px] text-slate-900/50">Total da Nota</p>
+                        {saleDiscountValue > 0 && (
+                           <span className="text-[6.5px] sm:text-[8px] font-black text-emerald-700 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.2 rounded whitespace-nowrap">
+                              Desc: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
+                           </span>
+                        )}
+                        {saleCreditApplied > 0 && (
+                           <span className="text-[6.5px] sm:text-[8px] font-black text-blue-700 bg-blue-500/15 border border-blue-500/30 px-1 py-0.2 rounded whitespace-nowrap">
+                              Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
+                           </span>
+                        )}
+                        {user?.isAdmin && cart.length > 0 && (() => {
+                           const breakdownNota = detalharCustoDaNota({
+                              items: cart,
+                              custoPorId: produtosCostMap,
+                              produtoPorId: produtoPorIdMap,
+                              materiasPrimasAtuais: materiasPrimasAtuaisMap,
+                              custoMaquinaM2PorCategoria,
+                              custoMaquinaOperacionalM2PorCategoria,
+                              custoTintaM2PorCategoria,
+                              consumoTintaMlM2PorCategoria,
+                              maquinas: maquinasCadastradas,
+                              maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
+                              maquinasPorId: maquinasPorIdMap,
+                              maquinasPorCategoria: maquinasPorCategoriaMap,
+                           });
+                           const custoTotal = breakdownNota.custoTotal;
+                           const lucro = total - custoTotal;
+                           const margem = total > 0 ? (lucro / total) * 100 : 0;
+                           return (
+                              <span className={cn(
+                                 "text-[6.5px] sm:text-[8px] font-black px-1.5 py-0.2 rounded border flex items-center gap-0.5 whitespace-nowrap",
+                                 lucro >= 0 ? "text-emerald-700 bg-emerald-500/15 border-emerald-500/30" : "text-rose-700 bg-rose-500/15 border-rose-500/30"
+                              )} title={`Custo estimado: R$ ${custoTotal.toFixed(2).replace('.', ',')}`}>
+                                 <TrendingUp size={9} /> Lucro: R$ {lucro.toFixed(2).replace('.', ',')} ({margem.toFixed(0)}%)
+                              </span>
+                           );
+                        })()}
+                     </div>
+                     <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight italic truncate mt-0.5">
+                        R$ {total.toFixed(2).replace('.', ',')}
+                     </h1>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                     <Badge className="bg-slate-900 text-white border-none py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-full font-black uppercase tracking-wider text-[7.5px] sm:text-[9px] shrink-0 whitespace-nowrap">
+                        {cart.length} {cart.length === 1 ? 'Item' : 'Itens'}
+                     </Badge>
+                  </div>
+               </div>
                {/* Bottom Automation Bar */}
                <div className="pt-1.5 sm:pt-2 border-t border-slate-900/10 flex justify-between items-center text-slate-900 gap-1.5 shrink-0 flex-nowrap">
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
