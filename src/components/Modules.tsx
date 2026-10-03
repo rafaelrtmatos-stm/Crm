@@ -20961,10 +20961,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       style={{ top: saleRowActionsMenuPos.top, bottom: saleRowActionsMenuPos.bottom, left: saleRowActionsMenuPos.left }}
                       className="fixed z-[201] w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1.5 flex flex-col"
                     >
-                      {isPartial && (
-                        <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir a tela de pagamento deste pedido?'))) return; openSettlePayment(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left cursor-pointer"><CheckCircle2 size={13} /> Quitar Débito</button>
-                      )}
-                      <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Abrir o recibo deste pedido?'))) return; openReceiptDetail(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-white/70 hover:bg-white/5 hover:text-white text-left cursor-pointer"><Eye size={13} /> Recibo</button>
                       {sale.contratoId ? (
                         <button onClick={() => { setOpenSaleRowActionsId(null); setActiveTab('contratos'); setHighlightContratoId(sale.contratoId!); setTimeout(() => setHighlightContratoId(null), 4000); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left cursor-pointer"><FileSignature size={13} /> Ver Contrato</button>
                       ) : (
@@ -20982,7 +20978,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                           <div className="h-px bg-white/10 my-1.5" />
                           {!isPartial && <button onClick={() => { setOpenSaleRowActionsId(null); handleReopenSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left cursor-pointer"><History size={13} /> Reabrir</button>}
                           {sale.status !== 'canceled' && <button onClick={() => { setOpenSaleRowActionsId(null); handleCancelSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left cursor-pointer"><Ban size={13} /> Cancelar</button>}
-                          <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-primary-400 hover:bg-white/5 text-left cursor-pointer"><Pencil size={13} /> Editar</button>
                           <button onClick={() => { setOpenSaleRowActionsId(null); handleDeleteSale(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400 hover:bg-white/5 text-left cursor-pointer"><Trash2 size={13} /> Apagar</button>
                         </>
                       )}
@@ -21627,7 +21622,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             // --- MODO CARDS ---
             return (
               <div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {visibleSales.map(sale => {
                     const down = sale.downPayment || 0;
                     const balance = sale.total - down;
