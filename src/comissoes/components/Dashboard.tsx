@@ -387,10 +387,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const saldoAnteriorAoPeriodo = useMemo(() => {
     if (!caixa) return 0;
     // No sábado o card representa o fechamento do ciclo que terminou na sexta.
-    // O saldo anterior do caixa aberto pertence ao novo ciclo e não pode ser somado
-    // novamente ao fechamento de 26/09 a 02/10.
+    // Portanto, usa o saldo anterior do PRÓPRIO caixa exibido (ex.: -R$66,00),
+    // e não o saldo de um ciclo diferente.
     if (new Date().getDay() === 6 && period === 'semana' && weekOffset === 0) {
-      return 0;
+      return saldoAnteriorCaixaPeriodo;
     }
     // Se houver dívida real de semana passada (saldo negativo), abatemos:
     if (caixa.saldoAnterior < 0) {
@@ -399,7 +399,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     // Para períodos normais (Hoje, Ontem, Semana, Mês) a previsão da semana
     // é Salário + Comissões - Descontos - Já Pago. Não soma créditos passados que inflariam a previsão.
     return 0;
-  }, [caixa, period, weekOffset]);
+  }, [caixa, period, weekOffset, saldoAnteriorCaixaPeriodo]);
 
   // Calculate specific current week statistics for the bottom section
   const weeklyBounds = useMemo(
@@ -411,20 +411,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // No sábado, isso impede que um pagamento do caixa 19/09–25/09,
   // registrado em 26/09, seja abatido novamente do fechamento 26/09–02/10.
   const [caixaPeriodoId, setCaixaPeriodoId] = useState<string | null>(null);
+  const [saldoAnteriorCaixaPeriodo, setSaldoAnteriorCaixaPeriodo] = useState(0);
   useEffect(() => {
     if (!colaboradorId) {
       setCaixaPeriodoId(null);
+      setSaldoAnteriorCaixaPeriodo(0);
       return;
     }
     let cancelled = false;
     supabase
       .from('comissoes_caixas_semanais')
-      .select('id')
+      .select('id, saldo_anterior')
       .eq('colaborador_id', colaboradorId)
       .eq('semana_inicio', weeklyBounds.start)
       .maybeSingle()
       .then(({ data }) => {
-        if (!cancelled) setCaixaPeriodoId(data?.id ?? null);
+        if (cancelled) return;
+        setCaixaPeriodoId(data?.id ?? null);
+        setSaldoAnteriorCaixaPeriodo(Number(data?.saldo_anterior) || 0);
       });
     return () => { cancelled = true; };
   }, [colaboradorId, weeklyBounds.start]);
