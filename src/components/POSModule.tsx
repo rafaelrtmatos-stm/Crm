@@ -696,20 +696,37 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         }))
       : undefined;
 
-    setCart(prev => [
-      ...prev,
-      {
+    if (editingCartItemIndex !== null) {
+      setCart(prev => prev.map((item, idx) => idx === editingCartItemIndex ? {
+        ...item,
         productId: dimensionModalProduct.id,
         name: dimensionModalProduct.name,
         price: dimensionModalProduct.price,
         quantity: q,
-        area: area,
+        area,
         consumoEstoque: area,
         dimensions: dimText,
         category: dimensionModalProduct.category,
         materiasPrimasConsumidas: itemConsumo
-      }
-    ]);
+      } : item));
+      setEditingCartItemIndex(null);
+      setEditingCartItemData(null);
+    } else {
+      setCart(prev => [
+        ...prev,
+        {
+          productId: dimensionModalProduct.id,
+          name: dimensionModalProduct.name,
+          price: dimensionModalProduct.price,
+          quantity: q,
+          area: area,
+          consumoEstoque: area,
+          dimensions: dimText,
+          category: dimensionModalProduct.category,
+          materiasPrimasConsumidas: itemConsumo
+        }
+      ]);
+    }
 
     setDimensionModalProduct(null);
   };
@@ -1285,31 +1302,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               )}
             </div>
 
-            {/* Total Display Banner */}
-            <div className="my-2 p-3 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between shrink-0">
-              <div>
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-900/60 block">Total do Pedido</span>
-                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
-                  R$ {total.toFixed(2).replace('.', ',')}
-                </h2>
-                {saleDiscountValue > 0 && (
-                  <span className="text-[10px] font-bold text-emerald-700 block">
-                    Desconto: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
-                  </span>
-                )}
-                {saleCreditApplied > 0 && (
-                  <span className="text-[10px] font-bold text-blue-700 block">
-                    Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Badge className="bg-slate-900 text-white px-2.5 py-1 rounded-full text-[10px] font-mono">
-                  {cart.length} {cart.length === 1 ? 'item' : 'itens'}
-                </Badge>
-              </div>
-            </div>
-
             {/* Cart Items List */}
             <div className="flex-1 min-h-0 bg-white/70 backdrop-blur-xs rounded-2xl border border-slate-900/10 p-2.5 flex flex-col overflow-hidden shadow-inner my-1">
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-900/10 mb-1.5 shrink-0">
@@ -1377,11 +1369,28 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                         </button>
                         <button
                           onClick={() => {
+                            const product = products.find(p => p.id === item.productId);
+                            if (product && (product.unitType === 'm2' || product.unitType === 'metro') && (item.area || item.dimensions)) {
+                              setEditingCartItemIndex(index);
+                              setEditingCartItemData({ ...item });
+                              setDimensionModalProduct(product);
+                              setDimQuantity(Number(item.quantity) || 1);
+                              if (product.unitType === 'metro') {
+                                const match = String(item.dimensions || '').match(/([0-9.,]+)m\s+linear/i);
+                                setDimWidth(match?.[1] || String(item.area || '').replace('.', ','));
+                                setDimHeight('');
+                              } else {
+                                const match = String(item.dimensions || '').match(/([0-9.,]+)m\s+x\s+([0-9.,]+)m/i);
+                                setDimWidth(match?.[1] || '');
+                                setDimHeight(match?.[2] || '');
+                              }
+                              return;
+                            }
                             setEditingCartItemIndex(index);
                             setEditingCartItemData({ ...item });
                           }}
                           className="p-1 text-slate-600 hover:bg-slate-900/10 rounded-lg"
-                          title="Editar item (Nome, Medidas, Preço, Obs)"
+                          title="Editar item"
                         >
                           <Pencil size={13} />
                         </button>
@@ -1408,6 +1417,29 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Total da Nota — no rodapé do carrinho */}
+            <div className="my-2 p-3 bg-slate-900/5 rounded-2xl border border-slate-900/10 flex items-center justify-between shrink-0">
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-900/60 block">Total da Nota</span>
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
+                  R$ {total.toFixed(2).replace('.', ',')}
+                </h2>
+                {saleDiscountValue > 0 && (
+                  <span className="text-[10px] font-bold text-emerald-700 block">
+                    Desconto: -R$ {saleDiscountValue.toFixed(2).replace('.', ',')}
+                  </span>
+                )}
+                {saleCreditApplied > 0 && (
+                  <span className="text-[10px] font-bold text-blue-700 block">
+                    Crédito: -R$ {saleCreditApplied.toFixed(2).replace('.', ',')}
+                  </span>
+                )}
+              </div>
+              <Badge className="bg-slate-900 text-white px-2.5 py-1 rounded-full text-[10px] font-mono">
+                {cart.length} {cart.length === 1 ? 'item' : 'itens'}
+              </Badge>
             </div>
 
             {/* Bottom Actions */}
@@ -2214,7 +2246,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               Cancelar
             </Button>
             <Button variant="primary" onClick={handleConfirmDimensionItem}>
-              Adicionar ao Pedido
+              {editingCartItemIndex !== null ? 'Atualizar Item' : 'Adicionar ao Pedido'}
             </Button>
           </div>
         </div>
