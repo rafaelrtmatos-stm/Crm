@@ -15524,7 +15524,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: 'pending',
           observacoes: contratoForm.observacoes || null,
           orcamento_id: contratoForm.orcamentoId || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
@@ -15600,7 +15600,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         politica_cancelamento_texto: contratoForm.politicaCancelamentoTexto || null,
         observacoes: contratoForm.observacoes || null,
         texto_contrato: textoContrato,
-        service_status: contratoForm.serviceStatus || 'pedido_recebido',
+        service_status: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -16195,7 +16195,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           received_value: 0,
           status: 'pending',
           observacoes: orcamentoForm.observacoes || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
@@ -16252,7 +16252,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         juros_percentual: orcamentoForm.jurosPercentual,
         dias_tolerancia: orcamentoForm.diasTolerancia,
         validade: orcamentoForm.validade || null,
-        service_status: orcamentoForm.serviceStatus || 'pedido_recebido',
+        service_status: null,
       };
       let newId: string | null = null;
       if (editingOrcamento) {
@@ -16439,7 +16439,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         payment_method: o.formaPagamentoTexto || 'A Combinar',
         payment_status: 'pending',
         status: 'pending',
-        service_status: (o as any).serviceStatus || 'pedido_recebido',
+        service_status: null,
         orcamento_id: o.id,
         observacoes: o.observacoes || null,
         created_at: new Date().toISOString(),
@@ -19703,7 +19703,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           observacoes: orderObservacoes || null,
           orcamento_id: linkedOrcamentoId || null,
           discount_value: saleDiscountValue || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (error) throw error;
@@ -28537,7 +28537,7 @@ export const ServicesModule = ({ currentCompany }: { currentCompany: Company | n
         down_payment: formData.downPaymentValue > 0 ? formData.downPaymentValue : 0,
         payment_method: 'pix',
         status: isPending ? 'pending' : 'completed',
-        service_status: 'pedido_recebido',
+        service_status: null,
         etapa_servico: 'pedido_recebido',
       }).select().single();
       if (vendaErr) throw vendaErr;
@@ -29893,7 +29893,7 @@ const OrdemServicoCard = ({ pedido, onDropdownChange, selectMode, selected, onTo
           </div>
         )}
         <div className="min-w-0">
-           <p title={pedido.customerName || 'Balcão'} className="font-bold text-white text-[9px] truncate leading-tight">#{pedido.id.slice(-6).toUpperCase()} {formatNamePreview((pedido.customerName || 'Balcão').toUpperCase(), 14)}</p>
+           <p title={pedido.customerName || 'Balcão'} className="font-bold text-white text-[9px] leading-tight break-words">#{pedido.id.slice(-6).toUpperCase()} — {pedido.customerName || 'Balcão'}</p>
            <p className="text-[8px] text-white/30 uppercase font-black truncate group-hover:whitespace-normal group-hover:break-words leading-tight">{(pedido.items || []).map(i => i.name).join(', ') || 'Sem itens'}</p>
         </div>
         {pedido.scheduledFor && (
@@ -30074,7 +30074,7 @@ export const ProductionModule = ({ currentCompany }: { currentCompany: Company |
   );
 
   const loadPedidos = async () => {
-    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).neq('status', 'canceled').order('created_at', { ascending: true });
+    const { data } = await supabase.from('vendas').select('*').is('deleted_at', null).not('service_status', 'is', null).neq('status', 'canceled').order('created_at', { ascending: true });
     setPedidos((data || []).map(mapVendaRow));
     setLoading(false);
   };
