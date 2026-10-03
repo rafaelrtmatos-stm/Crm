@@ -242,11 +242,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [colaboradorId]);
 
 
+  // No sábado, o ciclo exibido para fechamento é o ciclo encerrado na sexta-feira.
+  // Portanto, 03/10 deve mostrar 26/09 a 02/10; a produção do próprio sábado inicia o próximo ciclo.
+  const dashboardWeekOffset = (offset: number) => new Date().getDay() === 6 ? offset - 1 : offset;
+
   // Receita da loja no ciclo semanal de Sábado a Sexta (apenas notas 100% quitadas/recebidas)
   const [receitaLojaSemana, setReceitaLojaSemana] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    const bounds = getWorkWeekBounds(weekOffset);
+    const bounds = getWorkWeekBounds(dashboardWeekOffset(weekOffset));
     supabase
       .from('vendas')
       .select('total, status, down_payment, created_at')
@@ -306,13 +310,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     if (period === 'semana') {
-      const bounds = getWorkWeekBounds(weekOffset);
+      const effectiveOffset = dashboardWeekOffset(weekOffset);
+      const bounds = getWorkWeekBounds(effectiveOffset);
+      const isSaturday = new Date().getDay() === 6;
       const label =
-        weekOffset === 0
+        isSaturday && weekOffset === 0
+          ? `Fechamento Atual (${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)})`
+          : weekOffset === 0
           ? `Esta Semana (${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)})`
-          : weekOffset === -1
+          : effectiveOffset === -1
           ? `Semana Passada (${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)})`
-          : `Semana de ${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)} (${Math.abs(weekOffset)} sem. atrás)`;
+          : `Semana de ${formatDateBR(bounds.start)} a ${formatDateBR(bounds.end)} (${Math.abs(effectiveOffset)} sem. atrás)`;
       return {
         start: bounds.start,
         end: bounds.end,
@@ -378,6 +386,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // da semana de trabalho atual não se soma "crédito acumulado" artificial.
   const saldoAnteriorAoPeriodo = useMemo(() => {
     if (!caixa) return 0;
+    // No sábado o card representa o fechamento do ciclo que terminou na sexta.
+    // O saldo anterior do caixa aberto pertence ao novo ciclo e não pode ser somado
+    // novamente ao fechamento de 26/09 a 02/10.
+    if (new Date().getDay() === 6 && period === 'semana' && weekOffset === 0) {
+      return 0;
+    }
     // Se houver dívida real de semana passada (saldo negativo), abatemos:
     if (caixa.saldoAnterior < 0) {
       return caixa.saldoAnterior;
@@ -385,10 +399,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     // Para períodos normais (Hoje, Ontem, Semana, Mês) a previsão da semana
     // é Salário + Comissões - Descontos - Já Pago. Não soma créditos passados que inflariam a previsão.
     return 0;
-  }, [caixa]);
+  }, [caixa, period, weekOffset]);
 
   // Calculate specific current week statistics for the bottom section
-  const weeklyBounds = useMemo(() => getWorkWeekBounds(period === 'semana' ? weekOffset : 0), [period, weekOffset]);
+  const weeklyBounds = useMemo(
+    () => getWorkWeekBounds(period === 'semana' ? dashboardWeekOffset(weekOffset) : dashboardWeekOffset(0)),
+    [period, weekOffset]
+  );
   const weeklyServices = useMemo(() => {
     return recentServices.filter(
       (s) => s.date >= weeklyBounds.start && s.date <= weeklyBounds.end && s.status !== 'CANCELADO'
