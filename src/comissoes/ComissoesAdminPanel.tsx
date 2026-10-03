@@ -1536,6 +1536,8 @@ export default function ComissoesAdminPanel() {
                 qtdServicos: 0,
                 metaSemanal: Number(c.meta_semanal) || 0,
                 percentualMeta: 0,
+                comissaoServicos: 0,
+                producaoServicos: 0,
               };
 
               const isSomenteNota = c.modo_lancamento_comissao === 'somente_nota';
@@ -1827,6 +1829,8 @@ export default function ComissoesAdminPanel() {
                       qtdServicos: 0,
                       metaSemanal: Number(c.meta_semanal) || 0,
                       percentualMeta: 0,
+                      comissaoServicos: 0,
+                      producaoServicos: 0,
                     };
                     const isSomenteNota = c.modo_lancamento_comissao === 'somente_nota';
 
