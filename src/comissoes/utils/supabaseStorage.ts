@@ -734,9 +734,9 @@ export const calculateSummaryStats = (
   const modalidade = settings?.modalidadeRemuneracao || 'fixo_comissao';
   const metaPerc = Number(settings?.metaPercentual) || 0;
 
-  // No módulo de Comissões, baseSalary já é o valor FIXO SEMANAL.
-  // Não aplicar novamente a conversão mensal 44/220.
-  const salarioSemanal = Number(baseSalary) || 0;
+  // baseSalary é o salário mensal cadastrado; o resumo semanal usa a mesma conversão
+  // aplicada pela tela do funcionário: (mensal / 220h) × 44h.
+  const salarioSemanal = calcularSalarioSemanal(baseSalary);
   let totalCommission = totalCommissionRaw;
   let totalBaseSalary = salarioSemanal;
   let forecastTotal = salarioSemanal + totalCommission;
