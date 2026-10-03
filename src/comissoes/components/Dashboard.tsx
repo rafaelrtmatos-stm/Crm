@@ -357,6 +357,38 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return calculateSummaryStats(filteredServices, userSettings.baseSalary, userSettings);
   }, [filteredServices, userSettings]);
 
+  // O pagamento precisa pertencer ao mesmo caixa do ciclo exibido.
+  // No sábado, isso impede que um pagamento do caixa 19/09–25/09,
+  // registrado em 26/09, seja abatido novamente do fechamento 26/09–02/10.
+  const [caixaPeriodoId, setCaixaPeriodoId] = useState<string | null>(null);
+  const [saldoAnteriorCaixaPeriodo, setSaldoAnteriorCaixaPeriodo] = useState(0);
+  useEffect(() => {
+    if (!colaboradorId) {
+      setCaixaPeriodoId(null);
+      setSaldoAnteriorCaixaPeriodo(0);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from('comissoes_caixas_semanais')
+      .select('id, saldo_anterior')
+      .eq('colaborador_id', colaboradorId)
+      .eq('semana_inicio', weeklyBounds.start)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setCaixaPeriodoId(data?.id ?? null);
+        setSaldoAnteriorCaixaPeriodo(Number(data?.saldo_anterior) || 0);
+      });
+    return () => { cancelled = true; };
+  }, [colaboradorId, weeklyBounds.start]);
+
+  const pagamentosDoPeriodo = useMemo(() => {
+    if (period !== 'semana' || !caixaPeriodoId) return pagamentos;
+    return pagamentos.filter((p) => p.caixaId === caixaPeriodoId);
+  }, [period, caixaPeriodoId, pagamentos]);
+
+
   // ✅ Resumo real do período selecionado (Salário + Comissão - Descontos - Já Pago),
   // usando exatamente a mesma função já corrigida na aba Descontos. Isso é o que garante
   // que o "Total Estimado" do card de Previsão já desconta o que o colaborador recebeu --
@@ -406,37 +438,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     () => getWorkWeekBounds(period === 'semana' ? dashboardWeekOffset(weekOffset) : dashboardWeekOffset(0)),
     [period, weekOffset]
   );
-
-  // O pagamento precisa pertencer ao mesmo caixa do ciclo exibido.
-  // No sábado, isso impede que um pagamento do caixa 19/09–25/09,
-  // registrado em 26/09, seja abatido novamente do fechamento 26/09–02/10.
-  const [caixaPeriodoId, setCaixaPeriodoId] = useState<string | null>(null);
-  const [saldoAnteriorCaixaPeriodo, setSaldoAnteriorCaixaPeriodo] = useState(0);
-  useEffect(() => {
-    if (!colaboradorId) {
-      setCaixaPeriodoId(null);
-      setSaldoAnteriorCaixaPeriodo(0);
-      return;
-    }
-    let cancelled = false;
-    supabase
-      .from('comissoes_caixas_semanais')
-      .select('id, saldo_anterior')
-      .eq('colaborador_id', colaboradorId)
-      .eq('semana_inicio', weeklyBounds.start)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        setCaixaPeriodoId(data?.id ?? null);
-        setSaldoAnteriorCaixaPeriodo(Number(data?.saldo_anterior) || 0);
-      });
-    return () => { cancelled = true; };
-  }, [colaboradorId, weeklyBounds.start]);
-
-  const pagamentosDoPeriodo = useMemo(() => {
-    if (period !== 'semana' || !caixaPeriodoId) return pagamentos;
-    return pagamentos.filter((p) => p.caixaId === caixaPeriodoId);
-  }, [period, caixaPeriodoId, pagamentos]);
 
   const weeklyServices = useMemo(() => {
     return recentServices.filter(
