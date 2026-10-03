@@ -1208,21 +1208,23 @@ export function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string)
 export async function downloadCanvasAsPdf(canvas: HTMLCanvasElement, filename: string) {
   const { jsPDF } = await import('jspdf');
   const imgData = canvas.toDataURL('image/png');
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
+
+  // O PDF deve reproduzir a arte gerada pelo canvas, sem forçá-la para A4.
+  // Mantemos uma largura física padrão de 210 mm e calculamos a altura pela
+  // proporção real do canvas. Assim, documentos longos continuam em uma única
+  // página proporcional, sem cortes, achatamento ou margens artificiais.
+  const pageW = 210;
   const imgRatio = canvas.height / canvas.width;
-  let drawW = pageW - 12;
-  let drawH = drawW * imgRatio;
-  if (drawH > pageH - 12) {
-    drawH = pageH - 12;
-    drawW = drawH / imgRatio;
-  }
-  const offsetX = (pageW - drawW) / 2;
-  const offsetY = (pageH - drawH) / 2;
-  // Fundo preto consistente no PDF A4
-  pdf.setFillColor(9, 9, 9);
-  pdf.rect(0, 0, pageW, pageH, 'F');
-  pdf.addImage(imgData, 'PNG', offsetX, offsetY, drawW, drawH);
+  const pageH = pageW * imgRatio;
+
+  const pdf = new jsPDF({
+    unit: 'mm',
+    format: [pageW, pageH],
+    orientation: 'portrait',
+    compress: true,
+  });
+
+  // A página já tem exatamente a proporção da arte; desenhamos de borda a borda.
+  pdf.addImage(imgData, 'PNG', 0, 0, pageW, pageH, undefined, 'FAST');
   pdf.save(filename);
 }
