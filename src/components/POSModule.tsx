@@ -2188,7 +2188,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       {/* Dimension Modal (m2 / metro) */}
       <Modal
         isOpen={!!dimensionModalProduct}
-        onClose={() => setDimensionModalProduct(null)}
+        onClose={() => {
+          setDimensionModalProduct(null);
+          setEditingCartItemIndex(null);
+          setEditingCartItemData(null);
+        }}
         title={dimensionModalProduct?.unitType === 'metro' ? `📏 Venda por Metro Linear: ${dimensionModalProduct?.name}` : `📐 Medidas do Item: ${dimensionModalProduct?.name}`}
       >
         <div className="space-y-4">
@@ -2242,7 +2246,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => setDimensionModalProduct(null)}>
+            <Button variant="ghost" onClick={() => {
+              setDimensionModalProduct(null);
+              setEditingCartItemIndex(null);
+              setEditingCartItemData(null);
+            }}>
               Cancelar
             </Button>
             <Button variant="primary" onClick={handleConfirmDimensionItem}>
