@@ -13,6 +13,7 @@ import {
   getDeletedServicesFromSupabase,
   restoreServiceFromSupabase,
   confirmarRetiradaProducao,
+  retirarServicosPuxadosDaNota,
 } from '../utils/supabaseStorage';
 import { NotaDetalhe, NotaDetalheItem, NotaSelecionadoItem } from './NotaDetalheModal';
 import { getTodayISO, toLocalISO } from '../utils/dateHelpers';
@@ -29,6 +30,8 @@ interface NotaAgendada {
   observacoes: string | null;
   created_at?: string;
   service_status?: string | null;
+  /** Nota retirada da produção depois de o funcionário já ter puxado itens (só visual: vermelho/opaco). */
+  retirada?: boolean;
 }
 
 interface ServicosAgendadosProps {
@@ -231,6 +234,38 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       console.warn('Erro ao carregar orçamentos para comissões:', e);
     }
 
+    // Notas retiradas da produção depois de este funcionário já ter puxado itens: seguem aparecendo
+    // (vermelho/opaco, só leitura) por até 30 dias, a menos que tenham sido lançadas de novo.
+    let notasRetiradas: NotaAgendada[] = [];
+    if (colaboradorId) {
+      try {
+        const corte = new Date();
+        corte.setDate(corte.getDate() - 30);
+        const { data: ret } = await supabase
+          .from('comissoes_servicos')
+          .select('origem_nota_id')
+          .eq('colaborador_id', colaboradorId)
+          .eq('status', 'CANCELADO')
+          .not('origem_nota_id', 'is', null)
+          .gte('deleted_at', corte.toISOString());
+        const retIds = Array.from(new Set((ret || []).map((r: any) => String(r.origem_nota_id)).filter(Boolean)))
+          .filter(id => !todasVendasIds.has(id) && !id.startsWith('orc_'));
+        if (retIds.length) {
+          const { data: retVendas } = await supabase
+            .from('vendas')
+            .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
+            .in('id', retIds)
+            .neq('status', 'canceled')
+            .is('deleted_at', null);
+          notasRetiradas = ((retVendas || []) as NotaAgendada[])
+            .filter(v => !(v.service_status && String(v.service_status).trim() !== ''))
+            .map(v => ({ ...v, retirada: true }));
+        }
+      } catch (e) {
+        console.warn('Erro ao carregar notas retiradas da produção:', e);
+      }
+    }
+
     const todas: NotaAgendada[] = [...todasVendas, ...orcamentosNotas];
 
     const comServico = servicoIds.size === 0
@@ -240,7 +275,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           ((n.items || []).some(i => i.productId && servicoIds.has(i.productId)) || n.id.startsWith('orc_') || !n.items.some(i => i.productId))
         );
 
-    setNotas(comServico);
+    setNotas([...comServico, ...notasRetiradas]);
     setLoading(false);
 
     const ids = comServico.map(n => n.id);
@@ -613,7 +648,10 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           .update({ service_status: null, updated_at: nowIso })
           .eq('id', nota.id);
       }
-      showAlert('Pedido desmarcado da produção com sucesso. (Os itens já adicionados à comissão continuam seguros)');
+      const retirados = await retirarServicosPuxadosDaNota(nota.id);
+      showAlert(retirados > 0
+        ? `Pedido desmarcado da produção. ${retirados} ${retirados === 1 ? 'item foi removido' : 'itens foram removidos'} da comissão do funcionário.`
+        : 'Pedido desmarcado da produção com sucesso.');
     } catch (err: any) {
       // Reverte se der erro
       setNotas(prev => [nota, ...prev]);
@@ -622,6 +660,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   };
 
   const renderNotaCard = (nota: NotaAgendada) => {
+    const retirada = !!nota.retirada;
     const totalItens = nota.items?.length || 0;
     const adicionados = itensAdicionadosPorNota[nota.id]?.size || 0;
     const completa = totalItens > 0 && adicionados >= totalItens;
@@ -635,7 +674,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       <div
         key={nota.id}
         className={`rounded-2xl border overflow-hidden transition-all ${
-          completa
+          retirada
+            ? 'bg-rose-500/5 border-rose-500/30 opacity-50'
+            : completa
             ? 'bg-emerald-500/5 border-emerald-500/25 opacity-60'
             : parcial
               ? 'bg-[var(--bg-card)] border-[var(--border-color)]'
@@ -644,7 +685,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       >
         <div
           className="p-4 flex items-center gap-3 cursor-pointer hover:border-[var(--accent-red)]/50"
-          onClick={() => modoSelecao ? toggleSelecionada(nota.id) : toggleExpanded(nota.id)}
+          onClick={() => retirada ? undefined : modoSelecao ? toggleSelecionada(nota.id) : toggleExpanded(nota.id)}
         >
           {modoSelecao && (
             <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
@@ -682,7 +723,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             </div>
 
             <p className="text-[11px] text-[var(--text-muted)]">
-              {adicionados}/{totalItens} serviços adicionados
+              {retirada ? 'Serviços removidos da sua comissão' : `${adicionados}/${totalItens} serviços adicionados`}
             </p>
 
             <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -700,13 +741,19 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                       })
                     : 'Sem agendamento'}
               </span>
-              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Em Produção
-              </span>
+              {retirada ? (
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  Retirado da produção
+                </span>
+              ) : (
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  Em Produção
+                </span>
+              )}
             </div>
           </div>
 
-          {!modoSelecao && (
+          {!modoSelecao && !retirada && (
             <button
               onClick={e => handleDesmarcarProducao(e, nota)}
               className="p-2 rounded-lg text-amber-400/70 hover:text-amber-300 hover:bg-amber-500/15 shrink-0 transition-colors"
@@ -726,14 +773,14 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             </button>
           )}
 
-          {!modoSelecao && (
+          {!modoSelecao && !retirada && (
             expanded
               ? <ChevronDown className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
               : <ChevronRight className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
           )}
         </div>
 
-        {expanded && (() => {
+        {expanded && !retirada && (() => {
           const idxsRestantes = (nota.items || [])
             .map((_, idx) => idx)
             .filter(idx => !itensAdicionadosPorNota[nota.id]?.has(idx));

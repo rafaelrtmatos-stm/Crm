@@ -267,7 +267,7 @@ import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt } from '../lib/notify';
 import { SEM_CRM_MESSAGES } from '../lib/flags';
-import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
+import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
 import { PixQrImage } from './PixQrImage';
@@ -18143,10 +18143,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       if (!sale.etapaServico && etapaAtual) updates.etapa_servico = etapaAtual;
       const { error } = await supabase.from('vendas').update(updates).eq('id', sale.id);
       if (error) throw error;
+      const retirados = await retirarServicosPuxadosDaNota(sale.id);
       const atualizado = { ...sale, serviceStatus: undefined, etapaServico: etapaAtual as any, updatedAt: nowIso };
       setAllSalesHistory(prev => prev.map(s => s.id === sale.id ? atualizado : s));
       setSalesToday(prev => prev.map(s => s.id === sale.id ? atualizado : s));
-      showAlert('Lançamento desmarcado com sucesso. (Os itens já adicionados à comissão continuam seguros)');
+      showAlert(retirados > 0
+        ? `Lançamento desmarcado. ${retirados} ${retirados === 1 ? 'item foi removido' : 'itens foram removidos'} da comissão do funcionário.`
+        : 'Lançamento desmarcado com sucesso.');
     } catch (err: any) {
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);
     }

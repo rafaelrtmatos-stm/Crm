@@ -984,6 +984,43 @@ export async function checkServicosPuxadosDaNota(notaId: string): Promise<Servic
   }
 }
 
+/**
+ * Retira da comissão dos funcionários os serviços que já tinham sido puxados desta nota.
+ * Usado quando a nota é retirada da produção (ex.: lançada por engano).
+ * Marca status 'CANCELADO' (fica fora dos totais e serve de marca "retirado" na lista do funcionário)
+ * e faz a exclusão lógica já existente (Lixeira, restaurável em 30 dias, libera o item para puxar de novo
+ * se a nota for lançada outra vez). Não apaga nada de verdade nem mexe em caixas já fechados.
+ */
+export async function retirarServicosPuxadosDaNota(notaId: string): Promise<number> {
+  try {
+    const { data, error } = await supabase
+      .from('comissoes_servicos')
+      .select('id')
+      .eq('origem_nota_id', notaId)
+      .is('deleted_at', null);
+    if (error || !data || data.length === 0) return 0;
+
+    const ids = data.map((d: any) => d.id as string);
+    const { error: upErr } = await supabase
+      .from('comissoes_servicos')
+      .update({ status: 'CANCELADO', updated_at: new Date().toISOString() })
+      .in('id', ids);
+    if (upErr) {
+      console.warn('Aviso ao marcar serviços como retirados:', upErr);
+      return 0;
+    }
+
+    let removidos = 0;
+    for (const id of ids) {
+      if (await deleteServiceFromSupabase(id)) removidos++;
+    }
+    return removidos;
+  } catch (err) {
+    console.warn('Erro ao retirar serviços puxados da nota:', err);
+    return 0;
+  }
+}
+
 // Modal de confirmação inteligente ao retirar/desmarcar da produção:
 // Avisa se um ou mais colaboradores já puxaram itens dessa nota, garantindo que
 // os serviços já lançados NÃO serão apagados da comissão deles.
@@ -1006,9 +1043,9 @@ export async function confirmarRetiradaProducao(notaId: string, codigoPedido?: s
     const mensagem =
       `⚠️ ATENÇÃO: ${totalItens === 1 ? '1 item deste pedido já foi adicionado' : `${totalItens} itens deste pedido já foram adicionados`} para comissão!\n\n` +
       `Colaborador(es) que já adicionaram:\n${listaColabs}\n\n` +
-      `🛡️ REGRA DO SISTEMA:\n` +
-      `• Os serviços já lançados na planilha de comissão NÃO serão excluídos (a comissão do funcionário permanece garantida);\n` +
-      `• O pedido apenas deixará de aparecer na fila de produção para novos lançamentos.\n\n` +
+      `⚠️ AO RETIRAR:\n` +
+      `• Esses serviços serão REMOVIDOS da comissão do(s) funcionário(s) (ficam na Lixeira por 30 dias);\n` +
+      `• Para o funcionário, a nota aparece em vermelho/opaca como "Retirado da produção".\n\n` +
       `Deseja realmente desmarcar e retirar o pedido #${codigo} da produção?`;
 
     return await showConfirm(mensagem);

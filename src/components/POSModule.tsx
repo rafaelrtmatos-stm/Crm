@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
-import { confirmarRetiradaProducao } from '../comissoes/utils/supabaseStorage';
+import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 import { deductMateriasPrimasStock } from '../lib/materiasPrimasStorage';
 import { Company, Product, SaleOrder, CartItem, PaymentEntry, AppUser } from '../types';
 import { Badge, Button, Input, Modal, GlassCard, ModuleErrorBoundary } from './SharedUI';
@@ -191,11 +191,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         .update({ service_status: null, updated_at: new Date().toISOString() })
         .eq('id', sale.id);
       if (error) throw error;
+      const retirados = await retirarServicosPuxadosDaNota(sale.id);
 
       const applyLocalUpdate = (list: SaleOrder[]) =>
         list.map(s => (s.id === sale.id ? { ...s, serviceStatus: undefined } : s));
       setAllSalesHistory(applyLocalUpdate);
-      showAlert('Lançamento desmarcado com sucesso. (Os itens já adicionados na comissão permanecem intactos)');
+      showAlert(retirados > 0
+        ? `Lançamento desmarcado. ${retirados} ${retirados === 1 ? 'item foi removido' : 'itens foram removidos'} da comissão do funcionário.`
+        : 'Lançamento desmarcado com sucesso.');
     } catch (err: any) {
       console.error('Erro ao desmarcar produção:', err);
       showAlert(`Erro ao desmarcar produção: ${err?.message || 'Falha na conexão'}`);
