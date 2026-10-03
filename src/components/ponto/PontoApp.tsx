@@ -973,6 +973,15 @@ export function PontoApp() {
         />
       )}
 
+      {editRegMassaOpen && (
+        <RegistroMassaModal
+          funcionarios={ativos.filter((f) => registrosSelecionados.has(f.id))}
+          data={filtroDataRegistros}
+          onClose={() => setEditRegMassaOpen(false)}
+          onSave={salvarRegistrosEmMassa}
+        />
+      )}
+
       {editRegModal && (
         <RegistroModal
           ctx={editRegModal}
