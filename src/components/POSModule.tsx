@@ -635,6 +635,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     };
   };
 
+  // Reidrata a medida salva sempre que o modal de edição é aberto.
+  // Isso evita que uma atualização de estado/renderização deixe os campos vazios.
+  useEffect(() => {
+    if (editingCartItemIndex === null || !editingCartItemData || !dimensionModalProduct) return;
+    const savedDimensions = parseSavedDimensions(editingCartItemData, dimensionModalProduct);
+    setDimWidth(savedDimensions.width);
+    setDimHeight(savedDimensions.height);
+  }, [editingCartItemIndex, editingCartItemData, dimensionModalProduct]);
+
   // Cart Handlers
   const handleAddProductToCart = (product: Product) => {
     if (product.unitType === 'm2' || product.unitType === 'metro') {
