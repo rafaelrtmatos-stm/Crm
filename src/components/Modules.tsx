@@ -19078,14 +19078,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const product = products.find(p => p.id === item.productId);
     if (!product || (product.unitType !== 'm2' && product.unitType !== 'metro')) return;
 
-    const match = String(item.dimensions || '').match(/([0-9.,]+)m?\s*x\s*([0-9.,]+)m?/i);
+    // Recupera a largura e a altura gravadas no item. Nunca usa item.area como largura:
+    // a área (ex.: 5,85 m²) não permite reconstruir a medida original (ex.: 1,30 x 4,50).
+    const dimensionsText = String(item.dimensions || '').trim();
+    const match = dimensionsText.match(/([0-9]+(?:[.,][0-9]+)?)\s*m?\s*[x×]\s*([0-9]+(?:[.,][0-9]+)?)/i);
     const width = match?.[1] || '';
     const height = match?.[2] || '';
 
     setEditingCartItemIndex(index);
     setDimensionModalProduct(product);
     setSelectedQty(Math.max(1, Number(item.quantity) || 1));
-    setDimWidth(width ? Number(width.replace(',', '.')) : Number(item.area || 0) || '');
+    setDimWidth(width ? Number(width.replace(',', '.')) : '');
     setDimHeight(height ? Number(height.replace(',', '.')) : '');
     setDimLarguraMaterial(product.larguraRolo || 0);
 
