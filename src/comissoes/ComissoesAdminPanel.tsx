@@ -231,6 +231,8 @@ export default function ComissoesAdminPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [pontoVinculo, setPontoVinculo] = useState<{ id: string; numero_relogio: string; nome_relogio: string; ativo: boolean } | null>(null);
+  const [pontoVinculoLoading, setPontoVinculoLoading] = useState(false);
   const [showPasswordInModal, setShowPasswordInModal] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -666,6 +668,41 @@ export default function ComissoesAdminPanel() {
     setShowPasswordInModal(false);
     setShowModal(true);
   };
+
+  useEffect(() => {
+    let ativo = true;
+
+    const carregarVinculoPonto = async () => {
+      if (!editingId) {
+        setPontoVinculo(null);
+        setPontoVinculoLoading(false);
+        return;
+      }
+
+      setPontoVinculoLoading(true);
+      const { data, error } = await supabase
+        .from('ponto_funcionarios')
+        .select('id, numero_relogio, nome_relogio, ativo')
+        .eq('colaborador_id', editingId)
+        .maybeSingle();
+
+      if (!ativo) return;
+
+      if (error) {
+        console.warn('Não foi possível consultar o vínculo do ponto:', error);
+        setPontoVinculo(null);
+      } else {
+        setPontoVinculo(data || null);
+      }
+      setPontoVinculoLoading(false);
+    };
+
+    carregarVinculoPonto();
+
+    return () => {
+      ativo = false;
+    };
+  }, [editingId]);
 
   const handleSelectUsuarioConta = (usuarioId: string) => {
     const selectedUser = usuariosContas.find((u) => u.id === usuarioId);
@@ -2094,42 +2131,21 @@ export default function ComissoesAdminPanel() {
                   </div>
 
                   {(() => {
-                    let pontoId = '—';
-                    let statusPonto = 'NÃO VINCULADO';
-                    let isVinculado = false;
-                    try {
-                      const raw = localStorage.getItem('rpro_ponto_eletronico_data_v2');
-                      if (raw) {
-                        const arr = JSON.parse(raw);
-                        const match = arr.find((p: any) => 
-                          (p.crmEmployeeId && p.crmEmployeeId === editingId) ||
-                          (p.crmEmployeeName && form.nome && p.crmEmployeeName.toLowerCase() === form.nome.toLowerCase()) ||
-                          (p.pontoName && form.nome && form.nome.toUpperCase().includes(p.pontoName.toUpperCase()))
-                        );
-                        if (match && match.status === 'ativo') {
-                          statusPonto = 'ATIVO';
-                          pontoId = match.pontoId || '0000000003';
-                          isVinculado = true;
-                        }
-                      }
-                    } catch (e) {}
-
-                    if (!isVinculado && form.nome) {
-                      const n = form.nome.trim().toLowerCase();
-                      if (n.includes('rafa')) { statusPonto = 'ATIVO'; pontoId = '0000000001'; isVinculado = true; }
-                      else if (n.includes('felipe')) { statusPonto = 'ATIVO'; pontoId = '0000000002'; isVinculado = true; }
-                      else if (n.includes('fabricio')) { statusPonto = 'ATIVO'; pontoId = '0000000003'; isVinculado = true; }
-                    }
+                    const isVinculado = Boolean(pontoVinculo);
+                    const statusPonto = pontoVinculo?.ativo ? 'ATIVO' : pontoVinculo ? 'INATIVO' : 'NÃO VINCULADO';
+                    const pontoId = pontoVinculo?.numero_relogio || '—';
 
                     return (
                       <div className="space-y-3">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
                             <span className="text-[9px] font-black uppercase text-[var(--text-muted)] tracking-wider block">Status do Ponto</span>
-                            {isVinculado ? (
-                              <span className="text-xs font-black text-emerald-400 uppercase tracking-wide inline-flex items-center gap-1.5 mt-0.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                ATIVO
+                            {pontoVinculoLoading ? (
+                              <span className="text-xs font-bold text-[var(--text-muted)] mt-0.5 block">CONSULTANDO...</span>
+                            ) : isVinculado ? (
+                              <span className={`text-xs font-black uppercase tracking-wide inline-flex items-center gap-1.5 mt-0.5 ${pontoVinculo?.ativo ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${pontoVinculo?.ativo ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                                {statusPonto}
                               </span>
                             ) : (
                               <span className="text-xs font-black text-[var(--text-muted)] uppercase tracking-wide block mt-0.5">
