@@ -886,6 +886,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         payment_method: paymentMethod,
         pending_payment_method: isPending ? pendingPaymentMethod : null,
         status: isPending ? 'pending' : 'completed',
+        // O status visual do pedido fica separado do lançamento para produção.
+        // Toda nova venda nasce fora da lista de Serviços; só o botão "Lançar Produção" preenche service_status.
+        service_status: null,
+        etapa_servico: 'pedido_recebido',
         scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
         observacoes: orderObservacoes || null,
         consumo_materias_primas: consumoMateriasPrimas.length > 0 ? consumoMateriasPrimas : null,
