@@ -349,6 +349,80 @@ export function RegistroModal({
   );
 }
 
+// Modal Edição em Massa de Registros de Ponto
+export function RegistroMassaModal({
+  funcionarios,
+  data,
+  onClose,
+  onSave,
+}: {
+  funcionarios: FuncionarioItem[];
+  data: string;
+  onClose: () => void;
+  onSave: (funcionarioIds: string[], data: string, h: Partial<PontoRegistro>) => Promise<void>;
+}) {
+  const [h, setH] = useState({
+    entrada: '',
+    inicio_intervalo: '',
+    fim_intervalo: '',
+    saida: '',
+    observacao: '',
+  });
+  const [salvando, setSalvando] = useState(false);
+
+  const set = (k: keyof typeof h) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setH((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const salvar = async () => {
+    setSalvando(true);
+    try {
+      await onSave(funcionarios.map((f) => f.id), data, h);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Modal title={`Editar Ponto em Massa • ${data.split('-').reverse().join('/')}`} onClose={onClose} maxWidth="max-w-lg">
+      <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200">
+        <strong>{funcionarios.length} funcionário(s)</strong> selecionado(s). Os horários abaixo serão aplicados a todos.
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Entrada">
+          <input type="time" className={inputCls} value={h.entrada} onChange={set('entrada')} />
+        </Field>
+        <Field label="Saída">
+          <input type="time" className={inputCls} value={h.saida} onChange={set('saida')} />
+        </Field>
+        <Field label="Início do intervalo">
+          <input type="time" className={inputCls} value={h.inicio_intervalo} onChange={set('inicio_intervalo')} />
+        </Field>
+        <Field label="Fim do intervalo">
+          <input type="time" className={inputCls} value={h.fim_intervalo} onChange={set('fim_intervalo')} />
+        </Field>
+      </div>
+
+      <Field label="Observação / Justificativa">
+        <input
+          className={inputCls}
+          value={h.observacao}
+          onChange={set('observacao')}
+          placeholder="ex.: ajuste administrativo"
+        />
+      </Field>
+
+      <p className="text-[11px] text-white/40">
+        Deixe um horário vazio para limpar esse campo nos funcionários selecionados. O ajuste será marcado como manual e protegido contra sobrescrita automática.
+      </p>
+
+      <button onClick={salvar} disabled={salvando} className={`${btnSave} ${salvando ? 'opacity-60 cursor-not-allowed' : ''}`}>
+        <Save size={14} /> {salvando ? 'Salvando...' : 'Aplicar aos Selecionados'}
+      </button>
+    </Modal>
+  );
+}
+
 // Modal Editar Grade de Jornada
 export function JornadaEditorModal({
   func,
