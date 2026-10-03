@@ -20287,7 +20287,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        <MessageSquare size={11} />
                                     </button>
 
-                                    {item.dimensions && (products.find(p => p.id === item.productId)?.unitType === 'm2' || products.find(p => p.id === item.productId)?.unitType === 'metro') && (
+                                    {(products.find(p => p.id === item.productId)?.unitType === 'm2' || products.find(p => p.id === item.productId)?.unitType === 'metro') && (
                                        <button
                                           onClick={() => openEditCartItem(idx)}
                                           className="p-0.5 text-slate-400 hover:text-primary-600 transition-colors cursor-pointer"
