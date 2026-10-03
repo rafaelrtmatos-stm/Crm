@@ -3445,8 +3445,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       </div>
                       <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
                          <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro Líquido</p>
-                         <p className="text-base font-black text-emerald-400">R$ {analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Margem: {analiseDetalhada.periodo.margemLucro.toFixed(1)}%</p>
+                         <p className="text-base font-black text-emerald-400">{showProfitValues ? `R$ ${analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'R$ ••••••'}</p>
+                         <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Margem: {showProfitValues ? `${analiseDetalhada.periodo.margemLucro.toFixed(1)}%` : '••%'}</p>
                       </div>
                       <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
                          <p className="text-[8px] font-black uppercase text-rose-400 tracking-widest mb-1">Custos & Insumos</p>
@@ -3456,7 +3456,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <div className="p-3 bg-white/5 rounded-xl border border-white/10">
                          <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária</p>
                          <p className="text-base font-black text-white">R$ {analiseDetalhada.mediaDiariaPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400 mt-0.5 font-bold">Lucro/dia: R$ {analiseDetalhada.mediaLucroDiario.toFixed(2)}</p>
+                         <p className="text-[8px] text-emerald-400 mt-0.5 font-bold">Lucro/dia: {showProfitValues ? `R$ ${analiseDetalhada.mediaLucroDiario.toFixed(2)}` : 'R$ ••••••'}</p>
                       </div>
                       <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
                          <p className="text-[8px] font-black uppercase text-purple-300 tracking-widest mb-1">Ticket Médio</p>
@@ -3512,7 +3512,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                      formatter={(value: any, name: string) => [`R$ ${Number(value).toFixed(2).replace('.', ',')}`, name === 'faturamento' ? 'Faturamento' : 'Lucro']}
                                   />
                                   {showLinhaFaturamento && <Line type="monotone" dataKey="faturamento" stroke="#4cc9f0" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />}
-                                  {showLinhaLucro && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />}
+                                  {showLinhaLucro && showProfitValues && <Line type="monotone" dataKey="lucro" stroke="#34d399" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />}
                                </LineChart>
                             </ResponsiveContainer>
                             </ChartErrorBoundary>
@@ -3714,7 +3714,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right hidden sm:block">
                                       <span className="text-[8px] font-bold text-emerald-400/60 uppercase block">Lucro Estimado</span>
-                                      <span className="text-xs font-black text-emerald-300">R$ {prod.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                      <span className="text-xs font-black text-emerald-300">{showProfitValues ? `R$ ${prod.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'R$ ••••••'}</span>
                                    </div>
                                 </div>
                              </div>
@@ -3943,7 +3943,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right shrink-0 flex items-center gap-3">
                                       <div className="text-right">
-                                         <span className="text-[8px] text-emerald-400/70 font-bold block">Lucro: R$ {venda.lucroVenda.toFixed(2)}</span>
+                                         <span className="text-[8px] text-emerald-400/70 font-bold block">Lucro: {showProfitValues ? `R$ ${venda.lucroVenda.toFixed(2)}` : 'R$ ••••••'}</span>
                                          <p className="text-xs font-black text-white">R$ {venda.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                       </div>
                                       <ArrowRight className="w-3 h-3 text-white/20" />
@@ -17049,7 +17049,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </span>
             <span className="text-white/20">•</span>
             <span className="text-cyan-300 font-bold">
-              {r.margemPrevista.toFixed(0)}%
+              {showProfitValues ? `${r.margemPrevista.toFixed(0)}%` : '••%'}
             </span>
           </div>
         </button>
@@ -17099,7 +17099,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-        title={`Custo: R$ ${r.custoTotal.toFixed(2)} | Lucro: R$ ${r.lucroPrevisto.toFixed(2)} | Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`}
+        title={showProfitValues ? `Custo: R$ ${r.custoTotal.toFixed(2)} | Lucro: R$ ${r.lucroPrevisto.toFixed(2)} | Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)` : 'Clique para ver os custos da nota'}
         className="inline-flex items-center gap-1 text-[8px] font-mono text-white/50 hover:text-emerald-400 transition-colors cursor-pointer mt-0.5"
       >
         <Calculator size={10} className="text-emerald-400/70 shrink-0" />
@@ -21934,7 +21934,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                     </div>
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
                        <p className="text-[9px] font-black uppercase text-white/40 tracking-widest">Lucro</p>
-                       <p className="text-xl font-black text-primary-400 italic mt-1">R$ {servicosResumo.lucro.toFixed(2).replace('.', ',')}</p>
+                       <p className="text-xl font-black text-primary-400 italic mt-1">{showProfitValues ? `R$ ${servicosResumo.lucro.toFixed(2).replace('.', ',')}` : 'R$ ••••••'}</p>
                        {!servicosResumo.temCustoRegistrado && (
                          <p className="text-[8px] text-amber-400/70 font-bold mt-1">Sem custo cadastrado nos produtos — lucro = líquido</p>
                        )}
