@@ -52,6 +52,8 @@ import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
+import { useApp } from '../AppContext';
+import { AvatarPhoto } from '../components/SharedUI';
 import ComissoesEmbedded from './ComissoesEmbedded';
 import './comissoes-theme.css';
 
@@ -69,6 +71,8 @@ interface ColaboradorRow {
   nome: string;
   senha: string;
   cargo: string | null;
+  telefone_whatsapp: string | null;
+  foto_url: string | null;
   salario_base: number;
   comissao_padrao_percentual: number;
   meta_semanal: number;
@@ -108,6 +112,7 @@ interface FormState {
   nome: string;
   senha: string;
   cargo: string;
+  telefoneWhatsapp: string;
   salarioBase: number;
   comissaoPadraoPercentual: number;
   metaSemanal: number;
@@ -135,6 +140,7 @@ const emptyForm: FormState = {
   nome: '',
   senha: '',
   cargo: '',
+  telefoneWhatsapp: '',
   salarioBase: 0,
   comissaoPadraoPercentual: 10,
   metaSemanal: 0,
@@ -198,6 +204,7 @@ function getAvatarGradient(name: string): string {
 }
 
 export default function ComissoesAdminPanel() {
+  const { user } = useApp();
   // Sincroniza com tema claro/escuro do CRM
   useSyncWithCrmTheme();
 
@@ -679,6 +686,7 @@ export default function ComissoesAdminPanel() {
       nome: c.nome || '',
       senha: c.senha || linkedU?.password || '',
       cargo: c.cargo || '',
+      telefoneWhatsapp: c.telefone_whatsapp || '',
       salarioBase: Number(c.salario_base) || 0,
       comissaoPadraoPercentual: modalidade === 'fixo' ? 0 : (Number(c.comissao_padrao_percentual) || 10),
       metaSemanal: modalidade === 'fixo' ? 0 : (Number(c.meta_semanal) || 0),
@@ -902,6 +910,7 @@ export default function ComissoesAdminPanel() {
       nome: form.nome.trim(),
       senha: finalSenha,
       cargo: form.cargo.trim() || null,
+      telefone_whatsapp: form.telefoneWhatsapp.replace(/\D/g, '') || null,
       salario_base: (isMeta || isFatGeral) ? 0 : (Number(form.salarioBase) || 0),
       comissao_padrao_percentual: (isMeta || isFixo || isFatGeral) ? 0 : (Number(form.comissaoPadraoPercentual) || 0),
       meta_semanal: (isFixo || isFatGeral) ? 0 : (Number(form.metaSemanal) || 0),
@@ -944,6 +953,20 @@ export default function ComissoesAdminPanel() {
     }
 
     const targetId = editingId || savedData?.id;
+    const telefoneWhatsapp = form.telefoneWhatsapp.replace(/\D/g, '');
+    const colaboradorAnterior = editingId ? colaboradores.find((c) => c.id === editingId) : null;
+
+    // Busca automaticamente a foto quando há WhatsApp novo, número alterado ou foto ainda ausente.
+    // O botão "Buscar foto" continua disponível para forçar uma nova consulta.
+    if (
+      targetId &&
+      telefoneWhatsapp &&
+      (!editingId ||
+        telefoneWhatsapp !== (colaboradorAnterior?.telefone_whatsapp || '') ||
+        !colaboradorAnterior?.foto_url)
+    ) {
+      await buscarFotoWhatsApp(targetId, telefoneWhatsapp, true);
+    }
 
     // Gerencia o anexo da conta de usuário escolhida ou criação de nova conta
     if (targetId) {
@@ -1025,6 +1048,35 @@ export default function ComissoesAdminPanel() {
     closeModal();
     await loadData();
     showAlert(editingId ? 'Colaborador atualizado com sucesso!' : 'Novo colaborador cadastrado com sucesso!');
+  };
+
+  const buscarFotoWhatsApp = async (colaboradorId: string, telefone: string, silencioso = false) => {
+    const digits = telefone.replace(/\D/g, '');
+    if (!digits) {
+      if (!silencioso) showAlert('Informe o WhatsApp do funcionário com DDD.');
+      return;
+    }
+    try {
+      const response = await fetch('/api/whatsapp-foto-perfil', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({ phone: digits }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!data?.photoUrl) {
+        if (!silencioso) showAlert('Não foi possível obter a foto pública desse WhatsApp.');
+        return;
+      }
+      const { error } = await supabase.from('colaboradores').update({ foto_url: data.photoUrl, telefone_whatsapp: digits }).eq('id', colaboradorId);
+      if (error) {
+        if (!silencioso) showAlert(`Foto encontrada, mas não foi possível salvar: ${error.message}`);
+        return;
+      }
+      await loadData({ silent: true });
+      if (!silencioso) showAlert('Foto do WhatsApp atualizada no funcionário.');
+    } catch {
+      if (!silencioso) showAlert('Erro ao conectar com o serviço de foto do WhatsApp.');
+    }
   };
 
   const handleToggleAtivo = async (c: ColaboradorRow) => {
@@ -1545,13 +1597,12 @@ export default function ComissoesAdminPanel() {
                     <div className="flex items-start justify-between gap-3">
                       {/* Avatar e Nome */}
                       <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                        <div
-                          className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${getAvatarGradient(
-                            c.nome
-                          )} flex items-center justify-center text-white font-black text-sm shadow-md shrink-0`}
-                        >
-                          {getInitials(c.nome)}
-                        </div>
+                        <AvatarPhoto
+                          photoUrl={c.foto_url}
+                          name={c.nome}
+                          className="w-11 h-11 rounded-2xl border-0 shadow-md shrink-0"
+                          textClassName="text-sm font-black text-white"
+                        />
 
                         <div className="min-w-0 flex-1">
                           <h3 className="font-bold text-base text-[var(--text-main)] truncate" title={c.nome}>
@@ -1828,13 +1879,12 @@ export default function ComissoesAdminPanel() {
                       >
                         <td className="py-3.5 px-5 whitespace-nowrap">
                           <div className="flex items-center gap-3">
-                            <div
-                              className={`w-9 h-9 rounded-xl bg-gradient-to-br ${getAvatarGradient(
-                                c.nome
-                              )} flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm`}
-                            >
-                              {getInitials(c.nome)}
-                            </div>
+                            <AvatarPhoto
+                              photoUrl={c.foto_url}
+                              name={c.nome}
+                              className="w-9 h-9 rounded-xl border-0 shadow-sm shrink-0"
+                              textClassName="text-xs font-black text-white"
+                            />
                             <div className="min-w-0">
                               <span className="font-bold text-[var(--text-main)] block text-sm">
                                 {c.nome}
@@ -2082,6 +2132,26 @@ export default function ComissoesAdminPanel() {
                       ) : null;
                     })()}
                   </div>
+
+                  <label className="space-y-1 block">
+                    <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">WhatsApp do Funcionário</span>
+                    <div className="flex gap-2">
+                      <input
+                        type="tel"
+                        value={form.telefoneWhatsapp}
+                        onChange={(e) => setForm({ ...form, telefoneWhatsapp: e.target.value })}
+                        placeholder="Ex: (93) 99999-9999"
+                        className="min-w-0 flex-1 h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-medium"
+                      />
+                      <button
+                        type="button"
+                        disabled={saving || !editingId || !form.telefoneWhatsapp.replace(/\D/g, '')}
+                        onClick={() => editingId && buscarFotoWhatsApp(editingId, form.telefoneWhatsapp)}
+                        className="h-11 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 font-black text-[10px] uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
+                      >Buscar foto</button>
+                    </div>
+                    <span className="text-[9px] text-[var(--text-muted)]">Digite o número com DDD para consultar e salvar a foto pública do WhatsApp.</span>
+                  </label>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <label className="space-y-1 block">

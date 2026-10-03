@@ -181,19 +181,16 @@ export function EditFuncModal({
   colabs,
   onClose,
   onSaved,
-  buscarFoto,
 }: {
   func: FuncionarioItem;
   colabs: ColaboradorOption[];
   onClose: () => void;
   onSaved: () => void;
-  buscarFoto: (c: any, tel: string, silencioso?: boolean) => Promise<void>;
 }) {
   const [numero, setNumero] = useState(func.numero_relogio);
   const [nome, setNome] = useState(func.nome_relogio || '');
   const [colabId, setColabId] = useState(func.colaborador_id || '');
   const [tol, setTol] = useState(String(func.tolerancia_minutos));
-  const [tel, setTel] = useState(func.colaboradores?.telefone_whatsapp || '');
 
   const salvar = async () => {
     const { error } = await supabase
@@ -216,19 +213,6 @@ export function EditFuncModal({
       return;
     }
 
-    if (colabId) {
-      const atual = colabs.find((c) => c.id === colabId);
-      const telNovo = tel.replace(/\D/g, '');
-      if (telNovo !== (func.colaboradores?.telefone_whatsapp || '')) {
-        await supabase
-          .from('colaboradores')
-          .update({ telefone_whatsapp: telNovo || null })
-          .eq('id', colabId);
-      }
-      if (atual && telNovo && !func.colaboradores?.foto_url) {
-        await buscarFoto(atual, telNovo);
-      }
-    }
     showAlert('Dados do funcionário atualizados.');
     onSaved();
   };
@@ -257,15 +241,6 @@ export function EditFuncModal({
             </option>
           ))}
         </select>
-      </Field>
-      <Field label="WhatsApp do funcionário (com DDD)">
-        <input
-          className={inputCls}
-          value={tel}
-          onChange={(e) => setTel(e.target.value)}
-          placeholder="ex.: 93 99999-9999"
-          disabled={!colabId}
-        />
       </Field>
       <Field label="Tolerância de atraso (minutos)">
         <input
