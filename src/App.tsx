@@ -920,6 +920,7 @@ export default function App() {
     }
   };
   const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
+  const [pendingEditOrderId, setPendingEditOrderId] = useState<string | null>(null);
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
   const [pendingHistoryProductSearch, setPendingHistoryProductSearch] = useState<string | null>(null);
   const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
@@ -3053,6 +3054,8 @@ export default function App() {
     openWhatsAppChat,
     pendingReceiptOpenId,
     setPendingReceiptOpenId,
+    pendingEditOrderId,
+    setPendingEditOrderId,
     pendingHistoryClientFilter,
     setPendingHistoryClientFilter,
     pendingHistoryProductSearch,
