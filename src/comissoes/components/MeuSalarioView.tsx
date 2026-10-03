@@ -24,21 +24,19 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||salarioSemanal:salarioSemanal;
    const comissao=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0);
    const desc=fechado&&caixa?.total_descontos!==null&&caixa?.total_descontos!==undefined?Number(caixa.total_descontos)||0:calculateDescontosNoPeriodo(descontos,descBounds.start,descBounds.end);
-   const pago=fechado&&caixa?.total_pago!==null&&caixa?.total_pago!==undefined?Number(caixa.total_pago)||0:pagamentos.filter(p=>!caixa?.id||p.caixa_id===caixa.id).reduce((s,p)=>s+(Number(p.valor)||0),0);
-   const saldoAnterior=Number(caixa?.saldo_anterior)||0;
-   return{base,comissao,desc,pago,saldoAnterior,total:base+comissao-desc-pago+saldoAnterior};
+   return{base,comissao,desc,total:base+comissao-desc};
  },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal]);
 
  const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
  const cicloLabel=`${bounds.start.split('-').reverse().join('/')} a ${bounds.end.split('-').reverse().join('/')}`;
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Calculando Meu Salário...</div>;
  return <div className="space-y-5">
-   <div><h2 className="text-2xl font-black">Meu Salário</h2><p className="text-sm text-[var(--text-muted)] mt-1">{nome} · ponto {cicloLabel} · comissão {comissaoBounds.start.split('-').reverse().join('/')} a {comissaoBounds.end.split('-').reverse().join('/')} · pagamento {pagamentoLabel}</p></div>
+   <div><h2 className="text-2xl font-black">Meu Salário</h2><p className="text-sm text-[var(--text-muted)] mt-1">{nome} · salário + comissões − descontos · pagamento {pagamentoLabel}</p></div>
    <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5">
-     <div className="flex items-center gap-3 mb-4"><Wallet className="w-6 h-6 text-[var(--accent-red)]"/><div><p className="text-xs text-[var(--text-muted)] uppercase font-bold">Salário mensal cadastrado</p><b className="text-2xl">{formatCurrency(salarioBase)}</b><p className="text-xs text-[var(--text-muted)] mt-1">Saldo do ponto da semana anterior: {formatCurrency(salarioSemanal)}</p></div></div>
+     <div className="flex items-center gap-3 mb-4"><Wallet className="w-6 h-6 text-[var(--accent-red)]"/><div><p className="text-xs text-[var(--text-muted)] uppercase font-bold">Salário mensal cadastrado</p><b className="text-2xl">{formatCurrency(salarioBase)}</b><p className="text-xs text-[var(--text-muted)] mt-1">Base salarial semanal: {formatCurrency(salarioSemanal)}</p></div></div>
      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><Wallet className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.base)}</b><p className="text-xs text-[var(--text-muted)]">Saldo do Ponto (semana anterior)</p></div>
-       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><CircleDollarSign className="w-5 h-5 mb-3 text-emerald-500"/><b className="text-xl">{formatCurrency(calc.comissao)}</b><p className="text-xs text-[var(--text-muted)]">Comissões da semana vigente</p></div>
+       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><Wallet className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.base)}</b><p className="text-xs text-[var(--text-muted)]">Salário</p></div>
+       <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><CircleDollarSign className="w-5 h-5 mb-3 text-emerald-500"/><b className="text-xl">{formatCurrency(calc.comissao)}</b><p className="text-xs text-[var(--text-muted)]">Comissões</p></div>
        <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><MinusCircle className="w-5 h-5 mb-3 text-rose-500"/><b className="text-xl">-{formatCurrency(calc.desc)}</b><p className="text-xs text-[var(--text-muted)]">Descontos</p></div>
        <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4"><CalendarClock className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{formatCurrency(calc.total)}</b><p className="text-xs text-[var(--text-muted)]">A receber {pagamentoLabel}</p></div>
      </div>
@@ -46,11 +44,10 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5">
      <h3 className="font-black mb-4">Composição do fechamento</h3>
      <div className="space-y-2 text-sm">
-       <div className="flex justify-between"><span>Saldo do Ponto (semana anterior)</span><b>{formatCurrency(calc.base)}</b></div>
-       <div className="flex justify-between"><span>Comissões da semana vigente</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>
+       <div className="flex justify-between"><span>Salário</span><b>{formatCurrency(calc.base)}</b></div>
+       <div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>
        <div className="flex justify-between"><span>Descontos</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>
-       {calc.pago>0&&<div className="flex justify-between"><span>Já recebido</span><b>-{formatCurrency(calc.pago)}</b></div>}
-       {calc.saldoAnterior!==0&&<div className="flex justify-between"><span>Saldo anterior</span><b>{calc.saldoAnterior>=0?'+':'-'}{formatCurrency(Math.abs(calc.saldoAnterior))}</b></div>}
+
        <div className="pt-3 mt-3 border-t border-[var(--border-color)] flex justify-between text-base"><b>Total a receber {pagamentoLabel}</b><b>{formatCurrency(calc.total)}</b></div>
      </div>
    </div>
