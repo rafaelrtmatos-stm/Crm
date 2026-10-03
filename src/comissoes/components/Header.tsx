@@ -8,13 +8,15 @@ import {
   Bell,
   LogOut,
   MinusCircle,
+  Clock3,
+  CircleDollarSign,
 } from 'lucide-react';
 import { UserSettings } from '../types';
 import { AddServiceButton } from './AddServiceButton';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos';
-  setActiveTab: (tab: 'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos') => void;
+  activeTab: 'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos' | 'ponto' | 'salario';
+  setActiveTab: (tab: 'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos' | 'ponto' | 'salario') => void;
   userSettings: UserSettings;
   onOpenAddModal: () => void;
   onOpenSettings: () => void;
@@ -166,6 +168,8 @@ export const Header: React.FC<HeaderProps> = ({
             <span>SERVIÇOS</span>
           </button>
 
+          <button id="nav-tab-ponto" onClick={() => setActiveTab('ponto')} className={activeTab === 'ponto' ? 'bg-gradient-red text-white shadow-red-glow flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold'}><Clock3 className="w-4 h-4"/><span>MEU PONTO</span></button>
+          <button id="nav-tab-salario" onClick={() => setActiveTab('salario')} className={activeTab === 'salario' ? 'bg-gradient-red text-white shadow-red-glow flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold'}><CircleDollarSign className="w-4 h-4"/><span>MEU SALÁRIO</span></button>
           <button
             id="nav-tab-descontos"
             onClick={() => setActiveTab('descontos')}
@@ -244,6 +248,8 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Serviços</span>
           </button>
 
+          <button onClick={() => setActiveTab('ponto')} className={activeTab === 'ponto' ? 'bg-gradient-red text-white shadow-red-glow flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black' : 'text-[var(--text-muted)] bg-[var(--bg-card)] flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black'}><Clock3 className="w-3.5 h-3.5"/><span>Meu Ponto</span></button>
+          <button onClick={() => setActiveTab('salario')} className={activeTab === 'salario' ? 'bg-gradient-red text-white shadow-red-glow flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black' : 'text-[var(--text-muted)] bg-[var(--bg-card)] flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black'}><CircleDollarSign className="w-3.5 h-3.5"/><span>Salário</span></button>
           <button
             onClick={() => setActiveTab('descontos')}
             className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${

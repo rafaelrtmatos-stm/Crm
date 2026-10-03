@@ -33,6 +33,8 @@ import { ServiceModal } from './components/ServiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ServicosAgendados } from './components/ServicosAgendados';
 import { DescontosView } from './components/DescontosView';
+import { MeuPontoView } from './components/MeuPontoView';
+import { MeuSalarioView } from './components/MeuSalarioView';
 import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import { getTodayISO } from './utils/dateHelpers';
@@ -54,7 +56,7 @@ export default function ComissoesApp() {
   });
   const [loadingData, setLoadingData] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos' | 'ponto' | 'salario'>('dashboard');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
@@ -419,6 +421,8 @@ export default function ComissoesApp() {
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} onGoToServiceInTable={handleGoToServiceInTable} />
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
+            {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} />}
+            {activeTab === 'salario' && <MeuSalarioView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
             {activeTab === 'descontos' && (
               <DescontosView
                 colaboradorId={colaborador.id}
