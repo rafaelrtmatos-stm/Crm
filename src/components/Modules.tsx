@@ -16490,6 +16490,44 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!phoneDigits) { showAlert('Digite um telefone válido.'); return; }
     const linhas = o.items.map(i => `${i.quantity}x ${i.name} — R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
     const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
+
+    // Compartilhamento de orçamento: a arte visual também fica anexada no composer do WhatsApp.
+    // O envio continua sendo confirmado pelo atendente no próprio chat.
+    try {
+      const canvas = orcamentoViewMode === 'simples'
+        ? await renderOrcamentoSimplesCanvas({
+            orcamento: o,
+            companyName: currentCompany?.name || 'Rafa Arts Graphics',
+            logoLightUrl,
+            logoDarkUrl,
+            companyContact,
+          })
+        : await renderOrcamentoCanvas({
+            orcamento: o,
+            companyName: currentCompany?.name || 'Rafa Arts Graphics',
+            logoLightUrl,
+            logoDarkUrl,
+            companyContact,
+          });
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob) {
+        const file = new File(
+          [blob],
+          `Orcamento_${o.numero || o.id.slice(-8).toUpperCase()}.png`,
+          { type: 'image/png' }
+        );
+        const previewUrl = URL.createObjectURL(blob);
+        setPendingReceiptAttachment({
+          file,
+          previewUrl,
+          caption: msg,
+          phone: phoneDigits,
+        });
+      }
+    } catch (err) {
+      console.warn('Não foi possível gerar a imagem do orçamento para anexar ao WhatsApp:', err);
+    }
+
     await findOrCreateLeadAndOpenChat(phoneDigits, o.customerName || 'Cliente', msg);
     if (o.status === 'rascunho') {
       await supabase.from('orcamentos').update({ status: 'enviado' }).eq('id', o.id);
