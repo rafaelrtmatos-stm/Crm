@@ -616,6 +616,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     return Math.max(0, cartSubtotal - saleDiscountValue - saleCreditApplied);
   }, [cartSubtotal, saleDiscountValue, saleCreditApplied]);
 
+  // Reaproveita a medida já salva no item quando o usuário abre a edição.
+  const parseSavedDimensions = (item: any, product: Product) => {
+    const raw = String(item?.dimensions || '').trim();
+    const numbers = raw.match(/[0-9]+(?:[.,][0-9]+)?/g) || [];
+    const areaFallback = Number(item?.area) || 0;
+
+    if (product.unitType === 'metro') {
+      return {
+        width: numbers[0] || (areaFallback > 0 ? String(areaFallback).replace('.', ',') : ''),
+        height: ''
+      };
+    }
+
+    return {
+      width: numbers[0] || '',
+      height: numbers[1] || ''
+    };
+  };
+
   // Cart Handlers
   const handleAddProductToCart = (product: Product) => {
     if (product.unitType === 'm2' || product.unitType === 'metro') {
@@ -1375,15 +1394,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                               setEditingCartItemData({ ...item });
                               setDimensionModalProduct(product);
                               setDimQuantity(Number(item.quantity) || 1);
-                              if (product.unitType === 'metro') {
-                                const match = String(item.dimensions || '').match(/([0-9.,]+)m\s+linear/i);
-                                setDimWidth(match?.[1] || String(item.area || '').replace('.', ','));
-                                setDimHeight('');
-                              } else {
-                                const match = String(item.dimensions || '').match(/([0-9.,]+)m\s+x\s+([0-9.,]+)m/i);
-                                setDimWidth(match?.[1] || '');
-                                setDimHeight(match?.[2] || '');
-                              }
+                              const savedDimensions = parseSavedDimensions(item, product);
+                              setDimWidth(savedDimensions.width);
+                              setDimHeight(savedDimensions.height);
                               return;
                             }
                             setEditingCartItemIndex(index);
