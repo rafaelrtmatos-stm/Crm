@@ -1,4 +1,4 @@
-import { ModalidadeRemuneracao, calcularSalarioSemanal } from './supabaseStorage';
+import { ModalidadeRemuneracao } from './supabaseStorage';
 import { MetaValorItem } from '../types';
 
 export interface ParametrosRemuneracao {
@@ -47,8 +47,11 @@ export function calcularRemuneracaoSemanal(
   comissaoExistente: number
 ): ResultadoRemuneracao {
   const modalidade = params.modalidade || 'fixo_comissao';
-  const salarioMensal = Number(params.salarioBase) || 0;
-  const salarioBase = modalidade === 'meta' || modalidade === 'faturamento_geral' ? 0 : calcularSalarioSemanal(salarioMensal);
+  // salarioBase do módulo de Comissões é o valor FIXO SEMANAL cadastrado
+  // para o colaborador (ex.: Fixo R$ 350/semana; Fixo + Comissão R$ 400/semana).
+  // Não converter novamente por 44/220: isso reduziria R$ 400 para R$ 80.
+  const salarioSemanal = Number(params.salarioBase) || 0;
+  const salarioBase = modalidade === 'meta' || modalidade === 'faturamento_geral' ? 0 : salarioSemanal;
   const producao = Number(producaoIndividual) || 0;
   const comissao = Number(comissaoExistente) || 0;
   const metaPerc = Number(params.metaPercentual) || 0;
