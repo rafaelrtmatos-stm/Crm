@@ -17036,7 +17036,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); openCustosDaNota(sale); }}
-          title={r.isParcial
+          title={showProfitValues && r.isParcial
             ? `Caixa Hoje: R$ ${r.lucroRealizadoCaixa.toFixed(2).replace('.', ',')} • Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro Previsto: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`
             : `Custo: R$ ${r.custoTotal.toFixed(2).replace('.', ',')} • Lucro: R$ ${r.lucroPrevisto.toFixed(2).replace('.', ',')} • Margem: ${r.margemPrevista.toFixed(1)}% (Clique para ver Custos da Nota)`}
           className="text-[8.5px] font-mono block truncate w-full text-right hover:underline mt-0.5 cursor-pointer"
