@@ -378,10 +378,9 @@ export default function ComissoesAdminPanel() {
       const statsMap: Record<string, ColaboradorWeeklyStats> = {};
 
       colabs.forEach((c) => {
-        // salario_base no cadastro do colaborador já representa o salário semanal
-        // usado pelo perfil/DescontosView. Não converter novamente por 44/220,
-        // pois isso transformaria R$ 400,00 em R$ 80,00 no card externo.
-        const salarioBaseCadastrado = Number(c.salario_base) || 0;
+        // salario_base no cadastro é mensal. Para o ciclo aberto, o card precisa usar
+        // a mesma base semanal exibida no painel do funcionário.
+        const salarioBaseCadastrado = calcularSalarioSemanal(Number(c.salario_base) || 0);
         const caixaFechado = caixasByColab[c.id]?.status === 'fechado';
         // Se houver snapshot do fechamento, ele tem prioridade; ele já está em valor semanal.
         const salarioBaseFechado = caixasByColab[c.id]?.salarioBase;
@@ -433,10 +432,8 @@ export default function ComissoesAdminPanel() {
         // FIXO + COMISSÃO: salario_base + comissao existente
         // FATURAMENTO GERAL: % sobre o faturamento geral da empresa/período
         // META: valores estipulados para cada meta batida (ou % sobre produção)
-        // FIXO e FIXO + COMISSÃO usam diretamente o salário semanal cadastrado,
-        // exatamente como o perfil do funcionário. O helper genérico converte salário
-        // mensal para semanal e, se usado aqui, causaria a conversão indevida de
-        // R$ 400,00 -> R$ 80,00.
+        // FIXO e FIXO + COMISSÃO usam a base semanal equivalente ao salário mensal
+        // cadastrado, exatamente como o painel "Meu Salário".
         const remuneracao =
           modalidade === 'fixo' || modalidade === 'fixo_comissao'
             ? {
