@@ -102,6 +102,10 @@ interface ColaboradorWeeklyStats {
   metaAtingidaNome?: string;
   metaProximaNome?: string;
   metaProximaValor?: number;
+  // Valores brutos dos serviços, usados exclusivamente nos indicadores agregados da equipe.
+  // Não confundir com a remuneração efetiva, que pode incluir meta/faturamento geral.
+  comissaoServicos: number;
+  producaoServicos: number;
 }
 
 interface FormState {
@@ -472,6 +476,8 @@ export default function ComissoesAdminPanel() {
           salarioBase: remuneracao.salarioBaseEfetivo,
           totalComissao: remuneracao.comissaoEfetiva,
           totalProducao: modalidade === 'meta' || modalidade === 'faturamento_geral' ? receitaLojaQuitadasSemana : colabServicos.totalProducao,
+          comissaoServicos: colabServicos.totalComissao,
+          producaoServicos: colabServicos.totalProducao,
           totalDescontos,
           totalPago,
           saldoAnterior,
@@ -556,8 +562,11 @@ export default function ComissoesAdminPanel() {
         }
 
         if (stats) {
-          totalComissaoSemana += stats.totalComissao;
-          totalProducaoSemana += stats.totalProducao;
+          // Os cards da equipe mostram somente os valores brutos lançados em serviços.
+          // A remuneração por meta/faturamento geral é individual e não deve inflar
+          // os indicadores agregados de comissão e produção.
+          totalComissaoSemana += stats.comissaoServicos;
+          totalProducaoSemana += stats.producaoServicos;
           totalDescontosSemana += stats.totalDescontos;
           totalEstimadoEquipe += stats.totalEstimado;
         } else {
