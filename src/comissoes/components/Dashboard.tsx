@@ -357,6 +357,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return calculateSummaryStats(filteredServices, userSettings.baseSalary, userSettings);
   }, [filteredServices, userSettings]);
 
+  // Calculate specific current week statistics for the bottom section
+  const weeklyBounds = useMemo(
+    () => getWorkWeekBounds(period === 'semana' ? dashboardWeekOffset(weekOffset) : dashboardWeekOffset(0)),
+    [period, weekOffset]
+  );
+
+
   // O pagamento precisa pertencer ao mesmo caixa do ciclo exibido.
   // No sábado, isso impede que um pagamento do caixa 19/09–25/09,
   // registrado em 26/09, seja abatido novamente do fechamento 26/09–02/10.
@@ -433,11 +440,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return 0;
   }, [caixa, period, weekOffset, saldoAnteriorCaixaPeriodo]);
 
-  // Calculate specific current week statistics for the bottom section
-  const weeklyBounds = useMemo(
-    () => getWorkWeekBounds(period === 'semana' ? dashboardWeekOffset(weekOffset) : dashboardWeekOffset(0)),
-    [period, weekOffset]
-  );
 
   const weeklyServices = useMemo(() => {
     return recentServices.filter(
