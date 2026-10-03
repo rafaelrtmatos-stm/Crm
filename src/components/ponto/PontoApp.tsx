@@ -41,6 +41,7 @@ import {
   NovoFuncModal,
   EditFuncModal,
   RegistroModal,
+  RegistroMassaModal,
   JornadaEditorModal,
   DesativarConfirmModal,
 } from './PontoModals';
@@ -92,6 +93,8 @@ export function PontoApp() {
   const [jornadaModalFunc, setJornadaModalFunc] = useState<FuncionarioItem | null>(null);
   const [desativarFuncModal, setDesativarFuncModal] = useState<FuncionarioItem | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [registrosSelecionados, setRegistrosSelecionados] = useState<Set<string>>(new Set());
+  const [editRegMassaOpen, setEditRegMassaOpen] = useState(false);
 
   // Filtros gerais para a aba Registros
   const [filtroDataRegistros, setFiltroDataRegistros] = useState(hojeStr());
@@ -291,6 +294,50 @@ export function PontoApp() {
     }
     return lista;
   }, [ativos, regMap, analise, hoje]);
+
+  const salvarRegistrosEmMassa = async (funcionarioIds: string[], data: string, h: Partial<PontoRegistro>) => {
+    const { data: existentes, error: buscaError } = await supabase
+      .from('ponto_registros')
+      .select('funcionario_id, origem')
+      .eq('data', data)
+      .in('funcionario_id', funcionarioIds);
+
+    if (buscaError) {
+      showAlert(`Erro ao localizar registros: ${buscaError.message}`);
+      return;
+    }
+
+    const origemPorFuncionario = new Map(
+      (existentes || []).map((r: any) => [r.funcionario_id, r.origem])
+    );
+    const n = (v?: string | null) => (v ? v : null);
+    const payload = funcionarioIds.map((fid) => ({
+      funcionario_id: fid,
+      data,
+      entrada: n(h.entrada),
+      inicio_intervalo: n(h.inicio_intervalo),
+      fim_intervalo: n(h.fim_intervalo),
+      saida: n(h.saida),
+      observacao: n(h.observacao),
+      origem: origemPorFuncionario.get(fid) === 'importacao' ? 'importacao' : 'manual',
+      editado_manual: true,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from('ponto_registros')
+      .upsert(payload, { onConflict: 'funcionario_id,data' });
+
+    if (error) {
+      showAlert(`Erro ao salvar edição em massa: ${error.message}`);
+      return;
+    }
+
+    setEditRegMassaOpen(false);
+    setRegistrosSelecionados(new Set());
+    await carregar();
+    showAlert(`Ponto atualizado para ${funcionarioIds.length} funcionário(s).`);
+  };
 
   // ---------------- Ações de Banco de Dados ----------------
   const salvarRegistro = async (fid: string, data: string, h: Partial<PontoRegistro>) => {
@@ -577,10 +624,50 @@ export function PontoApp() {
                     </div>
                   </div>
 
+                  {registrosSelecionados.size > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+                      <span className="text-xs font-bold text-emerald-200">
+                        {registrosSelecionados.size} funcionário(s) selecionado(s)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setEditRegMassaOpen(true)}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                      >
+                        <Pencil size={13} /> Editar ponto em massa
+                      </button>
+                    </div>
+                  )}
+
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-white/40 font-semibold border-b border-white/10 text-left">
+                          <th className="pb-3 pr-2">
+                            <input
+                              type="checkbox"
+                              checked={ativos.filter((f) => {
+                                const nome = (f.colaboradores?.nome || f.nome_relogio || '').toLowerCase();
+                                return nome.includes(buscaRegistros.toLowerCase());
+                              }).length > 0 && ativos.filter((f) => {
+                                const nome = (f.colaboradores?.nome || f.nome_relogio || '').toLowerCase();
+                                return nome.includes(buscaRegistros.toLowerCase());
+                              }).every((f) => registrosSelecionados.has(f.id))}
+                              onChange={(e) => {
+                                const visiveis = ativos.filter((f) => {
+                                  const nome = (f.colaboradores?.nome || f.nome_relogio || '').toLowerCase();
+                                  return nome.includes(buscaRegistros.toLowerCase());
+                                });
+                                setRegistrosSelecionados((prev) => {
+                                  const next = new Set(prev);
+                                  visiveis.forEach((f) => e.target.checked ? next.add(f.id) : next.delete(f.id));
+                                  return next;
+                                });
+                              }}
+                              className="accent-emerald-500 cursor-pointer"
+                              title="Selecionar todos"
+                            />
+                          </th>
                           <th className="pb-3 pr-4">Funcionário</th>
                           <th className="pb-3 pr-4">Matrícula</th>
                           <th className="pb-3 pr-4">Entrada</th>
@@ -612,6 +699,21 @@ export function PontoApp() {
 
                             return (
                               <tr key={f.id} className="hover:bg-white/5 transition-colors">
+                                <td className="py-3 pr-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={registrosSelecionados.has(f.id)}
+                                    onChange={(e) =>
+                                      setRegistrosSelecionados((prev) => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add(f.id);
+                                        else next.delete(f.id);
+                                        return next;
+                                      })
+                                    }
+                                    className="accent-emerald-500 cursor-pointer"
+                                  />
+                                </td>
                                 <td className="py-3 pr-4 font-bold text-white">
                                   <button
                                     onClick={() => setSelId(f.id)}
