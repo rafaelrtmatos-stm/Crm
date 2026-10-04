@@ -422,6 +422,25 @@ export function PontoApp() {
       showAlert(`Erro ao vincular colaborador: ${error.message}`);
       return;
     }
+    // O WhatsApp pertence ao cadastro do colaborador. Ao vincular, aproveita o número já cadastrado
+    // para atualizar a foto do WhatsApp sem exigir novo preenchimento dentro do Ponto.
+    const colaborador = colabs.find((c) => c.id === colaboradorId);
+    const telefone = colaborador?.telefone_whatsapp?.replace(/\D/g, '') || '';
+    if (colaborador && telefone && !colaborador.foto_url) {
+      try {
+        const fotoRes = await fetch('/api/whatsapp-foto-perfil', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+          body: JSON.stringify({ phone: telefone }),
+        });
+        const fotoData = await fotoRes.json();
+        if (fotoData?.photoUrl) {
+          await supabase.from('colaboradores').update({ foto_url: fotoData.photoUrl }).eq('id', colaborador.id);
+        }
+      } catch {
+        // A vinculação do Ponto não deve falhar se a consulta da foto não estiver disponível.
+      }
+    }
     await carregar();
     showAlert('Funcionário vinculado com sucesso e ativado no ponto.');
   };
@@ -956,7 +975,6 @@ export function PontoApp() {
             setEditFuncModal(null);
             await carregar();
           }}
-          buscarFoto={buscarFoto}
         />
       )}
 
