@@ -221,9 +221,7 @@ export default function ComissoesAdminPanel() {
   // (26/09 a 02/10). O saldo do ponto/salário permanece no ciclo anterior.
   // A produção do sábado fica para o próximo recebimento.
   const commissionWeekOffset = new Date().getDay() === 6 ? weekOffset - 1 : weekOffset;
-  const pointWeekOffset = commissionWeekOffset - 1;
   const weekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
-  const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
   const isSaturday = new Date().getDay() === 6;
 
   // Estados de busca, filtros e visualização
@@ -274,7 +272,9 @@ export default function ComissoesAdminPanel() {
 
       // 2. Busca dados da semana atual para cálculo do Total Estimado e contas de usuários
       const { start, end } = weekBounds;
-      const descBounds = getDescontosValesBounds(pointWeekBounds.start, pointWeekBounds.end);
+      // O caixa, descontos, pagamentos e saldo anterior pertencem ao MESMO ciclo semanal.
+      // No sábado, esse é o ciclo Sábado a Sexta que está sendo acertado hoje.
+      const descBounds = getDescontosValesBounds(weekBounds.start, weekBounds.end);
 
       const [servicosRes, descontosRes, pagamentosRes, usuariosRes, caixasRes, vendasRes] = await Promise.all([
         supabase
@@ -299,7 +299,7 @@ export default function ComissoesAdminPanel() {
         supabase
           .from('comissoes_caixas_semanais')
           .select('id, colaborador_id, saldo_anterior, semana_inicio, semana_fim, status, salario_base, total_descontos')
-          .eq('semana_inicio', pointWeekBounds.start),
+          .eq('semana_inicio', weekBounds.start),
         supabase
           .from('vendas')
           .select('total, status, down_payment, created_at')
@@ -396,8 +396,9 @@ export default function ComissoesAdminPanel() {
         const metaSemanal = Number(c.meta_semanal) || 0;
         const colabServicos = servicosByColab[c.id] || { totalComissao: 0, totalProducao: 0, count: 0 };
         const colabDescontos = descontosByColab[c.id] || [];
-        // Se o caixa já foi fechado, usa o desconto congelado do fechamento.
-        // Assim o card não recalcula R$109,33 enquanto MeuSalarioView mostra R$100,00.
+        // Desconto é sempre do MESMO ciclo do caixa exibido.
+        // Se o caixa estiver fechado, usa o snapshot congelado daquele ciclo.
+        // Se estiver aberto, calcula somente os lançamentos do intervalo desse mesmo ciclo.
         const totalDescontosFechado = caixasByColab[c.id]?.totalDescontos;
         const totalDescontos = caixaFechado && totalDescontosFechado != null
           ? totalDescontosFechado
@@ -469,8 +470,9 @@ export default function ComissoesAdminPanel() {
         // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
         const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
 
-        // Fórmula exibida: Salário + Comissões - Descontos
-        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos);
+        // Fórmula oficial do acerto: salário + comissão - descontos - pagamentos
+        // + saldo anterior. Saldo anterior negativo é a falta/dívida que veio da semana passada.
+        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago + saldoAnterior);
         const baseMetaExibida = modalidade === 'meta' ? receitaLojaQuitadasSemana : colabServicos.totalProducao;
         const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (baseMetaExibida / metaSemanalEfetiva) * 100 : 0;
 
@@ -967,8 +969,24 @@ export default function ComissoesAdminPanel() {
           body: JSON.stringify({ phone: telefone }),
         });
         const fotoData = await fotoResponse.json();
-        if (fotoData?.photoUrl) {
-          await supabase.from('colaboradores').update({ foto_url: fotoData.photoUrl }).eq('id', targetId);
+        let photoUrl = fotoData?.photoUrl || null;
+
+        // Fallback: se a Evolution não devolver uma foto nova, reaproveita a foto
+        // já espelhada do mesmo WhatsApp no cadastro do lead. Isso mantém uma única
+        // foto oficial entre CRM/lead e colaborador.
+        if (!photoUrl) {
+          const { data: leadFoto } = await supabase
+            .from('leads')
+            .select('photo_url')
+            .eq('phone', telefone)
+            .not('photo_url', 'is', null)
+            .limit(1)
+            .maybeSingle();
+          photoUrl = leadFoto?.photo_url || null;
+        }
+
+        if (photoUrl) {
+          await supabase.from('colaboradores').update({ foto_url: photoUrl }).eq('id', targetId);
         }
       } catch (errFoto) {
         console.warn('Aviso ao buscar foto do WhatsApp do colaborador:', errFoto);
