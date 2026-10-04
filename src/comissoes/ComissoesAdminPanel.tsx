@@ -470,9 +470,11 @@ export default function ComissoesAdminPanel() {
         // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
         const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
 
-        // Fórmula oficial do acerto: salário + comissão - descontos - pagamentos
-        // + saldo anterior. Saldo anterior negativo é a falta/dívida que veio da semana passada.
-        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago + saldoAnterior);
+        // Fórmula da previsão de recebimento: salário + comissão - descontos + saldo anterior.
+        // Saldo anterior negativo é a falta/dívida que veio da semana passada.
+        // Pagamentos já registrados ficam como histórico do caixa e não reduzem a previsão
+        // mostrada antes do acerto de hoje.
+        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos + saldoAnterior);
         const baseMetaExibida = modalidade === 'meta' ? receitaLojaQuitadasSemana : colabServicos.totalProducao;
         const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (baseMetaExibida / metaSemanalEfetiva) * 100 : 0;
 
