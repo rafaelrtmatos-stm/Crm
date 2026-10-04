@@ -19,6 +19,7 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
+import { normalizarTelefoneBR } from './_lib/phone.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
 
@@ -30,7 +31,7 @@ async function handleFotoPerfil(req, res) {
   }
   if (!(await exigirUsuarioAutorizado(req, res))) return;
 
-  const numero = String(req.body?.phone || '').replace(/\D/g, '');
+  const numero = normalizarTelefoneBR(String(req.body?.phone || '').replace(/\D/g, ''));
   if (!numero) {
     res.status(400).json({ error: 'Faltou o telefone.' });
     return;
