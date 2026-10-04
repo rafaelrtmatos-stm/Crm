@@ -51,6 +51,7 @@ import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanal
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
+import { useApp } from '../AppContext';
 import { showAlert, showConfirm } from '../lib/notify';
 import ComissoesEmbedded from './ComissoesEmbedded';
 import './comissoes-theme.css';
@@ -202,6 +203,7 @@ function getAvatarGradient(name: string): string {
 }
 
 export default function ComissoesAdminPanel() {
+  const { user } = useApp();
   // Sincroniza com tema claro/escuro do CRM
   useSyncWithCrmTheme();
 
@@ -950,6 +952,28 @@ export default function ComissoesAdminPanel() {
     }
 
     const targetId = editingId || savedData?.id;
+
+    // Busca a foto do WhatsApp ao salvar o telefone do colaborador.
+    if (targetId && form.telefoneWhatsapp.replace(/\D/g, '')) {
+      try {
+        const digits = form.telefoneWhatsapp.replace(/\D/g, '');
+        const telefone = digits.startsWith('55') ? digits : `55${digits}`;
+        const fotoResponse = await fetch('/api/whatsapp-foto-perfil', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(user?.id ? { 'x-user-id': user.id } : {}),
+          },
+          body: JSON.stringify({ phone: telefone }),
+        });
+        const fotoData = await fotoResponse.json();
+        if (fotoData?.photoUrl) {
+          await supabase.from('colaboradores').update({ foto_url: fotoData.photoUrl }).eq('id', targetId);
+        }
+      } catch (errFoto) {
+        console.warn('Aviso ao buscar foto do WhatsApp do colaborador:', errFoto);
+      }
+    }
 
     // Gerencia o anexo da conta de usuário escolhida ou criação de nova conta
     if (targetId) {
