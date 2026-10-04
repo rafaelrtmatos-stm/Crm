@@ -62,6 +62,7 @@ export const mapColaboradorRow = (row: any): Colaborador => {
   return {
     id: row.id,
     nome: row.nome,
+    fotoUrl: row.foto_url || undefined,
     cargo: row.cargo || undefined,
     salarioBase: Number(row.salario_base) || 0,
     comissaoPadraoPercentual: Number(row.comissao_padrao_percentual) || 10,
