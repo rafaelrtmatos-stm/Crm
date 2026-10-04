@@ -517,7 +517,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     <div className="space-y-6 animate-fadeIn">
       {/* Top Greeting & Date Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] relative overflow-hidden shadow-sm">
-        <div className="relative z-10">
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border border-[var(--border-color)] bg-[var(--bg-card-sec)] shrink-0 shadow-sm">
+            {userSettings.photoUrl ? (
+              <img src={userSettings.photoUrl} alt={userSettings.userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-[var(--accent-red)] font-black text-lg">
+                {userSettings.userName.slice(0, 2).toUpperCase()}
+              </div>
+            )}
+          </div>
+          <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--accent-red)] mb-1">
             <Sparkles className="w-4 h-4" /> Painel de Controle de Produção
           </div>
@@ -527,6 +537,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <p className="text-xs sm:text-sm text-[var(--text-muted)] font-medium mt-0.5">
             {capitalizedToday} • {userSettings.userRole}
           </p>
+          </div>
         </div>
 
         <div className="relative z-10 flex items-center gap-3">
