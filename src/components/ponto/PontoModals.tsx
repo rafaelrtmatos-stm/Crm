@@ -446,6 +446,7 @@ export function JornadaEditorModal({
   const [massaInicioInt, setMassaInicioInt] = useState('12:00');
   const [massaFimInt, setMassaFimInt] = useState('13:00');
   const [massaSaida, setMassaSaida] = useState('17:00');
+  const [diasSelecionados, setDiasSelecionados] = useState<number[]>(DIAS.map((d) => d.dow));
 
   const [rows, setRows] = useState(() =>
     DIAS.map(({ dow, nome }) => {
@@ -488,6 +489,19 @@ export function JornadaEditorModal({
   const estimativaMensalMin = Math.round(totalSemanalMin * 4.3333);
 
   // Ações de preenchimento em massa
+  const aplicarDiasSelecionados = () => {
+    if (diasSelecionados.length === 0) {
+      showAlert('Selecione pelo menos um dia para aplicar o horário.');
+      return;
+    }
+    setRows((prev) => prev.map((r) => diasSelecionados.includes(r.dow) ? ({ ...r, trabalha: true, entrada: massaEntrada, inicio_intervalo: massaInicioInt, fim_intervalo: massaFimInt, saida: massaSaida }) : r));
+    showAlert(`Horário aplicado para ${diasSelecionados.length} dia(s) da semana.`);
+  };
+
+  const alternarDiaSelecionado = (dow: number) => setDiasSelecionados((prev) => prev.includes(dow) ? prev.filter((d) => d !== dow) : [...prev, dow]);
+  const selecionarTodosOsDias = () => setDiasSelecionados(DIAS.map((d) => d.dow));
+  const limparSelecaoDias = () => setDiasSelecionados([]);
+
   const aplicarMassaSegSex = () => {
     setRows((prev) =>
       prev.map((r) => {
@@ -707,7 +721,7 @@ export function JornadaEditorModal({
   const totalFuncionariosCount = todosFuncionarios.length || 'todos os';
 
   return (
-    <Modal title="Configurar Grade Semanal de Jornada" onClose={onClose} maxWidth="max-w-3xl">
+    <Modal title={`Jornada Semanal • ${func.colaboradores?.nome || func.nome_relogio || `Funcionário ${func.numero_relogio}`}`} onClose={onClose} maxWidth="max-w-3xl">
       <div className="space-y-4">
         {/* Painel de Indicadores da Jornada (Diária, Semanal e Mensal em tempo real) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-950/80 border border-white/10">
@@ -842,6 +856,14 @@ export function JornadaEditorModal({
               </button>
               <button
                 type="button"
+                onClick={aplicarDiasSelecionados}
+                className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                title="Aplica os horários aos dias selecionados acima"
+              >
+                <Zap size={12} /> Aplicar aos Selecionados
+              </button>
+              <button
+                type="button"
                 onClick={aplicarMassaSegSab}
                 className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
                 title="Aplica estes horários para Segunda a Sábado e define Domingo como folga"
@@ -850,6 +872,26 @@ export function JornadaEditorModal({
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Seleção de dias para aplicação em massa */}
+        <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-2.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs font-black text-white uppercase tracking-wider">Selecionar dias para aplicar</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={selecionarTodosOsDias} className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 text-[10px] font-bold border border-white/10 cursor-pointer">Todos os dias</button>
+              <button type="button" onClick={limparSelecaoDias} className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 text-[10px] font-bold border border-white/10 cursor-pointer">Limpar</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {DIAS.map((d) => (
+              <label key={d.dow} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${diasSelecionados.includes(d.dow) ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-white/5 border-white/10 text-white/40'}`}>
+                <input type="checkbox" checked={diasSelecionados.includes(d.dow)} onChange={() => alternarDiaSelecionado(d.dow)} className="rounded text-emerald-500 bg-white/10 border-white/20 cursor-pointer" />
+                {d.nome.replace('-feira', '')}
+              </label>
+            ))}
+          </div>
+          <p className="text-[10px] text-white/40">Você pode editar cada dia diretamente na tabela ou selecionar vários dias e aplicar os horários acima.</p>
         </div>
 
         {/* Tabela dos 7 Dias com Ajustes Finos Individuais */}
