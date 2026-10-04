@@ -111,27 +111,22 @@ export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string
 };
 
 /**
- * Retorna os limites de apuração de Descontos e Vales (Pagamentos) para a semana de trabalho.
- * Regra:
- * - O fechamento semanal é realizado no Sábado (dia seguinte à Sexta-feira de encerramento da produção).
- * - Se o funcionário pegar um vale ou tiver um desconto no Sábado de fechamento, esse desconto/vale
- *   VEM PARA O DIA (é abatido no acerto deste mesmo Sábado).
- * - Apenas a comissão/produção realizada no Sábado é que fica para a semana seguinte ("agora só a comissão que é contada para o outro dia").
- * - Portanto, para a semana que encerra a comissão na Sexta (`weekEnd`), os descontos e vales
- *   são apurados até o SÁBADO de fechamento (`addDaysISO(weekEnd, 1)`).
- * - E o início dos descontos e vales começa no DOMINGO (`addDaysISO(weekStart, 1)`), pois os vales
- *   do Sábado anterior já foram abatidos no fechamento anterior (exceto na semana inaugural 07/09,
- *   onde começou na Segunda 07/09).
+ * Retorna os limites de apuração de Descontos e Vales para o acerto vigente.
+ * Regra independente do ciclo de comissão:
+ * - Descontos e vales pertencentes ao acerto são considerados de SEGUNDA a SÁBADO.
+ * - Para um ciclo de comissão Sábado a Sexta, a janela de descontos correspondente
+ *   começa na segunda-feira seguinte ao sábado de início e termina no sábado seguinte
+ *   à sexta-feira de encerramento.
+ * - Exemplo: comissão 26/09 a 02/10 -> descontos 28/09 a 03/10.
+ * - Isso impede que descontos do ciclo anterior sejam carregados para o acerto atual.
  */
 export const getDescontosValesBounds = (weekStart: string, weekEnd: string): { start: string; end: string } => {
-  // Sábado de fechamento/pagamento (sexta-feira + 1 dia)
-  const end = addDaysISO(weekEnd, 1);
+  const startDay = new Date(weekStart + 'T00:00:00').getDay();
 
-  const startDay = new Date(`${weekStart}T00:00:00`).getDay();
-  // Se começou no sábado (6), os descontos deste ciclo iniciam no domingo seguinte (+1 dia),
-  // já que os descontos do sábado anterior entraram no acerto daquele sábado anterior.
-  // Se for a semana inaugural de 07/09 (segunda = 1), mantém 07/09.
-  const start = startDay === 6 ? addDaysISO(weekStart, 1) : weekStart;
+  // Ciclo normal Sábado -> Sexta: descontos começam na segunda e terminam no sábado.
+  // Na semana inaugural iniciada numa segunda, mantém a própria segunda como início.
+  const start = startDay === 1 ? weekStart : addDaysISO(weekStart, 2);
+  const end = addDaysISO(weekEnd, 1);
 
   return { start, end };
 };
