@@ -2743,7 +2743,6 @@ export default function App() {
     { id: 'messages', label: 'Conversas', icon: MessageSquare },
     { id: 'pos', label: 'PDV Gráfica', icon: ShoppingBag },
     { id: 'inventory', label: 'Estoque & Materiais', icon: Package },
-    { id: 'ponto', label: 'Controle de Ponto', icon: Clock },
     { id: 'clientes_espera', label: 'Clientes em Espera', icon: Clock },
     { id: 'production', label: 'Ordem de Serviço', icon: Layers },
     { id: 'robozinho_rafa', label: 'Integrações', icon: Bot },
