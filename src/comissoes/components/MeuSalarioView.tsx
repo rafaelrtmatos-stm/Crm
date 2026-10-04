@@ -7,7 +7,7 @@ import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStora
 
 export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number}>=({colaboradorId,nome,salarioBase})=>{
  const[caixa,setCaixa]=useState<any>(null),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[pagamentos,setPagamentos]=useState<any[]>([]),[loading,setLoading]=useState(true);
- const hoje=new Date(),ehSabado=hoje.getDay()===6,comissaoOffset=ehSabado?-1:0,comissaoBounds=useMemo(()=>getWorkWeekBounds(comissaoOffset),[comissaoOffset]),bounds=useMemo(()=>getWorkWeekBounds(comissaoOffset-1),[comissaoOffset]),descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
+ const hoje=new Date(),ehSabado=hoje.getDay()===6,comissaoOffset=ehSabado?-1:0,comissaoBounds=useMemo(()=>getWorkWeekBounds(comissaoOffset),[comissaoOffset]),bounds=comissaoBounds,descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
  const salarioSemanal=calcularSalarioSemanal(salarioBase);
  useEffect(()=>{let ok=true;(async()=>{
    const[c,s,d,p]=await Promise.all([
@@ -24,7 +24,9 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||salarioSemanal:salarioSemanal;
    const comissao=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0);
    const desc=fechado&&caixa?.total_descontos!==null&&caixa?.total_descontos!==undefined?Number(caixa.total_descontos)||0:calculateDescontosNoPeriodo(descontos,descBounds.start,descBounds.end);
-   return{base,comissao,desc,total:base+comissao-desc};
+   const saldoAnterior=Number(caixa?.saldo_anterior)||0;
+   const pago=pagamentos.reduce((s,x)=>s+(Number(x.valor)||0),0);
+   return{base,comissao,desc,saldoAnterior,pago,total:base+comissao-desc-pago+saldoAnterior};
  },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal]);
 
  const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
@@ -46,7 +48,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
      <div className="space-y-2 text-sm">
        <div className="flex justify-between"><span>Salário</span><b>{formatCurrency(calc.base)}</b></div>
        <div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>
-       <div className="flex justify-between"><span>Descontos</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>
+       <div className="flex justify-between"><span>Descontos da semana</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>
 
        <div className="pt-3 mt-3 border-t border-[var(--border-color)] flex justify-between text-base"><b>Total a receber {pagamentoLabel}</b><b>{formatCurrency(calc.total)}</b></div>
      </div>
