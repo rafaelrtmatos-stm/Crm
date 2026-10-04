@@ -25,8 +25,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    const comissao=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0);
    const desc=fechado&&caixa?.total_descontos!==null&&caixa?.total_descontos!==undefined?Number(caixa.total_descontos)||0:calculateDescontosNoPeriodo(descontos,descBounds.start,descBounds.end);
    const saldoAnterior=Number(caixa?.saldo_anterior)||0;
-   const pago=pagamentos.reduce((s,x)=>s+(Number(x.valor)||0),0);
-   return{base,comissao,desc,saldoAnterior,pago,total:base+comissao-desc-pago+saldoAnterior};
+   return{base,comissao,desc,saldoAnterior,total:base+comissao-desc+saldoAnterior};
  },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal]);
 
  const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
