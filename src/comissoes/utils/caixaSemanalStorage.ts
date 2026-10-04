@@ -518,6 +518,12 @@ export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Prom
   const proximaSemanaInicio = getProximaSemanaInicio(caixa.semanaFim);
   const proximaSemanaFim = addDaysISO(proximaSemanaInicio, 6);
 
+  // Somente saque/adiantamento acima do salário semanal vira saldo negativo
+  // para a semana seguinte. Comissão, descontos e outros componentes do
+  // fechamento atual não geram dívida carregada para o próximo ciclo.
+  const excessoSaqueSobreSalario = Math.max(0, resumo.totalPago - resumo.salarioBase);
+  const saldoAnteriorProximaSemana = -excessoSaqueSobreSalario;
+
   const { data: proximo, error: openError } = await supabase
     .from('comissoes_caixas_semanais')
     .insert({
@@ -525,7 +531,7 @@ export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Prom
       semana_inicio: proximaSemanaInicio,
       semana_fim: proximaSemanaFim,
       status: 'aberto',
-      saldo_anterior: resumo.saldoFinal,
+      saldo_anterior: saldoAnteriorProximaSemana,
     })
     .select()
     .single();
