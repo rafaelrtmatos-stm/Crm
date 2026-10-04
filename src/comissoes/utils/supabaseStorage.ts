@@ -23,6 +23,7 @@ export type ModalidadeRemuneracao = 'fixo' | 'fixo_comissao' | 'meta' | 'faturam
 export interface Colaborador {
   id: string;
   nome: string;
+  fotoUrl?: string;
   cargo?: string;
   salarioBase: number;
   comissaoPadraoPercentual: number;
@@ -62,6 +63,7 @@ export const mapColaboradorRow = (row: any): Colaborador => {
   return {
     id: row.id,
     nome: row.nome,
+    fotoUrl: row.foto_url || undefined,
     cargo: row.cargo || undefined,
     salarioBase: Number(row.salario_base) || 0,
     comissaoPadraoPercentual: Number(row.comissao_padrao_percentual) || 10,
@@ -702,6 +704,7 @@ export async function saveColaboradorSettings(colaboradorId: string, settings: U
 export function colaboradorToUserSettings(c: Colaborador): UserSettings {
   return {
     userName: c.nome,
+    photoUrl: c.fotoUrl,
     userRole: c.cargo || 'Colaborador',
     baseSalary: c.salarioBase,
     defaultCommissionRate: c.comissaoPadraoPercentual,

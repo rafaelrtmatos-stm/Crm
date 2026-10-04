@@ -46,6 +46,7 @@ export interface MetaValorItem {
 export interface UserSettings {
   userName: string;
   userRole: string;
+  photoUrl?: string;
   baseSalary: number; // Salário Base (ex: R$ 400,00)
   defaultCommissionRate: number; // Ex: 10%
   weeklyGoal: number; // Ex: R$ 2500,00

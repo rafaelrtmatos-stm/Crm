@@ -428,7 +428,7 @@ export function PontoApp() {
     const telefone = colaborador?.telefone_whatsapp?.replace(/\D/g, '') || '';
     if (colaborador && telefone && !colaborador.foto_url) {
       try {
-        const fotoRes = await fetch('/api/whatsapp-foto-perfil', {
+        const fotoRes = await fetch('/api/whatsapp-contato?rota=foto-perfil', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
           body: JSON.stringify({ phone: telefone }),
