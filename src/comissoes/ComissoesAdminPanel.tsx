@@ -953,9 +953,9 @@ export default function ComissoesAdminPanel() {
 
     // Busca automaticamente a foto do WhatsApp após cadastrar/alterar o telefone.
     // A foto fica centralizada em colaboradores.foto_url e é usada nos avatares do CRM/Ponto.
-    if (targetId && form.telefoneWhatsapp.replace(/\\D/g, '')) {
+    if (targetId && form.telefoneWhatsapp.replace(/\D/g, '')) {
       try {
-        const telefone = form.telefoneWhatsapp.replace(/\\D/g, '');
+        const telefone = form.telefoneWhatsapp.replace(/\D/g, '');
         const fotoResponse = await fetch('/api/whatsapp-foto-perfil', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
