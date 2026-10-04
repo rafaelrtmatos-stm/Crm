@@ -958,7 +958,7 @@ export default function ComissoesAdminPanel() {
       try {
         const digits = form.telefoneWhatsapp.replace(/\D/g, '');
         const telefone = digits.startsWith('55') ? digits : `55${digits}`;
-        const fotoResponse = await fetch('/api/whatsapp-foto-perfil', {
+        const fotoResponse = await fetch('/api/whatsapp-contato?rota=foto-perfil', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
