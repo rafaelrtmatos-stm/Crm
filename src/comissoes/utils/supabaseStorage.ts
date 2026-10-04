@@ -23,6 +23,7 @@ export type ModalidadeRemuneracao = 'fixo' | 'fixo_comissao' | 'meta' | 'faturam
 export interface Colaborador {
   id: string;
   nome: string;
+  fotoUrl?: string;
   cargo?: string;
   salarioBase: number;
   comissaoPadraoPercentual: number;
@@ -703,6 +704,7 @@ export async function saveColaboradorSettings(colaboradorId: string, settings: U
 export function colaboradorToUserSettings(c: Colaborador): UserSettings {
   return {
     userName: c.nome,
+    photoUrl: c.fotoUrl,
     userRole: c.cargo || 'Colaborador',
     baseSalary: c.salarioBase,
     defaultCommissionRate: c.comissaoPadraoPercentual,
