@@ -21720,7 +21720,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
                                   title={sale.customerName || 'Cliente de Balcão'}
-                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer block truncate w-full"
+                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer block whitespace-normal break-words w-full"
                                 >
                                   {sale.customerName || 'Cliente de Balcão'}
                                 </button>
