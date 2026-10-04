@@ -951,6 +951,28 @@ export default function ComissoesAdminPanel() {
 
     const targetId = editingId || savedData?.id;
 
+    // Busca automaticamente a foto do WhatsApp após cadastrar/alterar o telefone.
+    // A foto fica centralizada em colaboradores.foto_url e é usada nos avatares do CRM/Ponto.
+    if (targetId && form.telefoneWhatsapp.replace(/\\D/g, '')) {
+      try {
+        const telefone = form.telefoneWhatsapp.replace(/\\D/g, '');
+        const fotoResponse = await fetch('/api/whatsapp-foto-perfil', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: telefone }),
+        });
+        const fotoData = await fotoResponse.json();
+        if (fotoData?.photoUrl) {
+          await supabase
+            .from('colaboradores')
+            .update({ foto_url: fotoData.photoUrl })
+            .eq('id', targetId);
+        }
+      } catch (errFoto) {
+        console.warn('Aviso ao buscar foto do WhatsApp do colaborador:', errFoto);
+      }
+    }
+
     // Gerencia o anexo da conta de usuário escolhida ou criação de nova conta
     if (targetId) {
       try {
