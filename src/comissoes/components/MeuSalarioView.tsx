@@ -45,6 +45,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5">
      <h3 className="font-black mb-4">Composição do fechamento</h3>
      <div className="space-y-2 text-sm">
+       <div className="flex justify-between"><span>Saldo da semana anterior</span><b className={calc.saldoAnterior < 0 ? "text-rose-500" : "text-emerald-500"}>{formatCurrency(calc.saldoAnterior)}</b></div>
        <div className="flex justify-between"><span>Salário</span><b>{formatCurrency(calc.base)}</b></div>
        <div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>
        <div className="flex justify-between"><span>Descontos da semana</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>
