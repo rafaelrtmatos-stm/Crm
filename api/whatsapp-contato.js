@@ -52,20 +52,28 @@ async function handleFotoPerfil(req, res) {
       headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ number: numeroEvolution }),
     });
-    if (!picRes.ok) {
-      res.status(200).json({ ok: false, atualizada: false });
-      return;
-    }
-    const pic = await picRes.json().catch(() => null);
-    const fotoUrl = pic?.profilePictureUrl || pic?.url || null;
-    if (!fotoUrl || typeof fotoUrl !== 'string' || !/^https?:\/\//.test(fotoUrl)) {
-      res.status(200).json({ ok: true, atualizada: false }); // sem foto nova: mantém a atual
-      return;
-    }
-
+    // A foto já espelhada no lead é um fallback válido quando a Evolution não
+    // entrega uma foto nova. Isso permite que o mesmo WhatsApp seja reutilizado
+    // no cadastro do colaborador sem criar outra fonte de imagem.
     const atual = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${numero}&select=id,photo_url`, { headers: supaHeaders });
     const leads = atual.ok ? await atual.json() : [];
     const leadsLista = Array.isArray(leads) ? leads : [];
+    const fotoExistenteLead = leadsLista.find((l) => typeof l?.photo_url === 'string' && /^https?:\/\//.test(l.photo_url))?.photo_url || null;
+
+    if (!picRes.ok) {
+      if (fotoExistenteLead) {
+        res.status(200).json({ ok: true, photoUrl: fotoExistenteLead, atualizada: false });
+      } else {
+        res.status(200).json({ ok: false, atualizada: false });
+      }
+      return;
+    }
+    const pic = await picRes.json().catch(() => null);
+    const fotoUrl = pic?.profilePictureUrl || pic?.url || fotoExistenteLead;
+    if (!fotoUrl || typeof fotoUrl !== 'string' || !/^https?:\/\//.test(fotoUrl)) {
+      res.status(200).json({ ok: true, atualizada: false });
+      return;
+    }
 
     // Guarda a foto no nosso Storage (a URL do WhatsApp expira). Se nao der, segue com a URL original.
     // Se o lead ja tem a mesma versao espelhada, nada e regravado e a URL volta igual.
