@@ -295,34 +295,58 @@ export function PontoApp() {
     return lista;
   }, [ativos, regMap, analise, hoje]);
 
-  const salvarRegistrosEmMassa = async (funcionarioIds: string[], data: string, h: Partial<PontoRegistro>) => {
+  const salvarRegistrosEmMassa = async (
+    funcionarioIds: string[],
+    dataInicial: string,
+    dataFinal: string,
+    h: Partial<PontoRegistro>
+  ) => {
+    if (!dataInicial || !dataFinal || dataFinal < dataInicial) {
+      showAlert('Informe um período válido para a edição em massa.');
+      return;
+    }
+
+    const inicio = new Date(`${dataInicial}T12:00:00`);
+    const fim = new Date(`${dataFinal}T12:00:00`);
+    const dias = Math.floor((fim.getTime() - inicio.getTime()) / 86400000) + 1;
+
+    if (dias > 31) {
+      showAlert('A edição em massa permite no máximo 31 dias por vez.');
+      return;
+    }
+
+    const datas = Array.from({ length: dias }, (_, i) => somarDias(dataInicial, i));
     const { data: existentes, error: buscaError } = await supabase
       .from('ponto_registros')
-      .select('funcionario_id, origem')
-      .eq('data', data)
-      .in('funcionario_id', funcionarioIds);
+      .select('funcionario_id, data, origem')
+      .in('funcionario_id', funcionarioIds)
+      .gte('data', dataInicial)
+      .lte('data', dataFinal);
 
     if (buscaError) {
       showAlert(`Erro ao localizar registros: ${buscaError.message}`);
       return;
     }
 
-    const origemPorFuncionario = new Map(
-      (existentes || []).map((r: any) => [r.funcionario_id, r.origem])
+    const origemPorChave = new Map(
+      (existentes || []).map((r: any) => [`${r.funcionario_id}|${r.data}`, r.origem])
     );
     const n = (v?: string | null) => (v ? v : null);
-    const payload = funcionarioIds.map((fid) => ({
-      funcionario_id: fid,
-      data,
-      entrada: n(h.entrada),
-      inicio_intervalo: n(h.inicio_intervalo),
-      fim_intervalo: n(h.fim_intervalo),
-      saida: n(h.saida),
-      observacao: n(h.observacao),
-      origem: origemPorFuncionario.get(fid) === 'importacao' ? 'importacao' : 'manual',
-      editado_manual: true,
-      updated_at: new Date().toISOString(),
-    }));
+    const agoraIso = new Date().toISOString();
+    const payload = datas.flatMap((data) =>
+      funcionarioIds.map((fid) => ({
+        funcionario_id: fid,
+        data,
+        entrada: n(h.entrada),
+        inicio_intervalo: n(h.inicio_intervalo),
+        fim_intervalo: n(h.fim_intervalo),
+        saida: n(h.saida),
+        observacao: n(h.observacao),
+        origem: origemPorChave.get(`${fid}|${data}`) === 'importacao' ? 'importacao' : 'manual',
+        editado_manual: true,
+        updated_at: agoraIso,
+      }))
+    );
 
     const { error } = await supabase
       .from('ponto_registros')
@@ -336,7 +360,9 @@ export function PontoApp() {
     setEditRegMassaOpen(false);
     setRegistrosSelecionados(new Set());
     await carregar();
-    showAlert(`Ponto atualizado para ${funcionarioIds.length} funcionário(s).`);
+    showAlert(
+      `Ponto atualizado: ${funcionarioIds.length} funcionário(s) × ${datas.length} dia(s).`
+    );
   };
 
   // ---------------- Ações de Banco de Dados ----------------
@@ -976,7 +1002,8 @@ export function PontoApp() {
       {editRegMassaOpen && (
         <RegistroMassaModal
           funcionarios={ativos.filter((f) => registrosSelecionados.has(f.id))}
-          data={filtroDataRegistros}
+          dataInicial={filtroDataRegistros}
+          dataFinal={filtroDataRegistros}
           onClose={() => setEditRegMassaOpen(false)}
           onSave={salvarRegistrosEmMassa}
         />
