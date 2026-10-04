@@ -357,10 +357,18 @@ export function RegistroMassaModal({
   onSave,
 }: {
   funcionarios: FuncionarioItem[];
-  data: string;
+  dataInicial: string;
+  dataFinal: string;
   onClose: () => void;
-  onSave: (funcionarioIds: string[], data: string, h: Partial<PontoRegistro>) => Promise<void>;
+  onSave: (
+    funcionarioIds: string[],
+    dataInicial: string,
+    dataFinal: string,
+    h: Partial<PontoRegistro>
+  ) => Promise<void>;
 }) {
+  const [dataIni, setDataIni] = useState(dataInicial);
+  const [dataFim, setDataFim] = useState(dataFinal);
   const [h, setH] = useState({
     entrada: '',
     inicio_intervalo: '',
@@ -374,18 +382,51 @@ export function RegistroMassaModal({
     setH((prev) => ({ ...prev, [k]: e.target.value }));
 
   const salvar = async () => {
+    if (!dataIni || !dataFim || dataFim < dataIni) {
+      showAlert('Informe um período válido.');
+      return;
+    }
+
+    const inicio = new Date(`${dataIni}T12:00:00`);
+    const fim = new Date(`${dataFim}T12:00:00`);
+    const dias = Math.floor((fim.getTime() - inicio.getTime()) / 86400000) + 1;
+
+    if (dias > 31) {
+      showAlert('Selecione no máximo 31 dias por edição.');
+      return;
+    }
+
     setSalvando(true);
     try {
-      await onSave(funcionarios.map((f) => f.id), data, h);
+      await onSave(funcionarios.map((f) => f.id), dataIni, dataFim, h);
     } finally {
       setSalvando(false);
     }
   };
 
   return (
-    <Modal title={`Editar Ponto em Massa • ${data.split('-').reverse().join('/')}`} onClose={onClose} maxWidth="max-w-lg">
+    <Modal title="Editar Ponto em Massa" onClose={onClose} maxWidth="max-w-lg">
       <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200">
-        <strong>{funcionarios.length} funcionário(s)</strong> selecionado(s). Os horários abaixo serão aplicados a todos.
+        <strong>{funcionarios.length} funcionário(s)</strong> selecionado(s). Os horários abaixo serão aplicados a todos os dias do período informado.
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Data inicial">
+          <input
+            type="date"
+            className={inputCls}
+            value={dataIni}
+            onChange={(e) => setDataIni(e.target.value)}
+          />
+        </Field>
+        <Field label="Data final">
+          <input
+            type="date"
+            className={inputCls}
+            value={dataFim}
+            onChange={(e) => setDataFim(e.target.value)}
+          />
+        </Field>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -413,7 +454,7 @@ export function RegistroMassaModal({
       </Field>
 
       <p className="text-[11px] text-white/40">
-        Deixe um horário vazio para limpar esse campo nos funcionários selecionados. O ajuste será marcado como manual e protegido contra sobrescrita automática.
+        O período pode ter até 31 dias. Deixe um horário vazio para limpar esse campo em todos os dias selecionados. O ajuste será marcado como manual e protegido contra sobrescrita automática.
       </p>
 
       <button onClick={salvar} disabled={salvando} className={`${btnSave} ${salvando ? 'opacity-60 cursor-not-allowed' : ''}`}>
