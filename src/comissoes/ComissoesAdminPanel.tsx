@@ -80,6 +80,8 @@ interface ColaboradorRow {
   meta_valor_minimo?: number;
   meta_valor_maximo?: number;
   metas_valores?: any;
+  telefone_whatsapp?: string | null;
+  foto_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +110,7 @@ interface FormState {
   nome: string;
   senha: string;
   cargo: string;
+  telefoneWhatsapp: string;
   salarioBase: number;
   comissaoPadraoPercentual: number;
   metaSemanal: number;
@@ -135,6 +138,7 @@ const emptyForm: FormState = {
   nome: '',
   senha: '',
   cargo: '',
+  telefoneWhatsapp: '',
   salarioBase: 0,
   comissaoPadraoPercentual: 10,
   metaSemanal: 0,
@@ -679,6 +683,7 @@ export default function ComissoesAdminPanel() {
       nome: c.nome || '',
       senha: c.senha || linkedU?.password || '',
       cargo: c.cargo || '',
+      telefoneWhatsapp: c.telefone_whatsapp || '',
       salarioBase: Number(c.salario_base) || 0,
       comissaoPadraoPercentual: modalidade === 'fixo' ? 0 : (Number(c.comissao_padrao_percentual) || 10),
       metaSemanal: modalidade === 'fixo' ? 0 : (Number(c.meta_semanal) || 0),
@@ -902,6 +907,7 @@ export default function ComissoesAdminPanel() {
       nome: form.nome.trim(),
       senha: finalSenha,
       cargo: form.cargo.trim() || null,
+      telefone_whatsapp: form.telefoneWhatsapp.replace(/\D/g, '') || null,
       salario_base: (isMeta || isFatGeral) ? 0 : (Number(form.salarioBase) || 0),
       comissao_padrao_percentual: (isMeta || isFixo || isFatGeral) ? 0 : (Number(form.comissaoPadraoPercentual) || 0),
       meta_semanal: (isFixo || isFatGeral) ? 0 : (Number(form.metaSemanal) || 0),
@@ -1545,13 +1551,15 @@ export default function ComissoesAdminPanel() {
                     <div className="flex items-start justify-between gap-3">
                       {/* Avatar e Nome */}
                       <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                        <div
-                          className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${getAvatarGradient(
-                            c.nome
-                          )} flex items-center justify-center text-white font-black text-sm shadow-md shrink-0`}
-                        >
-                          {getInitials(c.nome)}
-                        </div>
+                        {c.foto_url ? (
+                          <img src={c.foto_url} alt={c.nome} className="w-11 h-11 rounded-2xl object-cover shadow-md shrink-0 border border-white/10" />
+                        ) : (
+                          <div
+                            className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${getAvatarGradient(c.nome)} flex items-center justify-center text-white font-black text-sm shadow-md shrink-0`}
+                          >
+                            {getInitials(c.nome)}
+                          </div>
+                        )}
 
                         <div className="min-w-0 flex-1">
                           <h3 className="font-bold text-base text-[var(--text-main)] truncate" title={c.nome}>
@@ -1828,13 +1836,15 @@ export default function ComissoesAdminPanel() {
                       >
                         <td className="py-3.5 px-5 whitespace-nowrap">
                           <div className="flex items-center gap-3">
-                            <div
-                              className={`w-9 h-9 rounded-xl bg-gradient-to-br ${getAvatarGradient(
-                                c.nome
-                              )} flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm`}
-                            >
-                              {getInitials(c.nome)}
-                            </div>
+                            {c.foto_url ? (
+                              <img src={c.foto_url} alt={c.nome} className="w-9 h-9 rounded-xl object-cover shrink-0 shadow-sm border border-white/10" />
+                            ) : (
+                              <div
+                                className={`w-9 h-9 rounded-xl bg-gradient-to-br ${getAvatarGradient(c.nome)} flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm`}
+                              >
+                                {getInitials(c.nome)}
+                              </div>
+                            )}
                             <div className="min-w-0">
                               <span className="font-bold text-[var(--text-main)] block text-sm">
                                 {c.nome}
@@ -2011,9 +2021,16 @@ export default function ComissoesAdminPanel() {
               {/* Header do Modal */}
               <div className="px-6 py-5 border-b border-[var(--border-color)] flex items-center justify-between bg-[var(--bg-card-sec)]">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-[var(--accent-red)]/10 text-[var(--accent-red)] flex items-center justify-center">
-                    {editingId ? <Edit3 className="w-4 h-4" /> : <Plus className="w-4 h-4 stroke-[3]" />}
-                  </div>
+                  {(() => {
+                    const modalColaborador = editingId ? colaboradores.find((item) => item.id === editingId) : null;
+                    return modalColaborador?.foto_url ? (
+                      <img src={modalColaborador.foto_url} alt={modalColaborador.nome} className="w-9 h-9 rounded-xl object-cover border border-white/10" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-xl bg-[var(--accent-red)]/10 text-[var(--accent-red)] flex items-center justify-center">
+                        {editingId ? <Edit3 className="w-4 h-4" /> : <Plus className="w-4 h-4 stroke-[3]" />}
+                      </div>
+                    );
+                  })()}
                   <div>
                     <h3 className="text-base font-black uppercase tracking-tight text-[var(--text-main)]">
                       {editingId ? 'Editar Funcionário' : 'Novo Funcionário'}
@@ -2109,6 +2126,22 @@ export default function ComissoesAdminPanel() {
                         className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-medium"
                       />
                     </label>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">
+                        WhatsApp do Funcionário (com DDD)
+                      </span>
+                      <input
+                        type="tel"
+                        value={form.telefoneWhatsapp}
+                        onChange={(e) => setForm({ ...form, telefoneWhatsapp: e.target.value })}
+                        placeholder="Ex.: 93 99999-9999"
+                        className="w-full h-11 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-red)] transition-all font-medium"
+                      />
+                    </label>
+                    <p className="text-[10px] text-[var(--text-muted)]">Usado para localizar a foto do funcionário no WhatsApp. O cadastro não depende do relógio de ponto.</p>
                   </div>
 
                   {/* Campo de Senha com sincronização */}
