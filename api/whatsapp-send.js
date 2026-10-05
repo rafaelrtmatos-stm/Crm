@@ -25,6 +25,43 @@ import { waitUntil } from '@vercel/functions';
 //  - `quando` = horario REAL da mensagem (messageTimestamp devolvido pela Evolution API; se nao vier,
 //    o instante da confirmacao do envio) -- nunca o de processamento posterior.
 //  - So avanca: se o lead ja tem uma ultima mensagem mais nova, nao volta no tempo.
+async function resolverDestinoWhatsApp(numero, phone) {
+  const informado = String(phone || '').trim();
+  if (informado.includes('@g.us')) {
+    return { remoteJid: informado, ehGrupo: true };
+  }
+
+  // Grupos são armazenados em whatsapp_groups com o JID real. O lead usa apenas
+  // os dígitos do JID, então não podemos reconstruir com segurança grupos antigos
+  // que tenham hífen no identificador; por isso consultamos a tabela e preservamos
+  // exatamente o group_jid cadastrado.
+  if (String(numero || '').replace(/\D/g, '').length >= 16) {
+    try {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.${COMPANY_ID}&select=group_jid&limit=500`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (r.ok) {
+        const grupos = await r.json();
+        const alvo = String(numero).replace(/\D/g, '');
+        const grupo = Array.isArray(grupos)
+          ? grupos.find(g => String(g?.group_jid || '').replace(/\D/g, '') === alvo)
+          : null;
+        if (grupo?.group_jid) return { remoteJid: grupo.group_jid, ehGrupo: true };
+      }
+    } catch (err) {
+      console.warn('Não foi possível resolver o JID do grupo; seguindo como contato:', err);
+    }
+  }
+
+  return { remoteJid: `${numero}@s.whatsapp.net`, ehGrupo: false };
+}
+
 async function atualizarLeadMensagemEnviada(telefones, text, quando) {
   const filtroMaisNova = encodeURIComponent(`(last_message_at.is.null,last_message_at.lt.${quando})`);
   await Promise.all(telefones.map(async (tel) => {
@@ -167,6 +204,7 @@ export default async function handler(req, res) {
   // digito quando estiverem faltando -- sem isso a Evolution recusa o envio dizendo
   // que o numero "nao existe" quando na verdade so falta o codigo do pais.
   const numero = normalizarTelefoneBR(phone.replace(/\D/g, ''));
+  const { remoteJid, ehGrupo } = await resolverDestinoWhatsApp(numero, phone);
 
   // A Evolution API roda em outro servidor e busca a mídia sozinha a partir da URL —
   // não entende caminho relativo (ex: "/api/whatsapp-media?messageId=..."), que só faz
@@ -185,7 +223,7 @@ export default async function handler(req, res) {
     const quotedPayload = quotedMessageId ? {
       key: {
         id: quotedMessageId,
-        remoteJid: `${numero}@s.whatsapp.net`,
+        remoteJid,
         fromMe: quotedSender === 'Você',
       },
       message: isQuotingImage ? {
@@ -205,7 +243,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          number: numero,
+          number: remoteJid,
           sticker: mediaUrlAbsoluta,
         }),
       });
@@ -214,7 +252,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          number: numero,
+          number: remoteJid,
           mediatype: mediaType,
           mimetype: (typeof mimeType === 'string' && mimeType) ? mimeType : (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream'),
           caption: text || '',
@@ -228,7 +266,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          number: numero,
+          number: remoteJid,
           text,
           ...(quotedPayload ? { quoted: quotedPayload } : {}),
         }),
