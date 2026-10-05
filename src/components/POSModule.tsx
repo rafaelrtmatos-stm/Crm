@@ -47,6 +47,8 @@ import { InventoryModule } from './InventoryModule';
 import { useApp } from '../AppContext';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
 import { downloadCanvasAsPdf, downloadCanvasAsPng } from '../lib/receipt';
+import { PixQrImage } from './PixQrImage';
+import { buildPixPayload } from '../lib/pix';
 import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue, isNetworkError } from '../lib/offlineSync';
 import type { VendaOfflinePayload } from '../lib/offlineSync';
 
@@ -311,6 +313,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [downPayment, setDownPayment] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('pix');
   const [isSavingSale, setIsSavingSale] = useState(false);
+  const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: any; beneficiaryName: string; city: string } | null>(null);
+  const [pixCopied, setPixCopied] = useState<'key' | 'payload' | null>(null);
+
+  useEffect(() => {
+    if (!isPaymentModalOpen || !currentCompany) return;
+    let cancelled = false;
+    const companyId = (currentCompany as any).id || 'rafa-arts';
+    supabase.from('configuracoes').select('pix_key,pix_key_type,beneficiary_name,city').eq('company_id', companyId).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setPixConfig(data?.pix_key ? {
+          key: data.pix_key,
+          keyType: data.pix_key_type,
+          beneficiaryName: data.beneficiary_name || currentCompany.name || 'Rafa Arts Graphics',
+          city: data.city || 'SANTAREM'
+        } : null);
+      })
+      .catch(() => { if (!cancelled) setPixConfig(null); });
+    return () => { cancelled = true; };
+  }, [isPaymentModalOpen, currentCompany]);
 
   // Quick Product Form
   const [quickProductName, setQuickProductName] = useState('');
@@ -2050,120 +2072,100 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       )}
 
       {/* Payment & Checkout Modal */}
-      <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} title="Finalizar Cobrança" size="sm" className="max-w-md mx-auto rounded-2xl p-3 sm:p-4">
-        <div className="space-y-4">
-          <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-white/50 block">Total a Pagar</span>
-              <h2 className="text-2xl font-black text-white font-mono">R$ {total.toFixed(2).replace('.', ',')}</h2>
-            </div>
-            <div className="text-right">
-              <span className="text-[10px] uppercase font-bold text-white/50 block">Cliente</span>
-              <span className="text-xs font-bold text-primary-300">{selectedCustomer?.name || 'Cliente de Balcão'}</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-bold uppercase text-white/50 block mb-1.5">Forma de Pagamento</label>
-            <div className="grid grid-cols-5 gap-1.5">
-              {[
-                { id: 'pix', label: 'PIX', icon: QrCode },
-                { id: 'dinheiro', label: 'Dinheiro', icon: Banknote },
-                { id: 'cartao_credito', label: 'Crédito', icon: CreditCard },
-                { id: 'cartao_debito', label: 'Débito', icon: CreditCard },
-                { id: 'boleto', label: 'Boleto', icon: FileText },
-              ].map(m => {
-                const isSelected = paymentMethod === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setPaymentMethod(m.id as any)}
-                    className={cn(
-                      "py-2 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-150 cursor-pointer active:scale-95",
-                      isSelected
-                        ? "bg-primary-500/20 text-primary-300 border-primary-500/50 shadow-xs"
-                        : "bg-white/[0.03] text-white/50 border-white/10 hover:bg-white/[0.08] hover:text-white"
-                    )}
-                  >
-                    <m.icon size={15} className={isSelected ? "text-primary-300" : "text-white/40"} />
-                    <span className="text-[8.5px] font-bold uppercase tracking-wider truncate w-full text-center">{m.label}</span>
+      <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)}
+        title={paymentMethod === 'pix' ? 'PAGAMENTO VIA PIX' : 'Finalizar Cobrança'} size="sm"
+        className="w-full max-w-[calc(100vw-24px)] sm:max-w-2xl mx-auto rounded-[26px] p-3 sm:p-5">
+        {paymentMethod === 'pix' ? (
+          <div className="space-y-4">
+            {pixConfig ? (() => {
+              const pixPayload = buildPixPayload({ key: pixConfig.key, keyType: pixConfig.keyType, beneficiaryName: pixConfig.beneficiaryName, city: pixConfig.city, amount: Number(total.toFixed(2)) });
+              const copy = async (value: string, kind: 'key' | 'payload') => {
+                try { await navigator.clipboard.writeText(value); setPixCopied(kind); setTimeout(() => setPixCopied(null), 1600); }
+                catch { showAlert('Não foi possível copiar. Copie manualmente.'); }
+              };
+              return (<>
+                <div className="flex justify-center pt-1">
+                  <div className="bg-white rounded-[14px] p-2 shadow-xl shadow-black/20">
+                    <PixQrImage payload={pixPayload} className="block w-[210px] h-[210px] sm:w-[230px] sm:h-[230px] object-contain rounded-lg" />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-950/45 overflow-hidden">
+                  <div className="grid grid-cols-[88px_1fr] gap-y-2 px-3 py-3 text-[10px] sm:text-[11px]">
+                    <span className="font-black uppercase tracking-wide text-white/35">Valor</span>
+                    <strong className="text-right text-emerald-400 font-black text-sm sm:text-base">R$ {total.toFixed(2).replace('.', ',')}</strong>
+                    <span className="font-black uppercase tracking-wide text-white/35">Beneficiário</span>
+                    <strong className="text-right text-white font-bold">{pixConfig.beneficiaryName}</strong>
+                    <span className="font-black uppercase tracking-wide text-white/35">Banco</span>
+                    <span className="text-right text-white/75 font-bold">PIX</span>
+                    <span className="font-black uppercase tracking-wide text-white/35">Chave</span>
+                    <strong className="text-right text-white font-mono break-all">{pixConfig.key}</strong>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button type="button" onClick={() => copy(pixConfig.key,'key')}
+                    className="h-10 rounded-xl border border-red-500/35 bg-red-500/15 text-red-300 hover:bg-red-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
+                    {pixCopied === 'key' ? 'CHAVE COPIADA' : 'COPIAR CHAVE'}
                   </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] font-bold uppercase text-white/50">Valor Recebido / Entrada (R$)</label>
-              {/* Abas leves de atalho de valor */}
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setDownPayment(Number(total.toFixed(2)))}
-                  className="py-0.5 px-2 rounded-md text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10 transition-all cursor-pointer active:scale-95"
-                >
-                  Total ({total.toFixed(2).replace('.', ',')})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDownPayment(Number((total / 2).toFixed(2)))}
-                  className="py-0.5 px-2 rounded-md text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10 transition-all cursor-pointer active:scale-95"
-                >
-                  50%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDownPayment(0)}
-                  className="py-0.5 px-2 rounded-md text-[8px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all cursor-pointer active:scale-95"
-                >
-                  Sem Entrada (R$ 0)
-                </button>
+                  <button type="button" onClick={() => copy(pixPayload,'payload')}
+                    className="h-10 rounded-xl border border-red-500/35 bg-red-500/15 text-red-300 hover:bg-red-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
+                    {pixCopied === 'payload' ? 'PIX COPIADO' : 'COPIA E COLA'}
+                  </button>
+                </div>
+                <div className="border-t border-white/10 pt-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="ghost" onClick={() => setIsPaymentModalOpen(false)} className="justify-center">Fechar</Button>
+                    <Button variant="primary" onClick={() => { if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }} disabled={isSavingSale} className="justify-center">
+                      <CheckCircle2 size={14} /> {isSavingSale ? 'Processando...' : 'Confirmar Pagamento'}
+                    </Button>
+                  </div>
+                </div>
+              </>);
+            })() : (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-center">
+                <QrCode size={30} className="mx-auto mb-2 text-amber-300" />
+                <p className="text-sm font-black text-white">PIX não configurado</p>
+                <p className="text-[11px] text-white/55 mt-1">Cadastre a chave PIX da empresa nas configurações para gerar o QR Code e o PIX Copia e Cola.</p>
+                <div className="pt-4"><Button variant="ghost" onClick={() => setIsPaymentModalOpen(false)}>Fechar</Button></div>
               </div>
-            </div>
-            <Input
-              type="number"
-              placeholder={`Total: ${total.toFixed(2)}`}
-              value={downPayment}
-              onChange={e => setDownPayment(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-            {downPayment !== '' && Number(downPayment) < total && (
-              <p className="text-[10px] text-amber-300 font-bold mt-1">
-                Saldo restante de R$ {(total - Number(downPayment)).toFixed(2)} ficará pendente.
-              </p>
             )}
           </div>
-
-          <div>
-            <label className="text-[10px] font-bold uppercase text-white/50 block mb-1">Previsão de Entrega (Opcional)</label>
-            <input
-              type="datetime-local"
-              value={scheduledFor}
-              onChange={e => setScheduledFor(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500"
-            />
+        ) : (
+          <div className="space-y-4">
+            <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
+              <div><span className="text-[10px] uppercase font-bold text-white/50 block">Total a Pagar</span><h2 className="text-2xl font-black text-white font-mono">R$ {total.toFixed(2).replace('.', ',')}</h2></div>
+              <div className="text-right"><span className="text-[10px] uppercase font-bold text-white/50 block">Cliente</span><span className="text-xs font-bold text-primary-300">{selectedCustomer?.name || 'Cliente de Balcão'}</span></div>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase text-white/50 block mb-1.5">Forma de Pagamento</label>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[{id:'pix',label:'PIX',icon:QrCode},{id:'dinheiro',label:'Dinheiro',icon:Banknote},{id:'cartao_credito',label:'Crédito',icon:CreditCard},{id:'cartao_debito',label:'Débito',icon:CreditCard},{id:'boleto',label:'Boleto',icon:FileText}].map(m => {
+                  const isSelected=paymentMethod===m.id;
+                  return <button key={m.id} type="button" onClick={()=>setPaymentMethod(m.id as any)} className={cn("py-2 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-150 cursor-pointer active:scale-95",isSelected?"bg-primary-500/20 text-primary-300 border-primary-500/50 shadow-xs":"bg-white/[0.03] text-white/50 border-white/10 hover:bg-white/[0.08] hover:text-white")}>
+                    <m.icon size={15} className={isSelected?"text-primary-300":"text-white/40"}/><span className="text-[8.5px] font-bold uppercase tracking-wider truncate w-full text-center">{m.label}</span>
+                  </button>;
+                })}
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1"><label className="text-[10px] font-bold uppercase text-white/50">Valor Recebido / Entrada (R$)</label>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={()=>setDownPayment(Number(total.toFixed(2)))} className="py-0.5 px-2 rounded-md text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10">Total ({total.toFixed(2).replace('.',',')})</button>
+                  <button type="button" onClick={()=>setDownPayment(Number((total/2).toFixed(2)))} className="py-0.5 px-2 rounded-md text-[8px] font-bold uppercase tracking-wider bg-white/[0.04] hover:bg-white/[0.08] text-white/60 hover:text-white border border-white/10">50%</button>
+                  <button type="button" onClick={()=>setDownPayment(0)} className="py-0.5 px-2 rounded-md text-[8px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30">Sem Entrada (R$ 0)</button>
+                </div>
+              </div>
+              <Input type="number" placeholder={`Total: ${total.toFixed(2)}`} value={downPayment} onChange={e=>setDownPayment(e.target.value===''?'':Number(e.target.value))}/>
+              {downPayment!==''&&Number(downPayment)<total&&<p className="text-[10px] text-amber-300 font-bold mt-1">Saldo restante de R$ {(total-Number(downPayment)).toFixed(2)} ficará pendente.</p>}
+            </div>
+            <div><label className="text-[10px] font-bold uppercase text-white/50 block mb-1">Previsão de Entrega (Opcional)</label><input type="datetime-local" value={scheduledFor} onChange={e=>setScheduledFor(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500"/></div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
+              <button type="button" className="px-4 py-2 rounded-xl text-xs font-bold text-white/60 hover:text-white hover:bg-white/5" onClick={()=>setIsPaymentModalOpen(false)}>Cancelar</button>
+              <button type="button" onClick={handleFinalizeSale} disabled={isSavingSale} className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 border border-primary-500/40 flex items-center gap-1.5">
+                <CheckCircle2 size={15}/><span>{isSavingSale?'Processando...':(downPayment===''||Number(downPayment)>=total?'Confirmar e Emitir (Quitado)':'Salvar Entrada / A Prazo')}</span>
+              </button>
+            </div>
           </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
-            <button 
-              type="button"
-              className="px-4 py-2 rounded-xl text-xs font-bold text-white/60 hover:text-white hover:bg-white/5 border border-transparent transition-all cursor-pointer"
-              onClick={() => setIsPaymentModalOpen(false)}
-            >
-              Cancelar
-            </button>
-            <button 
-              type="button"
-              onClick={handleFinalizeSale} 
-              disabled={isSavingSale} 
-              className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 border border-primary-500/40 flex items-center gap-1.5 transition-all cursor-pointer active:scale-98 shadow-xs disabled:opacity-50"
-            >
-              <CheckCircle2 size={15} />
-              <span>{isSavingSale ? 'Processando...' : (downPayment === '' || Number(downPayment) >= total ? 'Confirmar e Emitir (Quitado)' : 'Salvar Entrada / A Prazo')}</span>
-            </button>
-          </div>
-        </div>
+        )}
       </Modal>
 
       {/* Sale Discount Modal */}
