@@ -2388,7 +2388,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               <p className="text-xs text-white/60 mt-1">Lançamento registrado e integrado ao sistema.</p>
             )}
           </div>
-          <div className="flex justify-center gap-2 pt-2">
+          <div className="flex justify-center gap-2 pt-2 flex-wrap">
             <Button
               variant="outline"
               onClick={() => {
@@ -2403,6 +2403,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               <Receipt size={14} />
               <span>Ver Comprovante</span>
             </Button>
+            {lastFinalizedOrder && !lastFinalizedOrder._pendingSync && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  await handleLancarProducao(lastFinalizedOrder);
+                  setIsSuccessModalOpen(false);
+                }}
+                disabled={lancandoProducaoId === lastFinalizedOrder.id}
+                className="gap-1.5"
+              >
+                <span>{lancandoProducaoId === lastFinalizedOrder.id ? 'Enviando...' : '🏭 Lançar Produção'}</span>
+              </Button>
+            )}
             <Button variant="primary" onClick={() => setIsSuccessModalOpen(false)}>
               Nova Venda
             </Button>
