@@ -15551,7 +15551,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           status: 'pending',
           observacoes: contratoForm.observacoes || null,
           orcamento_id: contratoForm.orcamentoId || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
@@ -16222,7 +16222,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           received_value: 0,
           status: 'pending',
           observacoes: orcamentoForm.observacoes || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (vendaError) throw vendaError;
@@ -19794,7 +19794,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           observacoes: orderObservacoes || null,
           orcamento_id: linkedOrcamentoId || null,
           discount_value: saleDiscountValue || null,
-          service_status: 'pedido_recebido',
+          service_status: null,
           etapa_servico: 'pedido_recebido',
         }).select().single();
         if (error) throw error;
