@@ -7653,7 +7653,7 @@ export const ChatPanel = ({
                   </div>
 
                   {/* Ação Rápida de Concluir / Finalizar Atendimento */}
-                  {effectiveFunnelId && funnelStages.length > 0 && (() => {
+                  {funnelStages.length > 0 && (() => {
                     const concludedStage = funnelStages.find(s => {
                       const n = (s.name || '').toLowerCase();
                       return n.includes('conclu') || n.includes('finaliz') || n.includes('ganho') || n.includes('fechado');
@@ -7663,15 +7663,42 @@ export const ChatPanel = ({
                       <div className="border-b border-white/10 pb-1 mb-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (concludedStage) {
-                              handleChangeStageFromChat(concludedStage.id);
-                            }
-                            if (effectiveWaitingSince || conversation.waitingSince) {
-                              handleResolveWaiting();
-                            }
+                          onClick={async () => {
+                            if (!concludedStage || !conversation?.id) return;
                             setShowQuickActions(false);
-                            showAlert(`Atendimento marcado como ${concludedStage?.name || 'Concluído'}!`);
+                            setIsChangingStage(true);
+                            try {
+                              const { error } = await supabase.from('leads').update({
+                                funnel_stage_id: concludedStage.id,
+                                ...(effectiveFunnelId ? { funnel_id: effectiveFunnelId } : {}),
+                                status: 'CONCLUIDO',
+                                archived: true,
+                                waiting_since: null,
+                                unread: false,
+                                last_message_direction: 'resolved',
+                                updated_at: new Date().toISOString(),
+                              }).eq('id', conversation.id);
+                              if (error) throw error;
+                              setCurrentStageId(concludedStage.id);
+                              onLeadPatched?.(conversation.id, {
+                                funnelStageId: concludedStage.id,
+                                funnel_stage_id: concludedStage.id,
+                                ...(effectiveFunnelId ? { funnelId: effectiveFunnelId, funnel_id: effectiveFunnelId } : {}),
+                                status: 'CONCLUIDO',
+                                archived: true,
+                                waitingSince: undefined,
+                                unread: false,
+                                lastMessageDirection: 'resolved',
+                              });
+                              setIsLocallyResolved(true);
+                              limparNotificacaoPendente();
+                              showAlert(`Atendimento marcado como ${concludedStage.name || 'Concluído'}!`);
+                            } catch (err) {
+                              console.error('Erro ao concluir atendimento:', err);
+                              showAlert('Não foi possível concluir o atendimento.');
+                            } finally {
+                              setIsChangingStage(false);
+                            }
                           }}
                           disabled={isAlreadyConcluded}
                           className={cn(
