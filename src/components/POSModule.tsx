@@ -1701,7 +1701,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                             <button
                               onClick={() => {
                                 setSettlingOrder(sale);
-                                setSettleAmount(balance);
+                                // Ao abrir "Quitar", não preencher automaticamente o novo valor.
+                                // O valor exibido para quitação deve ser informado manualmente pelo usuário.
+                                setSettleAmount(0);
                                 setIsSettleModalOpen(true);
                               }}
                               className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all"
