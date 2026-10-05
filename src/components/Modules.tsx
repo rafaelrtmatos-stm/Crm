@@ -21730,9 +21730,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                       <GlassCard key={sale.id} className="p-3.5 sm:p-5 md:p-6 border-white/10 space-y-3 sm:space-y-4 bg-slate-900/80 hover:border-white/20 transition-all relative overflow-hidden">
                         {/* Cabeçalho do Card: Foto/Avatar + Cliente (Nome) + 2 Status Independentes (Esquerda: Produção, Direita: Pedido) */}
                         <div className="border-b border-white/5 pb-3 space-y-2">
-                          <div className="flex items-start sm:items-center justify-between gap-3 min-w-0 flex-col sm:flex-row">
+                          <div className="flex flex-wrap items-start sm:items-center justify-between gap-3 min-w-0">
                             {/* Bloco esquerdo: Checkbox + Avatar + Nome do Cliente */}
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1 w-full">
+                            <div className="flex items-center gap-2.5 min-w-[220px] flex-[1_1_220px]">
                               {canManageHistory && (
                                 <input type="checkbox" checked={selectedSaleIds.has(sale.id)} onChange={() => toggleSaleSelection(sale.id)} className="w-4 h-4 shrink-0 accent-primary-500" />
                               )}
@@ -21747,7 +21747,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   type="button"
                                   onClick={() => handleCopyHistoryField(sale.customerName || 'Cliente de Balcão', sale.id, 'cliente')}
                                   title={sale.customerName || 'Cliente de Balcão'}
-                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer block whitespace-normal break-words w-full"
+                                  className="text-sm font-black text-white hover:text-primary-300 uppercase text-left transition-colors cursor-pointer block whitespace-normal break-words w-full leading-tight"
                                 >
                                   {sale.customerName || 'Cliente de Balcão'}
                                 </button>
