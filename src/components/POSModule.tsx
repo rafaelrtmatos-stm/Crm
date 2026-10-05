@@ -2103,11 +2103,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button type="button" onClick={() => copy(pixConfig.key,'key')}
-                    className="h-10 rounded-xl border border-red-500/35 bg-red-500/15 text-red-300 hover:bg-red-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
+                    className="h-10 rounded-xl border border-primary-500/35 bg-primary-500/15 text-primary-300 hover:bg-primary-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
                     {pixCopied === 'key' ? 'CHAVE COPIADA' : 'COPIAR CHAVE'}
                   </button>
                   <button type="button" onClick={() => copy(pixPayload,'payload')}
-                    className="h-10 rounded-xl border border-red-500/35 bg-red-500/15 text-red-300 hover:bg-red-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
+                    className="h-10 rounded-xl border border-primary-500/35 bg-primary-500/15 text-primary-300 hover:bg-primary-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
                     {pixCopied === 'payload' ? 'PIX COPIADO' : 'COPIA E COLA'}
                   </button>
                 </div>
