@@ -18144,9 +18144,23 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (error) { showAlert(`Não foi possível cancelar o pedido: ${error.message}`); return; }
 
     try {
-      await estornarConsumoDeNotas([sale]);
+      // Cancelamento devolve a matéria-prima uma única vez e marca a nota como já estornada.
+      // Isso impede que uma exclusão posterior devolva novamente o mesmo consumo.
+      const estoqueOk = await estornarConsumoDeNotas([sale]);
+      if (estoqueOk) {
+        const { error: marcaError } = await supabase
+          .from('vendas')
+          .update({ mp_estoque_devolvido: true })
+          .eq('id', sale.id);
+        if (marcaError) {
+          console.warn('Nota cancelada, mas não foi possível marcar o estorno da matéria-prima:', marcaError.message);
+        }
+      } else {
+        showAlert('Pedido cancelado, mas não foi possível confirmar a devolução completa da matéria-prima ao estoque. Confira o estoque antes de gerar a nova nota.');
+      }
     } catch (e) {
       console.warn('Erro ao devolver insumos ao estoque no cancelamento:', e);
+      showAlert('Pedido cancelado, mas houve erro ao devolver a matéria-prima. Confira o estoque antes de gerar a nova nota.');
     }
 
     const atualizado = { ...sale, status: 'canceled' as const };
