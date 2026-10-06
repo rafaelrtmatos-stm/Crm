@@ -730,7 +730,7 @@ export async function restaurarNotasReaplicandoMateriaPrima(ids: string[]): Prom
     .in('id', ids)
     .not('deleted_at', 'is', null)
     .select(campos);
-  let resp: any = await restaurar(`${CAMPOS_NOTA}, mp_estoque_devolvido`);
+  let resp: any = await restaurar(CAMPOS_NOTA);
   if (resp.error && /mp_estoque_devolvido/.test(resp.error.message || '')) resp = await restaurar(CAMPOS_NOTA); // coluna ainda nao criada
   if (resp.error) return { erro: resp.error, restauradas: 0, estoqueOk: true };
   const notas: any[] = resp.data || [];
