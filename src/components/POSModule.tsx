@@ -1673,7 +1673,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
                           title="Clique para copiar o nome do cliente"
                           className="inline-flex items-center gap-1.5 text-left font-bold text-white hover:text-primary-300 transition-colors group cursor-pointer"
                         >
-                          <span className="truncate max-w-[180px]">{sale.customerName || 'Cliente de Balcão'}</span>
+                          <span className="max-w-[280px] whitespace-normal break-words leading-snug" title={sale.customerName || 'Cliente de Balcão'}>{sale.customerName || 'Cliente de Balcão'}</span>
                           {copiedSaleField?.id === sale.id && copiedSaleField?.field === 'cliente' ? (
                             <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">Copiado!</span>
                           ) : (
