@@ -575,7 +575,7 @@ export async function deductMateriasPrimasStock(
 
 export type ConsumoDeNota = { materiaPrimaId?: string; name?: string; quantity: number; unit?: string };
 
-const CAMPOS_NOTA = 'id, company_id, items, consumo_materias_primas';
+const CAMPOS_NOTA = 'id, company_id, items, consumo_materias_primas, mp_estoque_devolvido, status';
 
 /**
  * O que UMA nota consumiu de materia-prima. Prefere o consolidado gravado na venda (`consumo_materias_primas`:
@@ -710,9 +710,12 @@ export async function excluirNotasDevolvendoMateriaPrima(ids: string[]): Promise
     .select(CAMPOS_NOTA);
   if (error) return { erro: error, excluidas: 0, estoqueOk: true };
   const notas = data || [];
-  const estoqueOk = await estornarConsumoDeNotas(notas);
-  if (estoqueOk && notas.length > 0) {
-    const marca = await supabase.from('vendas').update({ mp_estoque_devolvido: true }).in('id', notas.map((n: any) => n.id));
+  // Uma nota pode já ter devolvido a matéria-prima no cancelamento.
+  // Nunca faça o mesmo estorno duas vezes.
+  const notasParaEstornar = notas.filter((n: any) => n.mp_estoque_devolvido !== true);
+  const estoqueOk = await estornarConsumoDeNotas(notasParaEstornar);
+  if (estoqueOk && notasParaEstornar.length > 0) {
+    const marca = await supabase.from('vendas').update({ mp_estoque_devolvido: true }).in('id', notasParaEstornar.map((n: any) => n.id));
     if (marca.error) console.warn('Não foi possível marcar a devolução da matéria-prima na nota (rodar supabase/add_mp_estoque_devolvido_vendas.sql):', marca.error.message);
   }
   return { erro: null, excluidas: notas.length, estoqueOk };
