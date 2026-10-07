@@ -4713,8 +4713,47 @@ export const ChatPanel = ({
       supabase.from('leads').update({ funnel_id: effectiveFunnelId }).eq('id', conversation.id).then(() => {});
     }
     const loadStages = async () => {
-      const { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', effectiveFunnelId).order('order', { ascending: true });
-      setFunnelStages((data || []).map(mapFunnelStageRow).filter(s => s.isActive !== false));
+      let { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', effectiveFunnelId).order('order', { ascending: true });
+      let loadedStages = (data || []).map(mapFunnelStageRow).filter(s => s.isActive !== false);
+
+      // Funil sem etapas: cria a etapa inicial automaticamente para que a conversa
+      // tenha sempre uma etapa válida e o botão de concluir possa ser exibido.
+      if (loadedStages.length === 0) {
+        const { data: createdStage } = await supabase.from('funnel_stages').insert({
+          funnel_id: effectiveFunnelId,
+          name: 'ENTRADA',
+          order: 0,
+          is_initial: true,
+          is_active: true,
+        }).select('*').single();
+        if (createdStage) {
+          loadedStages = [mapFunnelStageRow(createdStage)];
+        } else {
+          const retry = await supabase.from('funnel_stages').select('*').eq('funnel_id', effectiveFunnelId).order('order', { ascending: true });
+          data = retry.data;
+          loadedStages = (data || []).map(mapFunnelStageRow).filter(s => s.isActive !== false);
+        }
+      }
+
+      // Lead antigo sem etapa: associa a primeira etapa disponível ao abrir a conversa.
+      const currentLeadStageId = currentStageId || conversation?.funnelStageId;
+      if (conversation?.id && !currentLeadStageId && loadedStages[0]?.id) {
+        const initialStage = loadedStages.find(s => s.isInitial) || loadedStages[0];
+        await supabase.from('leads').update({
+          funnel_id: effectiveFunnelId,
+          funnel_stage_id: initialStage.id,
+          updated_at: new Date().toISOString(),
+        }).eq('id', conversation.id);
+        setCurrentStageId(initialStage.id);
+        onLeadPatched?.(conversation.id, {
+          funnelId: effectiveFunnelId,
+          funnel_id: effectiveFunnelId,
+          funnelStageId: initialStage.id,
+          funnel_stage_id: initialStage.id,
+        });
+      }
+
+      setFunnelStages(loadedStages);
     };
     loadStages();
     const channel = supabase.channel(`chatpanel-stages-${effectiveFunnelId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'funnel_stages', filter: `funnel_id=eq.${effectiveFunnelId}` }, loadStages).subscribe();
@@ -19357,13 +19396,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSaleCreditApplied(0);
     setAllowExtraPaymentEntry(false);
 
-    // Preenche automaticamente o valor em aberto da venda ao clicar em Quitar
-    const paidBefore = existingPayments.length > 0
-      ? existingPayments.reduce((sum, p) => sum + (p.value || 0), 0)
-      : (order.downPayment ?? order.receivedValue ?? 0);
-    const balanceRemaining = Math.max(0, order.total - (order.discountValue || 0) - paidBefore);
+    // Ao abrir "Quitar Débito" pelo perfil/nota, o valor deve ficar vazio para
+    // que o atendente informe manualmente quanto está sendo quitado.
     setNewPaymentMode('valor');
-    setNewPaymentInput(balanceRemaining > 0 ? Number(balanceRemaining.toFixed(2)) : '');
+    setNewPaymentInput('');
     setNewPaymentMethod(order.paymentMethod && PAYMENT_METHOD_OPTIONS.some(o => o.id === order.paymentMethod) ? order.paymentMethod : 'pix');
 
     setIsPaymentModalOpen(true);
@@ -19506,7 +19542,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     // qualquer valor que estiver digitado nesse campo — se ele vier preenchido sozinho com o
     // saldo total, a nota é quitada (status "pago") mesmo o usuário não tendo digitado nada e
     // mesmo o botão mostrando "R$ 0,00" (o texto do botão não olha esse campo nesse modo).
-    if (editingFullOrder) {
+    // Em edição de nota e em "Quitar Débito", nunca preencher automaticamente
+    // o campo de pagamento: o valor precisa ser informado manualmente.
+    if (settlingOrder || editingFullOrder) {
       if (newPaymentInput !== '') setNewPaymentInput('');
       return;
     }
