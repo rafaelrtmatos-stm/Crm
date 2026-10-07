@@ -879,6 +879,18 @@ export default function App() {
             const { data } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).order('order', { ascending: true }).limit(1);
             stageRows = data;
           }
+          // Funil existente sem etapas: garante uma etapa inicial para que novos leads
+          // nunca sejam criados com funnel_id preenchido e funnel_stage_id vazio.
+          if (!stageRows || stageRows.length === 0) {
+            const { data: createdStage } = await supabase.from('funnel_stages').insert({
+              funnel_id: funnelId,
+              name: 'ENTRADA',
+              order: 0,
+              is_initial: true,
+              is_active: true,
+            }).select('id').single();
+            stageRows = createdStage ? [createdStage] : [];
+          }
           if (stageRows && stageRows.length > 0) funnelStageId = stageRows[0].id;
         }
 
