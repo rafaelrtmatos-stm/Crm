@@ -220,6 +220,7 @@ export default async function handler(req, res) {
     // Texto: sendText. Figurinha: sendSticker. Foto/documento: sendMedia (Evolution v2)
     const nomeArquivo = (typeof fileName === 'string' && fileName.trim()) ? fileName.trim().slice(0, 200) : undefined;
     const isQuotingImage = quotedMediaType === 'image' || !!quotedMediaUrl;
+    const enviarPara = async (remoteJid) => {
     const quotedPayload = quotedMessageId ? {
       key: {
         id: quotedMessageId,
@@ -273,10 +274,48 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!r.ok) {
+    return r;
+    };
+
+    let r = await enviarPara(remoteJid);
+
+    // Alguns celulares antigos do Brasil estao registrados no WhatsApp SEM o nono digito.
+    // O CRM normaliza tudo para 55DDD9XXXXXXXX, e a Evolution responde exists:false para esses.
+    // Nesse caso (e so nesse) tenta de novo com o JID sem o 9.
+    if (!r.ok && !ehGrupo) {
+      const corpoTentativa = await r.text();
+      const cel = /^55(\d{2})9([6-9]\d{7})$/.exec(numero);
+      if (cel && /"exists"\s*:\s*false/.test(corpoTentativa)) {
+        const jidSem9 = `55${cel[1]}${cel[2]}@s.whatsapp.net`;
+        console.warn('Numero sem WhatsApp com o 9; tentando sem o nono digito:', jidSem9);
+        r = await enviarPara(jidSem9);
+        if (!r.ok) {
+          const corpo2 = await r.text();
+          console.error('Evolution API recusou o envio (tentativa sem o 9):', corpo2);
+          res.status(502).json({
+            error: 'A Evolution API recusou o envio dessa mensagem.',
+            evolutionStatus: r.status,
+            detalhe: corpo2.slice(0, 500),
+          });
+          return;
+        }
+      } else {
+        console.error('Evolution API recusou o envio:', corpoTentativa);
+        res.status(502).json({
+          error: 'A Evolution API recusou o envio dessa mensagem.',
+          evolutionStatus: r.status,
+          detalhe: corpoTentativa.slice(0, 500),
+        });
+        return;
+      }
+    } else if (!r.ok) {
       const errBody = await r.text();
       console.error('Evolution API recusou o envio:', errBody);
-      res.status(502).json({ error: 'A Evolution API recusou o envio dessa mensagem.' });
+      res.status(502).json({
+        error: 'A Evolution API recusou o envio dessa mensagem.',
+        evolutionStatus: r.status,
+        detalhe: errBody.slice(0, 500),
+      });
       return;
     }
 
