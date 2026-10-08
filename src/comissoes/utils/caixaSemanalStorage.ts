@@ -489,116 +489,6 @@ export function calcularResumoNoIntervalo(
   };
 }
 
-// --- Cadeia de saldos entre semanas ---
-
-export interface CadeiaItem {
-  caixaId: string;
-  semanaInicio: string;
-  semanaFim: string;
-  status: CaixaStatus;
-  saldoAnteriorAntes: number;
-  saldoAnteriorDepois: number;
-  totalPagoAntes: number | null;
-  totalPagoDepois: number | null;
-  saldoFinalAntes: number | null;
-  saldoFinalDepois: number | null;
-}
-
-const round2 = (n: number) => Number(n.toFixed(2));
-
-/**
- * Recalcula, a partir de uma semana fechada, o total pago, o saldo final e o saldo anterior
- * de todas as semanas seguintes (até a aberta). Usa os valores congelados de salário, comissão
- * e descontos de cada semana fechada. `override` simula a edição/exclusão de um pagamento antes
- * dela ser salva (valor null = pagamento excluído), para mostrar o antes/depois na confirmação.
- */
-export async function calcularCadeiaAPartirDe(
-  colaboradorId: string,
-  caixaEditadoId: string,
-  override?: { pagamentoId: string; novoValor: number | null }
-): Promise<CadeiaItem[]> {
-  const [{ data: caixas }, { data: pags }] = await Promise.all([
-    supabase.from('comissoes_caixas_semanais').select('*').eq('colaborador_id', colaboradorId).order('semana_inicio', { ascending: true }),
-    supabase.from('comissoes_pagamentos').select('id, caixa_id, valor').eq('colaborador_id', colaboradorId),
-  ]);
-  if (!caixas || !pags) return [];
-
-  const idx = caixas.findIndex((c: any) => c.id === caixaEditadoId);
-  if (idx < 0) return [];
-
-  const somaPagamentos = (caixaId: string) =>
-    pags.reduce((acc: number, p: any) => {
-      if (p.caixa_id !== caixaId) return acc;
-      if (override && p.id === override.pagamentoId) return acc + (override.novoValor ?? 0);
-      return acc + (Number(p.valor) || 0);
-    }, 0);
-
-  const itens: CadeiaItem[] = [];
-  let saldoAnteriorAtual = Number(caixas[idx].saldo_anterior) || 0;
-
-  for (let i = idx; i < caixas.length; i++) {
-    const c: any = caixas[i];
-    const antesAnterior = Number(c.saldo_anterior) || 0;
-    const antesPago = c.total_pago != null ? Number(c.total_pago) : null;
-    const antesFinal = c.saldo_final != null ? Number(c.saldo_final) : null;
-
-    if (c.status === 'fechado') {
-      const totalPago = round2(somaPagamentos(c.id));
-      const saldoSemana = (Number(c.salario_base) || 0) + (Number(c.total_comissao) || 0) - (Number(c.total_descontos) || 0) - totalPago;
-      const saldoFinal = round2(saldoAnteriorAtual + saldoSemana);
-      itens.push({
-        caixaId: c.id, semanaInicio: c.semana_inicio, semanaFim: c.semana_fim, status: 'fechado',
-        saldoAnteriorAntes: antesAnterior, saldoAnteriorDepois: round2(saldoAnteriorAtual),
-        totalPagoAntes: antesPago, totalPagoDepois: totalPago,
-        saldoFinalAntes: antesFinal, saldoFinalDepois: saldoFinal,
-      });
-      saldoAnteriorAtual = saldoFinal;
-    } else {
-      itens.push({
-        caixaId: c.id, semanaInicio: c.semana_inicio, semanaFim: c.semana_fim, status: 'aberto',
-        saldoAnteriorAntes: antesAnterior, saldoAnteriorDepois: round2(saldoAnteriorAtual),
-        totalPagoAntes: null, totalPagoDepois: null, saldoFinalAntes: null, saldoFinalDepois: null,
-      });
-    }
-  }
-  return itens;
-}
-
-/**
- * Grava a cadeia calculada por calcularCadeiaAPartirDe. A semana editada (primeiro item) sempre
- * é atualizada; as seguintes só quando `propagar` for true.
- */
-export async function aplicarCadeia(itens: CadeiaItem[], propagar: boolean): Promise<boolean> {
-  const alvo = propagar ? itens : itens.slice(0, 1);
-  const agora = new Date().toISOString();
-  let ok = true;
-  for (let i = 0; i < alvo.length; i++) {
-    const it = alvo[i];
-    const patch: Record<string, any> = { updated_at: agora };
-    if (i > 0) patch.saldo_anterior = it.saldoAnteriorDepois;
-    if (it.status === 'fechado') {
-      patch.total_pago = it.totalPagoDepois;
-      patch.saldo_final = it.saldoFinalDepois;
-    }
-    const { error } = await supabase.from('comissoes_caixas_semanais').update(patch).eq('id', it.caixaId);
-    if (error) { console.error('Erro ao atualizar cadeia de saldos:', error); ok = false; }
-  }
-  return ok;
-}
-
-/** Texto do aviso de confirmação com o antes/depois de cada semana afetada. */
-export function descreverCadeia(itens: CadeiaItem[]): string {
-  const fmt = (n: number | null) => n == null ? '—' : `R$ ${n.toFixed(2).replace('.', ',')}`;
-  const br = (d: string) => d.split('-').reverse().join('/');
-  return itens
-    .slice(1)
-    .filter((it) => it.saldoAnteriorAntes !== it.saldoAnteriorDepois || it.saldoFinalAntes !== it.saldoFinalDepois)
-    .map((it) => it.status === 'aberto'
-      ? `Semana atual (${br(it.semanaInicio)}): saldo anterior ${fmt(it.saldoAnteriorAntes)} → ${fmt(it.saldoAnteriorDepois)}`
-      : `Semana ${br(it.semanaInicio)}: saldo final ${fmt(it.saldoFinalAntes)} → ${fmt(it.saldoFinalDepois)}`)
-    .join('\n');
-}
-
 // --- Fechamento automático da(s) semana(s) vencida(s) ---
 
 /**
@@ -628,9 +518,11 @@ export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Prom
   const proximaSemanaInicio = getProximaSemanaInicio(caixa.semanaFim);
   const proximaSemanaFim = addDaysISO(proximaSemanaInicio, 6);
 
-  // O saldo final da semana (já inclui o saldo anterior) é repassado inteiro para a seguinte:
-  // negativo = dívida do colaborador, positivo = valor que ainda tem a receber.
-  const saldoAnteriorProximaSemana = Number(resumo.saldoFinal.toFixed(2));
+  // Somente saque/adiantamento acima do salário semanal vira saldo negativo
+  // para a semana seguinte. Comissão, descontos e outros componentes do
+  // fechamento atual não geram dívida carregada para o próximo ciclo.
+  const excessoSaqueSobreSalario = Math.max(0, resumo.totalPago - resumo.salarioBase);
+  const saldoAnteriorProximaSemana = -excessoSaqueSobreSalario;
 
   const { data: proximo, error: openError } = await supabase
     .from('comissoes_caixas_semanais')
