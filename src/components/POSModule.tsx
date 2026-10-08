@@ -329,8 +329,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           beneficiaryName: data.beneficiary_name || currentCompany.name || 'Rafa Arts Graphics',
           city: data.city || 'SANTAREM'
         } : null);
-      })
-      .catch(() => { if (!cancelled) setPixConfig(null); });
+      }, () => { if (!cancelled) setPixConfig(null); });
     return () => { cancelled = true; };
   }, [isPaymentModalOpen, currentCompany]);
 
