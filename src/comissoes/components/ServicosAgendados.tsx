@@ -28,6 +28,8 @@ interface NotaAgendada {
   scheduled_for: string | null;
   items: (NotaDetalheItem & { productId?: string | null })[];
   observacoes: string | null;
+  /** Serviço do lead que foi pra nota (etiqueta) — o funcionário vê o nome do serviço. */
+  servico_etiqueta?: string | null;
   created_at?: string;
   service_status?: string | null;
   /** Nota retirada da produção depois de o funcionário já ter puxado itens (só visual: vermelho/opaco). */
@@ -183,17 +185,22 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       console.warn('Erro ao verificar notas com itens puxados:', e);
     }
 
-    const { data: vendasData } = await supabase
+    const buscarVendas = (colunas: string) => supabase
       .from('vendas')
-      .select('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at')
+      .select(colunas)
       .neq('status', 'canceled')
       .is('deleted_at', null)
       .order('scheduled_for', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false });
+    let { data: vendasData, error: vendasErro } = await buscarVendas('id, customer_name, total, discount_value, scheduled_for, items, observacoes, servico_etiqueta, service_status, created_at');
+    if (vendasErro) {
+      // Coluna servico_etiqueta ainda não existe (add_servico_etiqueta_to_vendas.sql): lista como sempre foi
+      ({ data: vendasData } = await buscarVendas('id, customer_name, total, discount_value, scheduled_for, items, observacoes, service_status, created_at'));
+    }
 
     // Regra de Produção: aparecem notas lançadas para produção OU notas onde colaboradores já puxaram itens
     // (Mesmo que o produto já tenha sido entregue fisicamente ao cliente, a nota fica disponível para o colaborador comissionar seus itens)
-    const todasVendas = ((vendasData || []) as NotaAgendada[]).filter(v =>
+    const todasVendas = ((vendasData || []) as unknown as NotaAgendada[]).filter(v =>
       Boolean(v.service_status && String(v.service_status).trim() !== '') || notasComItensPuxadosIds.has(v.id)
     );
     const todasVendasIds = new Set(todasVendas.map(v => v.id));
@@ -722,6 +729,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
               </span>
             </div>
 
+            {nota.servico_etiqueta && (
+              <p className="text-[11px] font-black text-amber-400 truncate" title="Serviço">
+                🏷️ {nota.servico_etiqueta}
+              </p>
+            )}
             <p className="text-[11px] text-[var(--text-muted)]">
               {retirada ? 'Serviços removidos da sua comissão' : `${adicionados}/${totalItens} serviços adicionados`}
             </p>

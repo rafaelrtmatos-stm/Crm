@@ -23,6 +23,7 @@ export interface NotaDetalhe {
   scheduled_for: string | null;
   items: NotaDetalheItem[];
   observacoes?: string | null;
+  servico_etiqueta?: string | null; // serviço do lead que foi pra nota
 }
 
 // Item selecionado pra virar lançamento em Comissões — já com o valor final
@@ -185,6 +186,9 @@ export const NotaDetalheModal: React.FC<NotaDetalheModalProps> = ({ nota, onClos
             <h2 className="text-sm sm:text-base font-black uppercase tracking-tight text-[var(--text-main)] truncate">
               {(nota.customer_name || 'Cliente de Balcão').toUpperCase()}
             </h2>
+            {nota.servico_etiqueta && (
+              <p className="text-[11px] font-black text-amber-400 truncate">🏷️ {nota.servico_etiqueta}</p>
+            )}
             <p className="text-[11px] text-[var(--text-muted)] font-medium flex items-center gap-1.5 mt-0.5">
               <CalendarClock className="w-3.5 h-3.5" />
               {nota.scheduled_for

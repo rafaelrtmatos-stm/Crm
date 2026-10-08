@@ -1133,6 +1133,7 @@ const mapVendaRow = (row: any): SaleOrder => ({
   scheduledFor: row.scheduled_for || row.scheduledFor || undefined,
   deletedAt: row.deleted_at || row.deletedAt || undefined,
   observacoes: row.observacoes || undefined,
+  servicoEtiqueta: row.servico_etiqueta || row.servicoEtiqueta || undefined,
   serviceStatus: row.service_status || row.serviceStatus || undefined,
   etapaServico: row.etapa_servico || row.etapaServico || undefined,
   statusHistory: Array.isArray(row.status_history) ? row.status_history : (Array.isArray(row.statusHistory) ? row.statusHistory : []),
@@ -15228,6 +15229,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [downPayment, setDownPayment] = useState(0);
   const [scheduledFor, setScheduledFor] = useState('');
   const [orderObservacoes, setOrderObservacoes] = useState('');
+  // Etiqueta do serviço (vem do lead): o usuário escolhe se esta nota leva a etiqueta ou não
+  const [saleServicoEtiqueta, setSaleServicoEtiqueta] = useState('');
+  const [saleUsarEtiqueta, setSaleUsarEtiqueta] = useState(true);
 
   // Multiplas formas de pagamento na mesma venda
   const PAYMENT_METHOD_OPTIONS: { id: PaymentEntry['method']; label: string; icon: any }[] = [
@@ -17409,6 +17413,56 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
   const [enviandoReciboWhatsApp, setEnviandoReciboWhatsApp] = useState(false);
   const [receiptRecipientModal, setReceiptRecipientModal] = useState<ReceiptRecipientModalState | null>(null);
+  // Editar a etiqueta do serviço direto no Histórico de Vendas. Atualiza a nota e também o serviço
+  // no cartão do lead (só quando o lead ainda está com o mesmo serviço da nota ou sem serviço, pra
+  // nunca sobrescrever um serviço novo de outro pedido do mesmo cliente).
+  const handleEditServicoEtiqueta = async (sale: SaleOrder) => {
+    const antigo = (sale.servicoEtiqueta || '').trim();
+    const resposta = await showPrompt('Serviço / produto desta nota (aparece pro funcionário e no cartão do lead):', antigo);
+    if (resposta === null || resposta === undefined) return;
+    const novo = resposta.trim();
+    if (novo === antigo) return;
+    try {
+      const { error } = await supabase.from('vendas').update({ servico_etiqueta: novo || null, updated_at: new Date().toISOString() }).eq('id', sale.id);
+      if (error) throw error;
+      const aplicar = (v: SaleOrder) => v.id === sale.id ? { ...v, servicoEtiqueta: novo || undefined } : v;
+      setAllSalesHistory(prev => prev.map(aplicar));
+      setSalesToday(prev => prev.map(aplicar));
+
+      // Reflete no cartão do lead (mesmo telefone)
+      const digitos = (sale.customerPhone || '').replace(/\D/g, '');
+      if (digitos.length >= 6) {
+        try {
+          const { data: leadsRows } = await supabase
+            .from('leads')
+            .select('id, order_summary, service_name, tracking')
+            .ilike('phone', `%${digitos.slice(-8)}%`);
+          for (const lead of (leadsRows || [])) {
+            const servicoLead = String(lead.order_summary || lead.service_name || lead.tracking?.orderSummary || '').trim();
+            if (servicoLead && servicoLead.toLowerCase() !== antigo.toLowerCase()) continue;
+            const trackingAtual = (typeof lead.tracking === 'object' && lead.tracking !== null) ? lead.tracking : {};
+            const novoTracking = { ...trackingAtual, orderSummary: novo || null };
+            const { error: errLead } = await supabase.from('leads').update({
+              order_summary: novo || null,
+              service_name: novo || null,
+              tracking: novoTracking,
+              updated_at: new Date().toISOString(),
+            }).eq('id', lead.id);
+            if (errLead) {
+              await supabase.from('leads').update({ tracking: novoTracking, updated_at: new Date().toISOString() }).eq('id', lead.id);
+            }
+          }
+        } catch (leadErr) {
+          console.warn('Etiqueta da nota salva, mas não foi possível atualizar o serviço no lead:', leadErr);
+        }
+      }
+      showAlert('Serviço da nota atualizado.');
+    } catch (err: any) {
+      console.error('Erro ao editar serviço da nota:', err);
+      showAlert('Não foi possível editar o serviço da nota. Se for a primeira vez, rode a migração add_servico_etiqueta_to_vendas.sql no Supabase.');
+    }
+  };
+
   const handleDuplicateSale = async (sale: SaleOrder) => {
     if (!(await showConfirm(`Duplicar pedido de ${sale.customerName || 'cliente'}?`))) return;
     // Carrega os mesmos itens e cliente no carrinho — nao copia pagamento/status, a nova nota comeca do zero.
@@ -17556,6 +17610,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   useEffect(() => {
     if (!prefilledCustomer) return;
     const customerToSet = { id: prefilledCustomer.id || '', name: prefilledCustomer.name, phone: prefilledCustomer.phone };
+    // Serviço do lead vira a etiqueta da nota (o usuário escolhe, na tela da venda, se esta nota leva ou não)
+    const etiquetaDoLead = String(
+      prefilledCustomer.leadData?.orderSummary || prefilledCustomer.leadData?.serviceName || prefilledCustomer.leadData?.tracking?.orderSummary || ''
+    ).trim();
+    setSaleServicoEtiqueta(etiquetaDoLead);
+    setSaleUsarEtiqueta(true);
     if (prefilledCustomer.leadData || prefilledCustomer.leadId) {
       setLinkedLeadChat(prefilledCustomer.leadData || {
         id: prefilledCustomer.leadId,
@@ -19428,6 +19488,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setSettlingOrder(null);
     setScheduledFor('');
     setOrderObservacoes('');
+    setSaleServicoEtiqueta('');
     setDownPayment(0);
     setEditingCreatedAt('');
     setEditingPaymentsList([]);
@@ -19945,7 +20006,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // Gravação principal da venda no Supabase
       let insertedVenda: any = null;
       try {
-        const { data: insertedVendaResult, error } = await supabase.from('vendas').insert({
+        const vendaPayloadNova: Record<string, any> = {
           customer_name: order.customerName,
           customer_phone: selectedCustomer?.phone,
           cliente_id: selectedCustomer?.id || null,
@@ -19963,7 +20024,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           discount_value: saleDiscountValue || null,
           service_status: null,
           etapa_servico: 'pedido_recebido',
-        }).select().single();
+          servico_etiqueta: (saleUsarEtiqueta && saleServicoEtiqueta.trim()) ? saleServicoEtiqueta.trim() : null,
+        };
+        let { data: insertedVendaResult, error } = await supabase.from('vendas').insert(vendaPayloadNova).select().single();
+        if (error && /servico_etiqueta/i.test(String(error.message || ''))) {
+          // Coluna ainda não criada (add_servico_etiqueta_to_vendas.sql): grava a nota sem a etiqueta, como sempre foi
+          const { servico_etiqueta: _semEtiqueta, ...payloadSemEtiqueta } = vendaPayloadNova;
+          ({ data: insertedVendaResult, error } = await supabase.from('vendas').insert(payloadSemEtiqueta).select().single());
+        }
         if (error) throw error;
         insertedVenda = insertedVendaResult;
 
@@ -19998,6 +20066,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setCart([]);
         setDownPayment(0);
         setOrderObservacoes('');
+        setSaleServicoEtiqueta('');
         setScheduledFor('');
         setSaleDiscountValue(0); 
         setSaleDiscountInput(''); 
@@ -21229,6 +21298,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left cursor-pointer"><FileSignature size={13} /> Gerar Contrato</button>
                       )}
                       <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left cursor-pointer"><Calculator size={13} /> Custos da Nota</button>
+                      <button onClick={() => { setOpenSaleRowActionsId(null); handleEditServicoEtiqueta(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-300 hover:bg-white/5 text-left cursor-pointer"><Tag size={13} /> Editar Serviço{sale.servicoEtiqueta ? '' : ' (etiqueta)'}</button>
                       {sale.serviceStatus ? (
                         <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left cursor-pointer"><Factory size={13} /> Desmarcar Produção</button>
                       ) : (
@@ -24746,6 +24816,19 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    placeholder="Observação (opcional, aparece na lista de Serviços)"
                    className="w-full h-8 sm:h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] sm:text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-primary-500 shrink-0"
                  />
+                 {!editingFullOrder && saleServicoEtiqueta && (
+                   <label className="w-full flex items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 cursor-pointer shrink-0">
+                     <input
+                       type="checkbox"
+                       checked={saleUsarEtiqueta}
+                       onChange={(e) => setSaleUsarEtiqueta(e.target.checked)}
+                       className="accent-amber-500 shrink-0"
+                     />
+                     <span className="text-[9px] sm:text-[10px] text-white/70 min-w-0">
+                       Levar serviço do lead nesta nota: <strong className="text-amber-300 break-words">{saleServicoEtiqueta}</strong>
+                     </span>
+                   </label>
+                 )}
               </div>
            </div>
 
@@ -25092,6 +25175,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  setSelectedCustomer(null);
                  setCart([]);
                  setOrderObservacoes('');
+                 setSaleServicoEtiqueta('');
                  setDownPayment(0);
                  setScheduledFor('');
                  resetPaymentEntries();
