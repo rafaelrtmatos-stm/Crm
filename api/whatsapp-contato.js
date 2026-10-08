@@ -206,7 +206,10 @@ async function handleGroupParticipants(req, res) {
     const rawParticipants = Array.isArray(data.participants) ? data.participants : (Array.isArray(data) ? data : []);
     const participants = rawParticipants.map((p) => {
       const pId = typeof p === 'string' ? p : (p.id || p.jid || '');
-      const num = pId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+      // Participante com id @lid: o telefone real vem em outro campo (phoneNumber/pn/jidAlt); sem ele, nao ha numero
+      const pAlt = typeof p === 'object' ? String(p.phoneNumber || p.pn || p.jidAlt || p.participantAlt || '') : '';
+      const fonteNum = pId.endsWith('@lid') ? pAlt : pId;
+      const num = fonteNum.replace(/@.*$/, '').replace(/\D/g, '');
       const pName = typeof p === 'object' ? (p.name || p.pushName || p.notify || null) : null;
       return {
         id: pId || num,

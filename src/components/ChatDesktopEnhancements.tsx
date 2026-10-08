@@ -921,7 +921,7 @@ export const CustomerContextSidebar = ({
   groupDescription?: string | null;
   onOpenMediaViewer?: (media: any) => void;
   onStartSale?: () => void;
-  onOpenChatWithPhone?: (phone: string) => void;
+  onOpenChatWithPhone?: (phone: string, name?: string) => void;
   orderSummaryDraft?: string;
   setOrderSummaryDraft?: (v: string) => void;
   estimatedValueDraft?: string | number;
@@ -1166,10 +1166,13 @@ export const CustomerContextSidebar = ({
                 ) : (
                   filteredParticipants.map((p: any, idx: number) => {
                     const phoneOrId = p.phoneNumber || p.phone || (typeof p.id === 'string' && p.id.includes('@') ? p.id.split('@')[0] : p.id);
+                    // Participante identificado so por @lid (sem telefone real) nao tem numero pra abrir conversa
+                    const ehLid = typeof p.id === 'string' && p.id.endsWith('@lid');
+                    const phoneAbrir = ehLid && !p.phoneNumber && !p.phone ? null : phoneOrId;
                     return (
                       <div
                         key={p.id || idx}
-                        onClick={() => onOpenChatWithPhone && phoneOrId && onOpenChatWithPhone(phoneOrId)}
+                        onClick={() => onOpenChatWithPhone && phoneAbrir && onOpenChatWithPhone(phoneAbrir, p.name || undefined)}
                         className="flex items-center justify-between gap-2 p-2.5 hover:bg-white/5 transition-colors group cursor-pointer"
                         title="Clique para abrir conversa individual com este participante"
                       >
@@ -1197,10 +1200,10 @@ export const CustomerContextSidebar = ({
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          {onOpenChatWithPhone && phoneOrId && (
+                          {onOpenChatWithPhone && phoneAbrir && (
                             <button
                               type="button"
-                              onClick={() => onOpenChatWithPhone(phoneOrId)}
+                              onClick={() => onOpenChatWithPhone(phoneAbrir, p.name || undefined)}
                               title="Abrir conversa no privado com este participante"
                               className="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-bold text-[10px] flex items-center gap-1.5 transition-colors cursor-pointer"
                             >

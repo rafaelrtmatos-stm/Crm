@@ -4229,7 +4229,7 @@ export const ChatPanel = ({
   onToggleColumnCollapse?: () => void;
   unreadTotalCount?: number;
   isEmbedded?: boolean;
-  onOpenChatWithPhone?: (phone: string) => void;
+  onOpenChatWithPhone?: (phone: string, name?: string) => void;
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'data' | 'notes' | 'tasks' | 'sales'>('chat');
   const [newMessage, setNewMessage] = useState('');
@@ -5984,7 +5984,7 @@ export const ChatPanel = ({
     }
   };
 
-  const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare, pendingReceiptAttachment, setPendingReceiptAttachment } = React.useContext(AppContext)!;
+  const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptAttachment, setPendingReceiptAttachment } = React.useContext(AppContext)!;
 
   useEffect(() => {
     if (pendingReceiptAttachment) {
@@ -6141,23 +6141,17 @@ export const ChatPanel = ({
     }
   };
 
-  const handleOpenChatWithPhone = async (phone: string) => {
+  const handleOpenChatWithPhone = async (phone: string, name?: string) => {
     if (onOpenChatWithPhone) {
-      onOpenChatWithPhone(phone);
+      onOpenChatWithPhone(phone, name);
       return;
     }
     const digits = phone.replace(/\D/g, '');
     if (!digits) return;
     try {
-      const { data } = await supabase.from('leads').select('*').ilike('phone', `%${digits.slice(-8)}%`).limit(1).maybeSingle();
-      if (data?.id) {
-        setPendingOpenLeadId(data.id);
-        setRootActiveTab?.('crm');
-        if (onClose) onClose();
-      } else {
-        setPendingWhatsAppShare?.({ leadId: '', text: '', phone: digits });
-        if (onClose) onClose();
-      }
+      // Acha o contato pelo telefone ou CRIA o lead (membro de grupo que ainda nao era contato) e abre a conversa no CRM
+      await openWhatsAppChat(digits, name || digits);
+      if (onClose) onClose();
     } catch (err) {
       console.error('Erro ao abrir conversa por telefone:', err);
     }
@@ -13649,7 +13643,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
         unreadTotalCount={notificacoesPendentes.length}
         initialDraft={chatInitialDraft}
         onDraftConsumed={() => setChatInitialDraft('')}
-        onOpenChatWithPhone={async (phoneToOpen) => {
+        onOpenChatWithPhone={async (phoneToOpen, nomeParticipante) => {
           const digits = (phoneToOpen || '').replace(/\D/g, '');
           if (!digits) return;
           const found = leads.find(l => {
@@ -13673,7 +13667,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
             setSelectedChat({
               id: `temp-${digits}`,
               phone: digits,
-              name: phoneToOpen,
+              name: nomeParticipante || phoneToOpen,
               channel: 'WhatsApp',
               sourceType: 'WhatsApp',
               status: 'Novo',
