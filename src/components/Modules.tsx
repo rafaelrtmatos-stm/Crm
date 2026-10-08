@@ -7482,7 +7482,7 @@ export const ChatPanel = ({
               </h4>
             );
 
-            const indicadorEtapaEl = effectiveFunnelId && funnelStages.length > 0 && (
+            const indicadorEtapaEl = !isGroup && effectiveFunnelId && funnelStages.length > 0 && (
                     <div className="relative shrink-0">
                       <button
                         ref={stageButtonRef}
@@ -7684,7 +7684,7 @@ export const ChatPanel = ({
                   </div>
 
                   {/* Ação Rápida de Concluir / Finalizar Atendimento */}
-                  {funnelStages.length > 0 && (() => {
+                  {!isGroup && funnelStages.length > 0 && (() => {
                     const concludedStage = funnelStages.find(s => {
                       const n = (s.name || '').toLowerCase();
                       return n.includes('conclu') || n.includes('finaliz') || n.includes('ganho') || n.includes('fechado');
@@ -7783,7 +7783,7 @@ export const ChatPanel = ({
                   </div>
 
                   {/* Status do Atendimento em Todas as Telas */}
-                  {effectiveFunnelId && funnelStages.length > 0 && (
+                  {!isGroup && effectiveFunnelId && funnelStages.length > 0 && (
                     <div className="border-b border-white/10 pb-1 mb-1">
                       <div className="px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white/40">Status do Atendimento</div>
                       <div className="grid grid-cols-1 gap-0.5 px-1 max-h-40 overflow-y-auto custom-scrollbar">
