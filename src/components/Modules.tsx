@@ -4428,23 +4428,50 @@ export const ChatPanel = ({
   }, [isPhotoOpen]);
   // Se o lead nao tem funnelId salvo (cadastro antigo/incompleto), usa o funil que ja esta
   // selecionado na tela (passado pelo Funil CRM) como respaldo, ou detecta o funil padrão
+  // O funil "padrao" cadastrado pode estar SEM etapas (o do Rafa Arts esta): usa-lo como respaldo deixava o
+  // chat sem a barra de etapas e GRAVAVA esse funil vazio no lead. Por isso o respaldo e o primeiro funil
+  // (padrao primeiro) que TEM etapas, e a etapa atual do lead manda no funil (cada etapa pertence a um funil so).
   const [detectedFunnelId, setDetectedFunnelId] = useState<string | null>(null);
+  const [funisComEtapas, setFunisComEtapas] = useState<Set<string> | null>(null); // null = ainda carregando
   useEffect(() => {
-    if (conversation?.funnelId || fallbackFunnelId) return;
-    supabase
-      .from('funnels')
-      .select('id')
-      .eq('company_id', 'rafa-arts')
-      .order('is_default', { ascending: false })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data[0]?.id) {
-          setDetectedFunnelId(data[0].id);
-        }
-      });
-  }, [conversation?.funnelId, fallbackFunnelId]);
+    let ativo = true;
+    (async () => {
+      const { data: fs } = await supabase
+        .from('funnels')
+        .select('id')
+        .eq('company_id', 'rafa-arts')
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true });
+      const ids = (fs || []).map((f: any) => f.id);
+      if (!ids.length) { if (ativo) setFunisComEtapas(new Set()); return; }
+      const { data: st, error } = await supabase.from('funnel_stages').select('funnel_id').in('funnel_id', ids);
+      if (error || !ativo) return;
+      const comEtapas = new Set<string>((st || []).map((x: any) => x.funnel_id));
+      setFunisComEtapas(comEtapas);
+      setDetectedFunnelId(ids.find((id: string) => comEtapas.has(id)) || null);
+    })();
+    return () => { ativo = false; };
+  }, []);
 
-  const effectiveFunnelId = conversation?.funnelId || fallbackFunnelId || detectedFunnelId;
+  const [funilDaEtapa, setFunilDaEtapa] = useState<string | null>(null);
+  useEffect(() => {
+    setFunilDaEtapa(null);
+    const etapaId = conversation?.funnelStageId;
+    if (!etapaId) return;
+    let ativo = true;
+    supabase.from('funnel_stages').select('funnel_id').eq('id', etapaId).maybeSingle().then(({ data }) => {
+      if (ativo && data?.funnel_id) setFunilDaEtapa(data.funnel_id);
+    });
+    return () => { ativo = false; };
+  }, [conversation?.id, conversation?.funnelStageId]);
+
+  const funilTemEtapas = (id?: string | null) => !!id && (funisComEtapas === null || funisComEtapas.has(id));
+  const effectiveFunnelId: string | null | undefined =
+    funilDaEtapa
+    || [conversation?.funnelId, fallbackFunnelId].find(funilTemEtapas)
+    || detectedFunnelId
+    || conversation?.funnelId
+    || fallbackFunnelId;
 
   // --- Mensagens Agendadas para este Lead / Conversa ---
   const [scheduledMessages, setScheduledMessages] = useState<any[]>([]);
@@ -4709,7 +4736,10 @@ export const ChatPanel = ({
 
   useEffect(() => {
     if (!effectiveFunnelId) { setFunnelStages([]); return; }
-    if (conversation?.id && !conversation?.funnelId && effectiveFunnelId) {
+    // Grava o funil no lead so quando ele nao tem um funil VALIDO (vazio ou apontando pra funil sem etapas)
+    // e o funil escolhido tem etapas -- nunca troca um funil valido e nunca grava um funil vazio.
+    if (conversation?.id && effectiveFunnelId && funisComEtapas?.has(effectiveFunnelId)
+      && (!conversation.funnelId || !funisComEtapas.has(conversation.funnelId))) {
       supabase.from('leads').update({ funnel_id: effectiveFunnelId }).eq('id', conversation.id).then(() => {});
     }
     const loadStages = async () => {
@@ -4719,7 +4749,7 @@ export const ChatPanel = ({
     loadStages();
     const channel = supabase.channel(`chatpanel-stages-${effectiveFunnelId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'funnel_stages', filter: `funnel_id=eq.${effectiveFunnelId}` }, loadStages).subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [effectiveFunnelId, conversation?.id]);
+  }, [effectiveFunnelId, conversation?.id, funisComEtapas]);
 
   const handleChangeStageFromChat = async (novaStageId: string) => {
     if (!conversation?.id) return;
@@ -9895,6 +9925,8 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   const { pendingOpenLeadId, setPendingOpenLeadId, pendingWhatsAppShare, setPendingWhatsAppShare, notificacoesPendentes } = React.useContext(AppContext)!;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [funnels, setFunnels] = useState<Funnel[]>([]);
+  // Funis que TEM etapas: ir pra um funil vazio (ex.: o padrao cadastrado) deixa as colunas do Kanban em branco.
+  const [funisComEtapasIds, setFunisComEtapasIds] = useState<Set<string> | null>(null);
   const [selectedFunnelId, setSelectedFunnelId] = useState<string>('');
   const [stages, setStages] = useState<FunnelStage[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -10119,23 +10151,46 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
   useEffect(() => {
     if (!currentCompany) return;
+    // Em caso de ERRO na consulta (rede, token, timeout) NAO zera a tela: antes `data` vinha nulo e
+    // setLeads([]) / setStages([]) esvaziava o funil inteiro ("as mensagens do funil somem").
+    let ativo = true;
     const loadFunnels = async () => {
-      const { data } = await supabase.from('funnels').select('*').eq('company_id', 'rafa-arts');
-      const funnelData = (data || []).map(mapFunnelRow);
+      const { data, error } = await supabase.from('funnels').select('*').eq('company_id', 'rafa-arts').order('is_default', { ascending: false }).order('created_at', { ascending: true });
+      if (error || !data || !ativo) { if (error) console.warn('[CRM] Falha ao carregar funis:', error); return; }
+      const funnelData = data.map(mapFunnelRow);
       setFunnels(funnelData);
-      setSelectedFunnelId(prev => prev || (funnelData.length > 0 ? funnelData[0].id : prev));
+      // Funil inicial: o primeiro (padrao primeiro) que TEM etapas -- o padrao cadastrado pode estar vazio.
+      const { data: st } = await supabase.from('funnel_stages').select('funnel_id').in('funnel_id', funnelData.map(f => f.id));
+      const comEtapas = new Set<string>((st || []).map((x: any) => x.funnel_id));
+      setFunisComEtapasIds(comEtapas);
+      const inicial = funnelData.find(f => comEtapas.has(f.id)) || funnelData[0];
+      setSelectedFunnelId(prev => prev || (inicial ? inicial.id : prev));
     };
+    // Cada busca pega um numero; so a mais recente atualiza a tela (resposta antiga nao sobrescreve a nova).
+    let ultimaBuscaLeads = 0;
     const loadLeads = async () => {
-      const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('last_message_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
-      setLeads((data || []).map(mapLeadRow));
+      const minha = ++ultimaBuscaLeads;
+      const { data, error } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('last_message_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
+      if (error || !data) { if (error) console.warn('[CRM] Falha ao recarregar leads (mantendo a lista atual):', error); return; }
+      if (!ativo || minha !== ultimaBuscaLeads) return;
+      setLeads(data.map(mapLeadRow));
+    };
+    // O webhook atualiza um lead a cada mensagem (inclusive de grupos): sem agrupar, cada evento
+    // recarregava TODOS os leads. Agrupa rajadas de eventos numa unica recarga.
+    let timerLeads: ReturnType<typeof setTimeout> | null = null;
+    const agendarLoadLeads = () => {
+      if (timerLeads) clearTimeout(timerLeads);
+      timerLeads = setTimeout(() => { timerLeads = null; loadLeads(); }, 500);
     };
     loadFunnels();
     loadLeads();
 
     const funnelsChannel = supabase.channel('crm-funnels').on('postgres_changes', { event: '*', schema: 'public', table: 'funnels', filter: `company_id=eq.${currentCompany.id}` }, loadFunnels).subscribe();
-    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, loadLeads).subscribe();
+    const leadsChannel = supabase.channel('crm-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads', filter: `company_id=eq.${currentCompany.id}` }, agendarLoadLeads).subscribe();
 
     return () => {
+      ativo = false;
+      if (timerLeads) clearTimeout(timerLeads);
       supabase.removeChannel(funnelsChannel);
       supabase.removeChannel(leadsChannel);
     };
@@ -10144,8 +10199,9 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
   useEffect(() => {
     if (!selectedFunnelId) return;
     const loadStages = async () => {
-      const { data } = await supabase.from('funnel_stages').select('*').eq('funnel_id', selectedFunnelId).order('order', { ascending: true });
-      setStages((data || []).map(mapFunnelStageRow));
+      const { data, error } = await supabase.from('funnel_stages').select('*').eq('funnel_id', selectedFunnelId).order('order', { ascending: true });
+      if (error || !data) { if (error) console.warn('[CRM] Falha ao carregar etapas (mantendo as atuais):', error); return; }
+      setStages(data.map(mapFunnelStageRow));
     };
     loadStages();
     const stagesChannel = supabase.channel(`crm-stages-${selectedFunnelId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'funnel_stages', filter: `funnel_id=eq.${selectedFunnelId}` }, loadStages).subscribe();
@@ -10162,7 +10218,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
 
     const lead = leads.find(l => l.id === targetLeadId);
     if (lead) {
-      if (lead.funnelId && lead.funnelId !== selectedFunnelId) {
+      if (lead.funnelId && lead.funnelId !== selectedFunnelId && (!funisComEtapasIds || funisComEtapasIds.has(lead.funnelId))) {
         setSelectedFunnelId(lead.funnelId);
       }
       setSelectedLead(lead);
@@ -10177,7 +10233,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
             const exists = prev.some(l => l.id === mapped.id);
             return exists ? prev.map(l => l.id === mapped.id ? mapped : l) : [mapped, ...prev];
           });
-          if (mapped.funnelId && mapped.funnelId !== selectedFunnelId) {
+          if (mapped.funnelId && mapped.funnelId !== selectedFunnelId && (!funisComEtapasIds || funisComEtapasIds.has(mapped.funnelId))) {
             setSelectedFunnelId(mapped.funnelId);
           }
           setSelectedLead(mapped);
@@ -10186,7 +10242,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
         }
       });
     }
-  }, [pendingOpenLeadId, pendingWhatsAppShare, leads, selectedFunnelId]);
+  }, [pendingOpenLeadId, pendingWhatsAppShare, leads, selectedFunnelId, funisComEtapasIds]);
 
   const onDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id as string);
