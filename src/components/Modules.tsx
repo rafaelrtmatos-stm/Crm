@@ -737,13 +737,31 @@ const MessageStatusTicks = ({
   isOpen,
   onToggle,
   onClose,
+  isGroup,
+  participants,
 }: {
   status?: string;
   m?: any;
   isOpen?: boolean;
   onToggle?: () => void;
   onClose?: () => void;
+  isGroup?: boolean;
+  participants?: any[];
 }) => {
+  // Grupo: quem recebeu / quem viu (um item por participante, com o nome vindo da lista de integrantes)
+  const recibosGrupo: { nome: string; deliveredAt?: string; readAt?: string }[] = isGroup && Array.isArray(m?.receipts)
+    ? m.receipts.map((rc: any) => {
+        const dig = String(rc?.phone || '').replace(/\D/g, '');
+        const part = (participants || []).find((p: any) => {
+          const cands = [p?.phoneNumber, p?.phone, typeof p?.id === 'string' ? p.id.split('@')[0] : p?.id];
+          return dig && cands.some((c: any) => String(c || '').replace(/\D/g, '') === dig);
+        });
+        return { nome: part?.name || (dig ? `+${dig}` : 'Participante'), deliveredAt: rc?.deliveredAt, readAt: rc?.readAt };
+      })
+    : [];
+  const viramGrupo = recibosGrupo.filter(r => r.readAt);
+  const entreguesGrupo = recibosGrupo.filter(r => !r.readAt && r.deliveredAt);
+  const alturaExtraGrupo = recibosGrupo.length > 0 ? 40 + Math.min(recibosGrupo.length, 8) * 30 : 0;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
 
@@ -776,7 +794,7 @@ const MessageStatusTicks = ({
       if (!buttonRef.current) return;
       const rect = buttonRef.current.getBoundingClientRect();
       const cardWidth = Math.min(290, window.innerWidth - 24);
-      const cardHeight = 110;
+      const cardHeight = 110 + alturaExtraGrupo;
       const placeAbove = rect.top >= cardHeight + 12;
       const top = placeAbove ? rect.top - cardHeight - 8 : rect.bottom + 8;
       const left = Math.max(12, Math.min(window.innerWidth - cardWidth - 12, rect.right - cardWidth));
@@ -789,7 +807,7 @@ const MessageStatusTicks = ({
       window.removeEventListener('resize', updatePos);
       window.removeEventListener('scroll', updatePos, true);
     };
-  }, [isOpen]);
+  }, [isOpen, alturaExtraGrupo]);
 
   return (
     <div className="relative inline-flex items-center shrink-0">
@@ -870,6 +888,34 @@ const MessageStatusTicks = ({
                 {isDelivered ? (deliveredDateStr || (activeTime ? `hoje ${activeTime}` : '—')) : '—'}
               </span>
             </div>
+
+            {/* Grupo: quem viu e quem só recebeu */}
+            {recibosGrupo.length > 0 && (
+              <div className="border-t border-slate-200/80 max-h-60 overflow-y-auto">
+                {viramGrupo.length > 0 && (
+                  <div className="px-4 pt-2.5 pb-1">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-[#34B7F1] mb-1">Visto por ({viramGrupo.length})</p>
+                    {viramGrupo.map((r, i) => (
+                      <div key={`v-${i}`} className="flex items-center justify-between gap-2 py-1">
+                        <span className="text-[13px] text-slate-900 truncate">{r.nome}</span>
+                        <span className="text-[11px] text-[#667781] shrink-0 whitespace-nowrap">{formatWhatsAppStatusDate(r.readAt) || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {entreguesGrupo.length > 0 && (
+                  <div className="px-4 pt-2 pb-2.5">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Entregue para ({entreguesGrupo.length})</p>
+                    {entreguesGrupo.map((r, i) => (
+                      <div key={`e-${i}`} className="flex items-center justify-between gap-2 py-1">
+                        <span className="text-[13px] text-slate-700 truncate">{r.nome}</span>
+                        <span className="text-[11px] text-[#667781] shrink-0 whitespace-nowrap">{formatWhatsAppStatusDate(r.deliveredAt) || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>,
         document.body
@@ -917,6 +963,7 @@ const mapCrmMessageRow = (row: any): any => {
     deliveryStatus: row.delivery_status || undefined,
     deliveredAt: row.delivered_at || undefined,
     readAt: row.read_at || undefined,
+    receipts: Array.isArray(row.receipts) ? row.receipts : undefined,
     versions: row.versions || undefined,
     currentVersionIndex: row.current_version_index ?? undefined,
     lastEditedAt: row.last_edited_at || undefined,
@@ -8436,6 +8483,8 @@ export const ChatPanel = ({
                                    isOpen={statusMensagemAbertoId === m.id}
                                    onToggle={() => setStatusMensagemAbertoId(prev => prev === m.id ? null : m.id)}
                                    onClose={() => setStatusMensagemAbertoId(null)}
+                                   isGroup={isGroup}
+                                   participants={groupParticipants}
                                  />
                                )
                              )}

@@ -400,7 +400,8 @@ function extrairAtualizacoesStatus(data) {
     if (!id || !status) continue;
     const rawTs = u?.messageTimestamp || u?.timestamp || u?.dateTime || u?.update?.statusTimestamp;
     const timestamp = rawTs ? timestampParaIso(rawTs) : null;
-    saida.push({ id, remoteJid: u?.remoteJid || u?.key?.remoteJid || '', status, timestamp });
+    const participant = u?.participant || u?.userJid || u?.key?.participant || u?.receipt?.userJid || null;
+    saida.push({ id, remoteJid: u?.remoteJid || u?.key?.remoteJid || '', status, timestamp, participant });
   }
   return saida;
 }
@@ -469,6 +470,37 @@ async function atualizarStatusEntrega(atualizacao) {
   } catch (err) {
     console.error('[CRM WEBHOOK] falha ao gravar status de entrega (nao impede o resto):', err);
     return null;
+  }
+}
+
+// Grupo: guarda QUEM recebeu/viu cada mensagem (crm_messages.receipts). Um recibo por participante,
+// so sobe (entregue -> visto). Nao derruba nada se falhar (coluna criada em add_group_receipts_crm_messages.sql).
+async function gravarReciboGrupo(atualizacao) {
+  try {
+    const jid = String(atualizacao.participant || '');
+    if (!jid || !atualizacao.id) return;
+    const phone = jid.replace(/@.*$/, '').replace(/\D/g, '');
+    const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' };
+    const base = `${SUPABASE_URL}/rest/v1/crm_messages?company_id=eq.${COMPANY_ID}&whatsapp_message_id=eq.${encodeURIComponent(atualizacao.id)}`;
+    const r = await fetch(`${base}&select=receipts`, { headers });
+    if (!r.ok) return;
+    const linhas = await r.json().catch(() => []);
+    if (!Array.isArray(linhas) || !linhas[0]) return;
+    const lista = Array.isArray(linhas[0].receipts) ? linhas[0].receipts : [];
+    const agoraIso = atualizacao.timestamp || new Date().toISOString();
+    let item = lista.find((x) => x && (x.jid === jid || (phone && x.phone === phone)));
+    if (!item) { item = { jid, phone }; lista.push(item); }
+    if (atualizacao.status === 'read') {
+      if (!item.deliveredAt) item.deliveredAt = agoraIso;
+      if (!item.readAt) item.readAt = agoraIso;
+    } else if (atualizacao.status === 'delivered') {
+      if (!item.deliveredAt) item.deliveredAt = agoraIso;
+    } else {
+      return;
+    }
+    await fetch(base, { method: 'PATCH', headers, body: JSON.stringify({ receipts: lista }) });
+  } catch (err) {
+    console.error('[CRM WEBHOOK] falha ao gravar recibo de grupo (nao impede o resto):', err);
   }
 }
 
@@ -857,6 +889,7 @@ export default async function handler(req, res) {
           if (phoneDerivado) waitUntil(sinalizarMensagemNova(phoneDerivado));
           continue;
         }
+        if (ehGrupoUpd && a.participant) await gravarReciboGrupo(a);
         const phoneGravado = await atualizarStatusEntrega(a);
         console.log(`[CRM WEBHOOK] status de entrega ${a.status} message_id=${a.id} ${phoneGravado ? 'atualizado' : '(sem mudanca)'}`);
       }
