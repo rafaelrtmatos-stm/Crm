@@ -38,3 +38,23 @@ export function normalizarTelefoneBR(digitos) {
   }
   return digitos; // ja tem 13 digitos (com "9") ou formato nao reconhecido
 }
+
+// Todos os formatos em que o MESMO celular brasileiro pode estar gravado: com/sem "55" e com/sem
+// o nono digito. Leads antigos foram salvos sem o 9 (ou sem o 55), mas o webhook grava as mensagens
+// novas no formato canonico (55DDD9XXXXXXXX) -- buscar pelo telefone EXATO do lead nao encontrava
+// essas mensagens. Grupos (JID com ~18 digitos) e numeros de outros paises voltam so com o proprio valor.
+export function variantesTelefoneBR(telefone) {
+  const d = String(telefone || '').replace(/\D/g, '');
+  if (!d) return [];
+  const canon = normalizarTelefoneBR(d);
+  const set = new Set([d]);
+  const cel = /^55(\d{2})9([6-9]\d{7})$/.exec(canon);
+  if (cel) {
+    const [, ddd, num] = cel;
+    [`55${ddd}9${num}`, `55${ddd}${num}`, `${ddd}9${num}`, `${ddd}${num}`].forEach((v) => set.add(v));
+  } else {
+    const fixo = /^55(\d{2})([2-5]\d{7})$/.exec(canon);
+    if (fixo) [canon, `${fixo[1]}${fixo[2]}`].forEach((v) => set.add(v));
+  }
+  return [...set];
+}
