@@ -69,7 +69,7 @@ function extrairInfoMidia(msg) {
   return info;
 }
 
-async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio, quotedMessageId, quotedText, quotedSender, quotedMediaType }) {
+async function inserirMensagem({ phone, text, senderName, direction = 'incoming', channel = 'WhatsApp', whatsappMessageId, createdAt, mediaUrl, fileName, contentType, groupJid, audio, quotedMessageId, quotedText, quotedSender, quotedMediaType, senderPhone }) {
   if (!phone || !text) return;
   // `audio` = campos extras do áudio (media_mime_type, media_duration, transcription_status).
   const quoteVersions = (quotedMessageId || quotedText) ? [{
@@ -79,7 +79,7 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
     quotedMediaType: quotedMediaType || null,
   }] : null;
 
-  const enviar = (comGrupo, comAudio = true, comCitacao = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
+  const enviar = (comGrupo, comAudio = true, comCitacao = true, comRemetente = true) => fetch(`${SUPABASE_URL}/rest/v1/crm_messages`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -107,15 +107,18 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
       ...(comAudio && audio ? audio : {}),
       // Identificador REAL do grupo (remoteJid ...@g.us). `phone` continua sendo so os digitos dele.
       ...(comGrupo && groupJid ? { group_jid: groupJid } : {}),
+      // Telefone de quem mandou (so mensagem de GRUPO): alimenta foto/nome do remetente no chat.
+      ...(comRemetente && senderPhone ? { sender_phone: senderPhone } : {}),
       ...(createdAt ? { created_at: createdAt } : {}),
     }),
   });
 
-  let resp = await enviar(true, true, true);
-  // Se a tabela ainda não tiver as colunas de citação, áudio ou grupo, tenta com fallback
-  if (!resp.ok && (quotedMessageId || quotedText)) resp = await enviar(true, true, false);
-  if (!resp.ok && audio) resp = await enviar(true, false, false);
-  if (!resp.ok && groupJid) resp = await enviar(false, false, false);
+  let resp = await enviar(true, true, true, true);
+  // Se a tabela ainda não tiver as colunas de remetente, citação, áudio ou grupo, tenta com fallback
+  if (!resp.ok && senderPhone) resp = await enviar(true, true, true, false);
+  if (!resp.ok && (quotedMessageId || quotedText)) resp = await enviar(true, true, false, false);
+  if (!resp.ok && audio) resp = await enviar(true, false, false, false);
+  if (!resp.ok && groupJid) resp = await enviar(false, false, false, false);
 
   if (!resp.ok) {
     const corpo = await resp.text().catch(() => '');
@@ -769,6 +772,15 @@ export default async function handler(req, res) {
           senderName = 'Celular';
         }
 
+        // Grupo: quem mandou a mensagem (participant). Em @lid so usa se vier o telefone real (participantAlt/Pn).
+        let senderPhone = '';
+        if (ehGrupoMsg && !ehMinhaMensagem) {
+          let part = String(msg?.key?.participant || msg?.participant || '');
+          if (part.endsWith('@lid')) part = String(msg?.key?.participantAlt || msg?.key?.participantPn || '');
+          const dig = part.replace(/@.*$/, '').replace(/\D/g, '');
+          if (dig) senderPhone = normalizarTelefoneBR(dig);
+        }
+
         if (phone && text) {
           console.log(`[CRM WEBHOOK] ${evento === 'send.message' ? 'SEND_MESSAGE' : 'MESSAGES_UPSERT'} recebido`);
           console.log(`[CRM WEBHOOK] phone=***${String(phone).slice(-4)}${ehGrupoMsg ? ' (grupo)' : ''} direction=${ehMinhaMensagem ? 'outgoing' : 'incoming'}`);
@@ -801,6 +813,7 @@ export default async function handler(req, res) {
               quotedText: citacao?.quotedText,
               quotedSender: citacao?.quotedSender,
               quotedMediaType: citacao?.quotedMediaType,
+              senderPhone,
             });
             if (gravada && precisaTranscrever) {
               transcreverAudioAgora = await enfileirarTranscricao({

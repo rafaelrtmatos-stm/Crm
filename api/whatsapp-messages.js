@@ -93,6 +93,11 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     direction,
     isNote: false,
     senderName,
+    senderPhone: (ehGrupo && direction === 'incoming')
+      ? (String(msg?.key?.participant || msg?.participant || '').endsWith('@lid')
+          ? String(msg?.key?.participantAlt || msg?.key?.participantPn || '')
+          : String(msg?.key?.participant || msg?.participant || '')).replace(/@.*$/, '').replace(/\D/g, '') || undefined
+      : undefined,
     channel: 'WhatsApp',
     mediaUrl: midia?.mediaUrl,
     fileName: midia?.fileName,

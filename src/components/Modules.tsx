@@ -729,6 +729,55 @@ const formatWhatsAppStatusDate = (value: any): string => {
   return `${safeFormat(d, 'dd/MM/yyyy')} ${timeStr}`;
 };
 
+// Grupo: foto de quem mandou a mensagem (buscada 1 vez por telefone e guardada em memoria nesta sessao)
+const fotosRemetenteCache = new Map<string, string | null>();
+const fotosRemetenteEmAndamento = new Map<string, Promise<string | null>>();
+const buscarFotoRemetente = (phone: string, userId?: string): Promise<string | null> => {
+  if (fotosRemetenteCache.has(phone)) return Promise.resolve(fotosRemetenteCache.get(phone) ?? null);
+  let pendente = fotosRemetenteEmAndamento.get(phone);
+  if (!pendente) {
+    pendente = fetch('/api/whatsapp-foto-perfil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': userId || '' },
+      body: JSON.stringify({ phone }),
+    })
+      .then(r => r.json())
+      .then(d => (typeof d?.photoUrl === 'string' ? d.photoUrl : null))
+      .catch(() => null)
+      .then(url => { fotosRemetenteCache.set(phone, url); fotosRemetenteEmAndamento.delete(phone); return url; });
+    fotosRemetenteEmAndamento.set(phone, pendente);
+  }
+  return pendente;
+};
+const CORES_REMETENTE_GRUPO = ['#d946ef', '#0ea5e9', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#14b8a6', '#f97316'];
+
+// Cabeçalho da mensagem recebida em GRUPO: foto + nome de quem mandou (estilo WhatsApp)
+const GroupSenderHeader = ({ name, phone, userId }: { name?: string; phone?: string; userId?: string }) => {
+  const [foto, setFoto] = useState<string | null>(() => (phone && fotosRemetenteCache.get(phone)) || null);
+  useEffect(() => {
+    let vivo = true;
+    if (!phone) { setFoto(null); return; }
+    buscarFotoRemetente(phone, userId).then(url => { if (vivo) setFoto(url); });
+    return () => { vivo = false; };
+  }, [phone, userId]);
+  const rotulo = (name || '').trim() || (phone ? `+${phone}` : 'Participante');
+  let h = 0;
+  for (let i = 0; i < rotulo.length; i++) h = (h * 31 + rotulo.charCodeAt(i)) >>> 0;
+  const cor = CORES_REMETENTE_GRUPO[h % CORES_REMETENTE_GRUPO.length];
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
+      <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 bg-slate-200 border border-slate-300 flex items-center justify-center">
+        {foto ? (
+          <img src={foto} alt="" className="w-full h-full object-cover" onError={() => setFoto(null)} />
+        ) : (
+          <span className="text-[9px] font-black text-slate-600">{rotulo.replace(/^\+/, '').slice(0, 2).toUpperCase()}</span>
+        )}
+      </div>
+      <span className="text-[11px] font-bold truncate" style={{ color: cor }}>{rotulo}</span>
+    </div>
+  );
+};
+
 // Tiques de status da mensagem ENVIADA (igual ao WhatsApp): 1 tique cinza = enviada, 2 cinzas = entregue, 2 azuis = vista
 // Clicável: abre o card idêntico ao WhatsApp com "Vista" (tique azul) e "Entregue" (tique cinza) com seus respectivos horários.
 const MessageStatusTicks = ({
@@ -953,6 +1002,7 @@ const mapCrmMessageRow = (row: any): any => {
     direction: row.direction,
     isNote: !!row.is_note,
     senderName: row.sender_name || undefined,
+    senderPhone: row.sender_phone || undefined,
     channel: row.channel || 'WhatsApp',
     mediaUrl: normalizarMediaUrl(row.media_url),
     fileName: row.file_name || undefined,
@@ -8198,6 +8248,9 @@ export const ChatPanel = ({
                                ? "rounded-br-none text-left ml-auto"
                                : "rounded-bl-none"
                            )}>
+                              {isGroup && !isOutgoing && !m.isNote && !isSticker && (
+                                <GroupSenderHeader name={m.senderName} phone={m.senderPhone} userId={user?.id} />
+                              )}
                               {/* Citação / Mensagem Respondida no estilo WhatsApp */}
                               {(m.quotedText || m.quotedMessageId) && !isApagada && (() => {
                                 const origMsg = m.quotedMessageId ? chatMessages.find(cm => cm.whatsappMessageId === m.quotedMessageId || cm.id === m.quotedMessageId) : null;
