@@ -24,6 +24,7 @@ import {
   type StickerItem 
 } from '../lib/stickersStorage';
 import { carregarMensagensRapidas, getQuickRepliesSync, type QuickReply } from '../lib/quickRepliesStorage';
+import { variantesTelefoneBR } from '../lib/phone';
 import { QuickRepliesManager } from './QuickRepliesManager';
 import { getCache, setCache, isNetworkError } from '../lib/offlineSync';
 import { 
@@ -6209,7 +6210,7 @@ export const ChatPanel = ({
         const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
           .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
           .eq('company_id', 'rafa-arts')
-          .eq('phone', conversation.phone);
+          .in('phone', variantesTelefoneBR(conversation.phone));
         if (transcricoes?.length) {
           const porId = new Map(transcricoes.map((t: any) => [t.whatsapp_message_id, t]));
           mapped = mapped.map((m: any) => {
@@ -6229,7 +6230,7 @@ export const ChatPanel = ({
         // não duplica nem com a flag WA_SEM_CRM_MESSAGES desligada. Falha aqui não derruba o chat.
         const { data: notasRows, error: notasErr } = await supabase.from('crm_messages').select('*')
           .eq('company_id', 'rafa-arts')
-          .eq('phone', conversation.phone)
+          .in('phone', variantesTelefoneBR(conversation.phone))
           .eq('is_note', true)
           .order('created_at', { ascending: true });
         if (notasErr) console.warn('[CRM] Falha ao carregar notas internas:', notasErr);
@@ -6269,7 +6270,7 @@ export const ChatPanel = ({
       try {
         const { data, error } = await supabase.from('crm_messages').select('*')
           .eq('company_id', 'rafa-arts')
-          .eq('phone', conversation.phone)
+          .in('phone', variantesTelefoneBR(conversation.phone))
           .order('created_at', { ascending: false })
           .limit(50);
         if (error) throw error;
@@ -6278,7 +6279,7 @@ export const ChatPanel = ({
         const { data: transcricoes } = await supabase.from('wa_transcricao_fila')
           .select('whatsapp_message_id, transcription, transcription_status, transcription_error')
           .eq('company_id', 'rafa-arts')
-          .eq('phone', conversation.phone);
+          .in('phone', variantesTelefoneBR(conversation.phone));
         if (transcricoes?.length) {
           const porId = new Map(transcricoes.map((t: any) => [t.whatsapp_message_id, t]));
           mapped = mapped.map((m: any) => {
@@ -6339,7 +6340,7 @@ export const ChatPanel = ({
     const loadMessagesOutroCanal = async () => {
       const { data } = await supabase.from('crm_messages').select('*')
         .eq('company_id', 'rafa-arts')
-        .eq('phone', conversation.phone)
+        .in('phone', variantesTelefoneBR(conversation.phone))
         .order('created_at', { ascending: false })
         .limit(50);
       setMessages((data || []).reverse().map(mapCrmMessageRow));
@@ -6373,19 +6374,19 @@ export const ChatPanel = ({
     const channel = usarEvolutionAoVivo
       ? supabase.channel(`chat-signal-${conversation.phone}`)
         .on('broadcast', { event: 'new-message' }, loadMessages)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=in.(${variantesTelefoneBR(conversation.phone).join(',')})` }, loadMessages)
         // Notas criadas/editadas por outro usuário: só as de direction='note' (poucas), e só recarrega
         // se for dessa conversa. Exclusão por outro usuário aparece na próxima recarga do chat.
         .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: 'direction=eq.note' }, (payload: any) => {
           const p = payload?.new?.phone;
-          if (!p || p === conversation.phone) loadMessages();
+          if (!p || variantesTelefoneBR(conversation.phone).includes(String(p))) loadMessages();
         })
         .subscribe()
       : (() => {
         const canalCrm = supabase.channel(`chat-messages-${conversation.phone}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=eq.${conversation.phone}` }, loadMessages);
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_messages', filter: `phone=in.(${variantesTelefoneBR(conversation.phone).join(',')})` }, loadMessages);
         // WhatsApp: a transcricao de audio termina em segundo plano em wa_transcricao_fila (UPDATE).
-        if (ehWhatsapp) canalCrm.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=eq.${conversation.phone}` }, loadMessages);
+        if (ehWhatsapp) canalCrm.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wa_transcricao_fila', filter: `phone=in.(${variantesTelefoneBR(conversation.phone).join(',')})` }, loadMessages);
         return canalCrm.subscribe();
       })();
     return () => {

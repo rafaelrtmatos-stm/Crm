@@ -13,7 +13,11 @@
 // dentro da propria Evolution API (na criacao/config da instancia).
 
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_SECRET, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, APP_BASE_URL, SEM_CRM_MESSAGES } from './_lib/whatsapp-config.js';
-import { normalizarTelefoneBR } from './_lib/phone.js';
+import { normalizarTelefoneBR, variantesTelefoneBR } from './_lib/phone.js';
+
+// Filtro PostgREST do lead pelo telefone, aceitando o mesmo numero em qualquer formato (leads antigos
+// sem o 9 / sem o 55 nao eram achados pelo telefone canonico das mensagens novas).
+const filtroTelefoneLead = (phone) => `phone=in.(${variantesTelefoneBR(phone).join(',') || phone})`;
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
 import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-fila.js';
@@ -150,7 +154,7 @@ async function mensagemJaExiste(whatsappMessageId) {
 // lead a partir de mensagem enviada por mim, só de mensagem recebida do cliente).
 async function atualizarPreviaLeadOutgoing(phone, text, createdAt) {
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}`, {
+    await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&${filtroTelefoneLead(phone)}`, {
       method: 'PATCH',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -187,7 +191,7 @@ async function atualizarPreviaLeadOutgoing(phone, text, createdAt) {
 async function atualizarLeadUltimaMensagem(phone, quando, campos) {
   try {
     const filtroMaisNova = encodeURIComponent(`(last_message_at.is.null,last_message_at.lt.${quando})`);
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&or=${filtroMaisNova}`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&${filtroTelefoneLead(phone)}&or=${filtroMaisNova}`, {
       method: 'PATCH',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -227,7 +231,7 @@ async function atualizarLeadMensagemRecebida(phone, previa, createdAt, textoPuro
   // So avanca (mensagem antiga/reenviada nunca faz voltar no tempo).
   try {
     const filtro = encodeURIComponent(`(last_client_message_at.is.null,last_client_message_at.lt.${quando})`);
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&or=${filtro}`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&${filtroTelefoneLead(phone)}&or=${filtro}`, {
       method: 'PATCH',
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
       body: JSON.stringify({ last_client_message_at: quando, last_client_message_text: textoPuro ?? previa }),
@@ -327,7 +331,7 @@ async function garantirFotoLead(phone, evoHeaders, jidGrupo) {
   try {
     // So busca a foto se o lead ainda NAO tem uma salva — evita ficar chamando a
     // Evolution API toda mensagem, so na primeira vez (ou se a foto ainda estiver vazia)
-    const buscaR = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&phone=eq.${phone}&select=id,photo_url`, {
+    const buscaR = await fetch(`${SUPABASE_URL}/rest/v1/leads?company_id=eq.${COMPANY_ID}&${filtroTelefoneLead(phone)}&select=id,photo_url`, {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
     });
     const leads = await buscaR.json();
