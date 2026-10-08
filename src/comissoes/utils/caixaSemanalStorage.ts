@@ -515,7 +515,8 @@ const round2 = (n: number) => Number(n.toFixed(2));
 export async function calcularCadeiaAPartirDe(
   colaboradorId: string,
   caixaEditadoId: string,
-  override?: { pagamentoId: string; novoValor: number | null }
+  override?: { pagamentoId: string; novoValor: number | null },
+  adicional?: { caixaId: string; valor: number }
 ): Promise<CadeiaItem[]> {
   const [{ data: caixas }, { data: pags }] = await Promise.all([
     supabase.from('comissoes_caixas_semanais').select('*').eq('colaborador_id', colaboradorId).order('semana_inicio', { ascending: true }),
@@ -531,7 +532,7 @@ export async function calcularCadeiaAPartirDe(
       if (p.caixa_id !== caixaId) return acc;
       if (override && p.id === override.pagamentoId) return acc + (override.novoValor ?? 0);
       return acc + (Number(p.valor) || 0);
-    }, 0);
+    }, adicional && adicional.caixaId === caixaId ? adicional.valor : 0);
 
   const itens: CadeiaItem[] = [];
   let saldoAnteriorAtual = Number(caixas[idx].saldo_anterior) || 0;
@@ -771,7 +772,8 @@ export function calcularResumoPorPeriodo(
       totalDescontos: resumoCaixaAberto.totalDescontos,
       totalPago: resumoCaixaAberto.totalPago,
       saldoAnterior: caixaAberto.saldoAnterior,
-      saldoPeriodo: resumoCaixaAberto.saldoSemana,
+      // Inclui o saldo anterior: mostra o resultado acumulado da semana (dívida ou crédito).
+      saldoPeriodo: resumoCaixaAberto.saldoFinal,
       saldoFinal: resumoCaixaAberto.saldoFinal,
       qtdSemanas: 1,
     };
@@ -788,7 +790,7 @@ export function calcularResumoPorPeriodo(
       totalDescontos: fechado.totalDescontos || 0,
       totalPago: fechado.totalPago || 0,
       saldoAnterior: fechado.saldoAnterior,
-      saldoPeriodo: fechado.saldoFinal - fechado.saldoAnterior,
+      saldoPeriodo: fechado.saldoFinal,
       saldoFinal: resumoCaixaAberto.saldoFinal, // saldo acumulado real é sempre o de agora
       qtdSemanas: 1,
     };

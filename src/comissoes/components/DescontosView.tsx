@@ -401,10 +401,28 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
       setPagamentos((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       if (semanaFechada) setReloadToken((t) => t + 1);
     } else {
-      const saved = await registrarPagamento(colaboradorId, caixa.id, pagamentoForm);
+      // Vendo uma semana passada na visão semanal: o pagamento entra no histórico DESSA semana
+      // (e não na atual). Em qualquer outro caso, entra no caixa aberto.
+      const caixaVisto = periodoVisualizacao === 'semana' && caixa.semanaInicio !== resumoPorPeriodo.inicio
+        ? historicoCaixas.find((c) => c.semanaInicio === resumoPorPeriodo.inicio)
+        : undefined;
+      const caixaAlvoId = caixaVisto ? caixaVisto.id : caixa.id;
+      const cadeia = caixaVisto
+        ? await calcularCadeiaAPartirDe(colaboradorId, caixaVisto.id, undefined, { caixaId: caixaVisto.id, valor: pagamentoForm.valor })
+        : [];
+      let propagar = false;
+      if (caixaVisto && cadeia.length > 1) {
+        const resumoMudancas = descreverCadeia(cadeia);
+        if (resumoMudancas) {
+          propagar = await showConfirm(`Você está lançando um pagamento numa semana passada. Confirmar para refletir nas semanas seguintes?\n\n${resumoMudancas}\n\nSe cancelar, só esta semana é alterada.`);
+        }
+      }
+      const saved = await registrarPagamento(colaboradorId, caixaAlvoId, pagamentoForm);
+      if (!saved) { setSavingPagamento(false); showAlert('Não foi possível registrar o pagamento.'); return; }
+      if (caixaVisto && cadeia.length > 0) await aplicarCadeia(cadeia, propagar);
       setSavingPagamento(false);
-      if (!saved) { showAlert('Não foi possível registrar o pagamento.'); return; }
       setPagamentos((prev) => [saved, ...prev]);
+      if (caixaVisto) setReloadToken((t) => t + 1);
     }
 
     setShowPagamentoForm(false);
