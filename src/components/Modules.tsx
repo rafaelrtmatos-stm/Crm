@@ -21419,6 +21419,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                         </button>
                                       )}
                                     </div>
+{sale.servicoEtiqueta && (
+<span className="text-[9px] font-black text-amber-400 truncate block max-w-[180px]" title="Serviço da nota">🏷️ {sale.servicoEtiqueta}</span>
+)}
                                     {sale.observacoes && (
                                       <span className="text-[8.5px] text-amber-300/70 italic truncate block max-w-[180px]" title={sale.observacoes}>
                                         "{sale.observacoes}"
@@ -21568,6 +21571,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     <span className="ml-1 text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.2 rounded">Copiado!</span>
                                   )}
                                 </button>
+{sale.servicoEtiqueta && (
+<span className="text-[9.5px] font-black text-amber-400 block truncate" title="Serviço da nota">🏷️ {sale.servicoEtiqueta}</span>
+)}
                                 {sale.observacoes && (
                                   <span className="text-[9px] text-amber-300/70 italic block truncate" title={sale.observacoes}>"{sale.observacoes}"</span>
                                 )}
@@ -21841,6 +21847,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                   </button>
                                 )}
                               </div>
+{sale.servicoEtiqueta && (
+<span className="text-[10px] font-black text-amber-400 block whitespace-normal break-words" title="Serviço da nota">🏷️ {sale.servicoEtiqueta}</span>
+)}
                               {/* Item / Descrição */}
                               <p className="text-[10px] text-white/70 italic whitespace-normal break-words max-w-full" title={summary.title}>
                                 {summary.text}
@@ -21990,6 +21999,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                 </button>
                                 {copiedHistoryField?.id === sale.id && copiedHistoryField?.field === 'cliente' && (
                                   <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap">Copiado!</span>
+                                )}
+                                {sale.servicoEtiqueta && (
+                                <span className="text-[10px] font-black text-amber-400 block whitespace-normal break-words" title="Serviço da nota">🏷️ {sale.servicoEtiqueta}</span>
                                 )}
                               </div>
                             </div>
