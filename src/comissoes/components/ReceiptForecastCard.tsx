@@ -36,7 +36,8 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   metaValorMinimo = 600,
   onOpenDescontos,
 }) => {
-  const forecastTotal = baseSalary + totalCommission - totalDiscounts;
+  // Saldo anterior (dívida < 0, crédito > 0) entra na previsão, igual ao painel da equipe.
+  const forecastTotal = Math.max(0, baseSalary + totalCommission - totalDiscounts + previousBalance);
   const isHojeSabado = new Date().getDay() === 6;
 
   // Cálculo detalhado da modalidade META
@@ -249,6 +250,18 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
+            {/* 4.1 Saldo anterior (dívida ou crédito de semanas passadas) */}
+            {previousBalance !== 0 && (
+              <div className={`flex items-center justify-between py-1.5 px-3 rounded-xl gap-2 ${previousBalance < 0 ? 'bg-rose-950/40 border border-rose-500/30' : 'bg-emerald-950/40 border border-emerald-500/30'}`}>
+                <span className={`${previousBalance < 0 ? 'text-rose-200' : 'text-emerald-200'} font-semibold text-xs whitespace-nowrap`}>
+                  {previousBalance < 0 ? '- Dívida anterior' : '+ Saldo anterior'}
+                </span>
+                <span className={`font-bold ${previousBalance < 0 ? 'text-rose-300' : 'text-emerald-300'} font-mono text-sm whitespace-nowrap`}>
+                  {previousBalance < 0 ? '-' : '+'}{formatCurrency(Math.abs(previousBalance))}
+                </span>
+              </div>
+            )}
+
             {/* 5. Linha de Fechamento Líquido */}
             <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/20 border border-white/30 shadow-sm mt-1 gap-2">
               <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
@@ -257,7 +270,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
-                ℹ️ O total é calculado por salário + comissões − descontos.
+                ℹ️ O total é calculado por salário + comissões − descontos ± saldo anterior.
               </div>
             )}
           </div>

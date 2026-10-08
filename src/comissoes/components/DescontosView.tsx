@@ -31,6 +31,9 @@ import {
   avancarCaixaSeNecessario,
   registrarPagamento,
   editarPagamento,
+  calcularCadeiaAPartirDe,
+  aplicarCadeia,
+  descreverCadeia,
   deletePagamento,
   calcularResumoCaixa,
   calcularResumoPorPeriodo,
@@ -286,10 +289,17 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   );
 
   // ✅ Lista de pagamentos exibida no card do Caixa
-  const pagamentosDoPeriodo = useMemo(
-    () => pagamentos.filter((p) => p.data >= resumoPorPeriodo.inicio && p.data <= resumoPorPeriodo.fim),
-    [pagamentos, resumoPorPeriodo.inicio, resumoPorPeriodo.fim]
-  );
+  const pagamentosDoPeriodo = useMemo(() => {
+    // Na visão semanal a lista segue o mesmo critério do "Já Pago": pagamentos ligados ao caixa
+    // daquela semana (e não só pela data, que no sábado cai em duas semanas).
+    if (periodoVisualizacao === 'semana') {
+      const caixaDaSemana = caixa && caixa.semanaInicio === resumoPorPeriodo.inicio
+        ? caixa
+        : historicoCaixas.find((c) => c.semanaInicio === resumoPorPeriodo.inicio);
+      if (caixaDaSemana) return pagamentos.filter((p) => p.caixaId === caixaDaSemana.id);
+    }
+    return pagamentos.filter((p) => p.data >= resumoPorPeriodo.inicio && p.data <= resumoPorPeriodo.fim);
+  }, [pagamentos, resumoPorPeriodo.inicio, resumoPorPeriodo.fim, periodoVisualizacao, caixa, historicoCaixas]);
 
   // ✅ Pagamentos para a aba/card de Histórico de Lançamentos
   const pagamentosDoHistorico = useMemo(() => {
@@ -371,10 +381,25 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
     setSavingPagamento(true);
 
     if (editingPagamentoId) {
+      const original = pagamentos.find((x) => x.id === editingPagamentoId);
+      // Pagamento de semana já fechada: simula a cadeia de saldos antes de salvar.
+      const semanaFechada = !!original && original.caixaId !== caixa.id;
+      const cadeia = semanaFechada
+        ? await calcularCadeiaAPartirDe(colaboradorId, original!.caixaId, { pagamentoId: original!.id, novoValor: pagamentoForm.valor })
+        : [];
+      let propagar = false;
+      if (semanaFechada && cadeia.length > 1) {
+        const resumoMudancas = descreverCadeia(cadeia);
+        if (resumoMudancas) {
+          propagar = await showConfirm(`Você está editando uma semana passada. Confirmar para refletir nas semanas seguintes?\n\n${resumoMudancas}\n\nSe cancelar, só esta semana é alterada.`);
+        }
+      }
       const updated = await editarPagamento(editingPagamentoId, pagamentoForm);
+      if (!updated) { setSavingPagamento(false); showAlert('Não foi possível salvar a edição do pagamento.'); return; }
+      if (semanaFechada && cadeia.length > 0) await aplicarCadeia(cadeia, propagar);
       setSavingPagamento(false);
-      if (!updated) { showAlert('Não foi possível salvar a edição do pagamento.'); return; }
       setPagamentos((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      if (semanaFechada) setReloadToken((t) => t + 1);
     } else {
       const saved = await registrarPagamento(colaboradorId, caixa.id, pagamentoForm);
       setSavingPagamento(false);
@@ -401,9 +426,22 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
 
   const handleDeletePagamento = async (p: Pagamento) => {
     if (!(await showConfirm('Excluir este pagamento? Essa ação não pode ser desfeita.'))) return;
+    const semanaFechada = !!caixa && p.caixaId !== caixa.id;
+    const cadeia = semanaFechada
+      ? await calcularCadeiaAPartirDe(colaboradorId, p.caixaId, { pagamentoId: p.id, novoValor: null })
+      : [];
+    let propagar = false;
+    if (semanaFechada && cadeia.length > 1) {
+      const resumoMudancas = descreverCadeia(cadeia);
+      if (resumoMudancas) {
+        propagar = await showConfirm(`Você está alterando uma semana passada. Confirmar para refletir nas semanas seguintes?\n\n${resumoMudancas}\n\nSe cancelar, só esta semana é alterada.`);
+      }
+    }
     const ok = await deletePagamento(p.id);
     if (!ok) { showAlert('Não foi possível excluir.'); return; }
+    if (semanaFechada && cadeia.length > 0) await aplicarCadeia(cadeia, propagar);
     setPagamentos((prev) => prev.filter((x) => x.id !== p.id));
+    if (semanaFechada) setReloadToken((t) => t + 1);
     if (editingPagamentoId === p.id) handleCancelPagamentoForm();
   };
 
