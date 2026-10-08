@@ -639,7 +639,12 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
               <span className="text-[var(--text-muted)] block mb-1">
                 {modalidadeRemuneracao === 'fixo' ? 'Remuneração Fixa' : modalidadeRemuneracao === 'meta' ? 'Remuneração (Meta)' : 'Salário + Comissão'}
               </span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.salarioBase + resumoPorPeriodo.totalComissao)}</span>
+              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(
+                  periodoVisualizacao === 'semana'
+                    // Visão semanal: valor líquido, com descontos e saldo anterior já abatidos do salário.
+                    ? resumoPorPeriodo.salarioBase + resumoPorPeriodo.totalComissao - resumoPorPeriodo.totalDescontos + resumoPorPeriodo.saldoAnterior
+                    : resumoPorPeriodo.salarioBase + resumoPorPeriodo.totalComissao
+                )}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Já Pago</span>
