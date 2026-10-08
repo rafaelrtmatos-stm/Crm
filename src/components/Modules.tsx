@@ -4462,7 +4462,7 @@ export const ChatPanel = ({
     fetch('/api/whatsapp-foto-perfil', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-      body: JSON.stringify({ phone: phoneDigits }),
+      body: JSON.stringify({ phone: phoneDigits, groupJid: (conversation as any)?.groupJid || (String(conversation?.phone || '').includes('@g.us') ? conversation.phone : undefined) }),
     })
       .then(r => r.json())
       .then(d => { if (d?.photoUrl && d.photoUrl !== conversation.photoUrl) onLeadPatched?.(conversation.id, { photoUrl: d.photoUrl }); })

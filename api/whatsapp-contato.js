@@ -40,12 +40,17 @@ async function handleFotoPerfil(req, res) {
   try {
     // Conversa de grupo: o "telefone" são os dígitos do group_jid. A foto é a do PRÓPRIO grupo (busca pelo JID
     // completo, @g.us) — nunca a de um participante.
-    let numeroEvolution = numero;
-    const g = await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.${COMPANY_ID}&group_jid=eq.${numero}@g.us&select=id&limit=1`, { headers: supaHeaders });
-    if (g.ok) {
-      const grupos = await g.json();
-      if (Array.isArray(grupos) && grupos.length > 0) numeroEvolution = `${numero}@g.us`;
+    const jidBody = String(req.body?.groupJid || '').trim();
+    let ehGrupo = jidBody.endsWith('@g.us') || /^120363\d{8,}$/.test(numero);
+    if (!ehGrupo) {
+      const g = await fetch(`${SUPABASE_URL}/rest/v1/whatsapp_groups?company_id=eq.${COMPANY_ID}&group_jid=eq.${numero}@g.us&select=id&limit=1`, { headers: supaHeaders });
+      if (g.ok) {
+        const grupos = await g.json();
+        if (Array.isArray(grupos) && grupos.length > 0) ehGrupo = true;
+      }
     }
+    const jidGrupo = ehGrupo ? (jidBody.endsWith('@g.us') ? jidBody : `${numero}@g.us`) : null;
+    const numeroEvolution = jidGrupo || numero;
 
     const picRes = await fetch(`${EVOLUTION_API_URL}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
       method: 'POST',
@@ -60,16 +65,31 @@ async function handleFotoPerfil(req, res) {
     const leadsLista = Array.isArray(leads) ? leads : [];
     const fotoExistenteLead = leadsLista.find((l) => typeof l?.photo_url === 'string' && /^https?:\/\//.test(l.photo_url))?.photo_url || null;
 
-    if (!picRes.ok) {
-      if (fotoExistenteLead) {
-        res.status(200).json({ ok: true, photoUrl: fotoExistenteLead, atualizada: false });
-      } else {
-        res.status(200).json({ ok: false, atualizada: false });
-      }
+    let fotoApi = null;
+    if (picRes.ok) {
+      const pic = await picRes.json().catch(() => null);
+      fotoApi = pic?.profilePictureUrl || pic?.url || null;
+    }
+    // Grupo sem foto na rota de perfil: a info do grupo da Evolution tambem traz a foto (pictureUrl).
+    if (!fotoApi && jidGrupo) {
+      try {
+        const evoHeaders = { apikey: EVOLUTION_API_KEY, 'Content-Type': 'application/json' };
+        let gr = await fetch(`${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}?groupJid=${encodeURIComponent(jidGrupo)}`, { method: 'GET', headers: evoHeaders });
+        if (!gr.ok && (gr.status === 404 || gr.status === 405 || gr.status === 400)) {
+          const grPost = await fetch(`${EVOLUTION_API_URL}/group/findGroupInfos/${INSTANCE_NAME}`, { method: 'POST', headers: evoHeaders, body: JSON.stringify({ groupJid: jidGrupo }) });
+          if (grPost.ok) gr = grPost;
+        }
+        if (gr.ok) {
+          const info = await gr.json().catch(() => null);
+          fotoApi = info?.pictureUrl || info?.profilePictureUrl || null;
+        }
+      } catch { /* sem foto pelo grupo: segue com a que ja estava salva */ }
+    }
+    if (!fotoApi && !fotoExistenteLead) {
+      res.status(200).json({ ok: picRes.ok, atualizada: false });
       return;
     }
-    const pic = await picRes.json().catch(() => null);
-    const fotoUrl = pic?.profilePictureUrl || pic?.url || fotoExistenteLead;
+    const fotoUrl = fotoApi || fotoExistenteLead;
     if (!fotoUrl || typeof fotoUrl !== 'string' || !/^https?:\/\//.test(fotoUrl)) {
       res.status(200).json({ ok: true, atualizada: false });
       return;
