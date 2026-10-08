@@ -48,6 +48,7 @@ import {
 import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow, calcularSalarioSemanal } from './utils/supabaseStorage';
 import { MetaValorItem } from './types';
 import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
+import { calcularPrevisaoRecebimento } from './utils/previsaoRecebimento';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
@@ -474,7 +475,7 @@ export default function ComissoesAdminPanel() {
         // Saldo anterior negativo é a falta/dívida que veio da semana passada.
         // Pagamentos já registrados ficam como histórico do caixa e não reduzem a previsão
         // mostrada antes do acerto de hoje.
-        const totalEstimado = Math.max(0, remuneracao.totalBruto - totalDescontos + saldoAnterior);
+        const totalEstimado = calcularPrevisaoRecebimento({ salarioBase: remuneracao.salarioBaseEfetivo, comissao: remuneracao.comissaoEfetiva, descontos: totalDescontos, saldoAnterior });
         const baseMetaExibida = modalidade === 'meta' ? receitaLojaQuitadasSemana : colabServicos.totalProducao;
         const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (baseMetaExibida / metaSemanalEfetiva) * 100 : 0;
 
@@ -528,6 +529,10 @@ export default function ComissoesAdminPanel() {
         loadData({ silent: true });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => {
+        loadData({ silent: true });
+      })
+      // Saldo anterior/final das semanas mudam quando um pagamento passado é editado (cascata).
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_caixas_semanais' }, () => {
         loadData({ silent: true });
       })
       .subscribe();

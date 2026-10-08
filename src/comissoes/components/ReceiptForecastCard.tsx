@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Wallet, ChevronRight, Calculator, Target, TrendingUp, Award, ShieldCheck } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
 import { MetaValorItem } from '../types';
+import { calcularPrevisaoRecebimento } from '../utils/previsaoRecebimento';
 
 interface ReceiptForecastCardProps {
   baseSalary: number;
@@ -37,7 +38,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   onOpenDescontos,
 }) => {
   // Saldo anterior (dívida < 0, crédito > 0) entra na previsão, igual ao painel da equipe.
-  const forecastTotal = Math.max(0, baseSalary + totalCommission - totalDiscounts + previousBalance);
+  const forecastTotal = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance });
   const isHojeSabado = new Date().getDay() === 6;
 
   // Cálculo detalhado da modalidade META

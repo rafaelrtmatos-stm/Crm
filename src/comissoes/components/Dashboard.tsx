@@ -419,13 +419,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (new Date().getDay() === 6 && period === 'semana' && weekOffset === 0) {
       return 0;
     }
-    // Se houver dívida real de semana passada (saldo negativo), abatemos:
-    if (caixa.saldoAnterior < 0) {
-      return caixa.saldoAnterior;
-    }
-    // Para períodos normais (Hoje, Ontem, Semana, Mês) a previsão da semana
-    // é Salário + Comissões - Descontos - Já Pago. Não soma créditos passados que inflariam a previsão.
-    return 0;
+    // Dívida (< 0) ou crédito (> 0) vindo da semana anterior entra na previsão, igual à aba
+    // Funcionários (fórmula única em utils/previsaoRecebimento.ts).
+    return caixa.saldoAnterior;
   }, [caixa, period, weekOffset]);
 
   // Calculate specific current week statistics for the bottom section
