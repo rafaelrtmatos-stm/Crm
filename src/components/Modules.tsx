@@ -17445,11 +17445,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     file?: File;
     caption?: string;
     generatingPreview?: boolean;
+    destino?: 'numero' | 'grupo';
+    grupoDigits?: string;
   }
   const [viewingReceiptSale, setViewingReceiptSale] = useState<SaleOrder | null>(null);
   const [viewingReceiptEmail, setViewingReceiptEmail] = useState<string | undefined>(undefined);
   const [enviandoReciboWhatsApp, setEnviandoReciboWhatsApp] = useState(false);
   const [receiptRecipientModal, setReceiptRecipientModal] = useState<ReceiptRecipientModalState | null>(null);
+  // Grupos do WhatsApp que o usuário pode ver (mesma regra da tela de conversas), pra poder mandar o recibo pra um grupo.
+  const [gruposRecibo, setGruposRecibo] = useState<{ digits: string; nome: string }[]>([]);
+  const modalReciboAberto = !!receiptRecipientModal;
+  useEffect(() => {
+    if (!modalReciboAberto) return;
+    let cancelado = false;
+    carregarInfoGrupos(user).then(info => {
+      if (cancelado || !info) return;
+      const lista = Array.from(info.permitidos).map(d => ({ digits: d, nome: info.nomes.get(d) || `Grupo ${d.slice(-6)}` }));
+      lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      setGruposRecibo(lista);
+    }).catch(() => {});
+    return () => { cancelado = true; };
+  }, [modalReciboAberto]);
   // Editar a etiqueta do serviço direto no Histórico de Vendas. Atualiza a nota e também o serviço
   // no cartão do lead (só quando o lead ainda está com o mesmo serviço da nota ou sem serviço, pra
   // nunca sobrescrever um serviço novo de outro pedido do mesmo cliente).
@@ -17861,14 +17877,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     sale: SaleOrder,
     rawPhone: string,
     recipientName: string,
-    saveToCustomerProfile?: boolean
+    saveToCustomerProfile?: boolean,
+    groupDest?: { digits: string; nome: string }
   ) => {
-    const cleanPhone = rawPhone.replace(/\D/g, '');
+    // Destino grupo: o recibo/legenda levam o nome do CLIENTE da nota; o chat aberto é o do grupo.
+    const cleanPhone = (groupDest ? groupDest.digits : rawPhone).replace(/\D/g, '');
     if (cleanPhone.length < 8) {
-      showAlert('Por favor, informe um número de WhatsApp válido com DDD.');
+      showAlert(groupDest ? 'Escolha o grupo que vai receber o recibo.' : 'Por favor, informe um número de WhatsApp válido com DDD.');
       return;
     }
-    const customerName = (recipientName || sale.customerName || selectedCustomer?.name || 'Cliente').trim();
+    if (groupDest) { rawPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim(); saveToCustomerProfile = false; }
+    const customerName = (groupDest ? (sale.customerName || selectedCustomer?.name || 'Cliente') : (recipientName || sale.customerName || selectedCustomer?.name || 'Cliente')).trim();
+    const chatName = groupDest ? (groupDest.nome || customerName) : customerName;
     const legenda = buildOrderShareMessage(sale, customerName);
 
     setEnviandoReciboWhatsApp(true);
@@ -17916,7 +17936,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setIsSuccessModalOpen(false);
 
       // Abre o chat do cliente com a imagem e a legenda prontas no card de texto
-      await openWhatsAppChat(cleanPhone, customerName, legenda);
+      await openWhatsAppChat(cleanPhone, chatName, legenda);
       showAlert('Recibo gerado com sucesso! A imagem e o texto já estão anexados no chat.');
     } catch (err: any) {
       console.error('Erro ao gerar recibo para o chat:', err);
@@ -17924,7 +17944,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       setViewingReceiptSale(null);
       setIsSuccessModalOpen(false);
       try {
-        await openWhatsAppChat(cleanPhone, customerName, legenda);
+        await openWhatsAppChat(cleanPhone, chatName, legenda);
       } catch (errFallback) {
         console.error('Falha ao abrir WhatsApp:', errFallback);
         showAlert('Não foi possível abrir o WhatsApp do cliente.');
@@ -25422,6 +25442,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
        const fullDestinationPhone = `${modal.country.code} ${modal.phone}`.trim();
        const cleanDigits = modal.phone.replace(/\D/g, '');
        const isValidPhone = cleanDigits.length >= 8;
+       const modoGrupo = modal.destino === 'grupo';
+       const grupoEscolhido = gruposRecibo.find(g => g.digits === modal.grupoDigits);
+       const podeEnviar = modoGrupo ? !!grupoEscolhido : isValidPhone;
 
        return (
          <Modal
@@ -25450,6 +25473,25 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
              </div>
 
+             {/* Destino: número de WhatsApp ou grupo */}
+             <div className="grid grid-cols-2 gap-1.5 bg-slate-900/60 border border-white/10 rounded-xl p-1">
+               {(['numero', 'grupo'] as const).map(d => (
+                 <button
+                   key={d}
+                   type="button"
+                   disabled={enviandoReciboWhatsApp}
+                   onClick={() => setReceiptRecipientModal(prev => prev ? { ...prev, destino: d } : null)}
+                   className={cn(
+                     "h-9 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                     (modal.destino || 'numero') === d ? "bg-emerald-500 text-slate-900 shadow" : "text-white/60 hover:text-white hover:bg-white/5"
+                   )}
+                 >
+                   {d === 'numero' ? 'Enviar para um número' : 'Enviar para um grupo'}
+                 </button>
+               ))}
+             </div>
+
+             {!modoGrupo && (<>
              {/* Alerta Destinatário: Encarregado vs Empresa */}
              <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3.5 space-y-1.5">
                <div className="flex items-center gap-2 text-amber-300">
@@ -25567,6 +25609,30 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  </span>
                </label>
              </div>
+             </>)}
+
+             {modoGrupo && (
+               <div className="space-y-1.5">
+                 <label className="text-[10px] font-black uppercase text-white/70 tracking-wider block">
+                   Grupo que vai receber o recibo *
+                 </label>
+                 <select
+                   value={modal.grupoDigits || ''}
+                   onChange={(e) => { const v = e.target.value; setReceiptRecipientModal(prev => prev ? { ...prev, grupoDigits: v } : null); }}
+                   className="w-full h-11 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white focus:outline-none focus:border-primary-500 cursor-pointer"
+                 >
+                   <option value="" className="bg-slate-900">Escolha o grupo...</option>
+                   {gruposRecibo.map(g => (
+                     <option key={g.digits} value={g.digits} className="bg-slate-900">{g.nome}</option>
+                   ))}
+                 </select>
+                 <p className="text-[10px] text-white/40">
+                   {gruposRecibo.length === 0
+                     ? 'Nenhum grupo disponível pra você. Confira em Grupos do WhatsApp se o grupo está visível e vinculado ao seu usuário.'
+                     : 'O recibo e o texto vão anexados na conversa do grupo, prontos pra você conferir e enviar.'}
+                 </p>
+               </div>
+             )}
 
              {/* Botões */}
              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
@@ -25579,13 +25645,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </Button>
                <Button
                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
-                 disabled={!isValidPhone || enviandoReciboWhatsApp}
+                 disabled={!podeEnviar || enviandoReciboWhatsApp}
                  onClick={() => {
                    executeSendReceipt(
                      modal.sale,
                      fullDestinationPhone,
                      modal.recipientName,
-                     modal.saveToCustomerProfile
+                     modal.saveToCustomerProfile,
+                     modoGrupo && grupoEscolhido ? grupoEscolhido : undefined
                    );
                  }}
                >
