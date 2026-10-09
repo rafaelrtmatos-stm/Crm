@@ -31168,18 +31168,62 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [carregandoGruposWhatsapp, setCarregandoGruposWhatsapp] = useState(false);
   const [salvandoGrupoWhatsappId, setSalvandoGrupoWhatsappId] = useState<string | null>(null);
 
+  // Cada clique nos grupos grava direto no banco. Pra "Cancelar" desfazer, guardamos como estava ao abrir
+  // a edicao deste usuario (so na 1a carga) e restauramos o que mudou se a pessoa cancelar.
+  const gruposSnapshotRef = React.useRef<{ userId: string; grupos: { id: string; visivel: boolean; admin_ve: boolean }[]; acessos: string[] } | null>(null);
+
   const carregarGruposWhatsappParaEdicao = async (u: AppUser) => {
     setCarregandoGruposWhatsapp(true);
     const { data: grupos } = await supabase.from('whatsapp_groups').select('*').eq('company_id', 'rafa-arts').order('created_at', { ascending: false });
     setGruposWhatsapp(grupos || []);
     const ehAdmin = (u.role as any) === 'admin' || u.isAdmin;
+    let acessosIds: string[] = [];
     if (!ehAdmin) {
       const { data: acessos } = await supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', u.id);
-      setAcessosGruposUsuario(new Set((acessos || []).map((a: any) => a.group_id)));
+      acessosIds = (acessos || []).map((a: any) => a.group_id);
+      setAcessosGruposUsuario(new Set(acessosIds));
     } else {
       setAcessosGruposUsuario(new Set());
     }
+    if (!gruposSnapshotRef.current || gruposSnapshotRef.current.userId !== u.id) {
+      gruposSnapshotRef.current = {
+        userId: u.id,
+        grupos: (grupos || []).map((g: any) => ({ id: g.id, visivel: !!g.visivel, admin_ve: !!g.admin_ve })),
+        acessos: acessosIds,
+      };
+    }
     setCarregandoGruposWhatsapp(false);
+  };
+
+  // Cancelar / Voltar: desfaz o que foi mexido nos grupos do WhatsApp desde que a edicao abriu.
+  const cancelarEdicaoUsuario = async () => {
+    const snap = gruposSnapshotRef.current;
+    const usuario = editingUser;
+    gruposSnapshotRef.current = null;
+    if (snap && usuario && snap.userId === usuario.id) {
+      try {
+        const { data: atuais } = await supabase.from('whatsapp_groups').select('id,visivel,admin_ve').eq('company_id', 'rafa-arts');
+        for (const g of (atuais || []) as any[]) {
+          const antes = snap.grupos.find(x => x.id === g.id);
+          if (!antes) continue; // grupo que nasceu depois: nao mexe
+          if (!!g.visivel !== antes.visivel || !!g.admin_ve !== antes.admin_ve) {
+            await supabase.from('whatsapp_groups').update({ visivel: antes.visivel, admin_ve: antes.admin_ve, updated_at: new Date().toISOString() }).eq('id', g.id);
+          }
+        }
+        const ehAdmin = (usuario.role as any) === 'admin' || usuario.isAdmin;
+        if (!ehAdmin) {
+          const { data: acessosAgora } = await supabase.from('user_whatsapp_groups').select('group_id').eq('user_id', usuario.id);
+          const agora = new Set((acessosAgora || []).map((a: any) => a.group_id));
+          const antesSet = new Set(snap.acessos);
+          for (const id of agora) if (!antesSet.has(id)) await supabase.from('user_whatsapp_groups').delete().eq('group_id', id).eq('user_id', usuario.id);
+          for (const id of antesSet) if (!agora.has(id)) await supabase.from('user_whatsapp_groups').insert({ group_id: id, user_id: usuario.id });
+        }
+      } catch (err) {
+        console.warn('Falha ao desfazer as escolhas de grupos do WhatsApp:', err);
+        showAlert('Não foi possível desfazer todas as escolhas de grupos do WhatsApp. Confira a lista de grupos.');
+      }
+    }
+    setEditingUser(null);
   };
 
   const alternarLiberacaoGrupoWhatsapp = async (grupoId: string, visivelAtual: boolean) => {
@@ -31401,6 +31445,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       showAlert(colunaFinanceiroFaltando
         ? 'Dados e permissões salvos, MAS as abas do Financeiro NÃO foram salvas: falta rodar o arquivo supabase/add_allowed_financeiro_tabs.sql no SQL Editor do Supabase.'
         : 'Dados, permissões e acessos do usuário atualizados com sucesso!');
+      gruposSnapshotRef.current = null;
       setEditingUser(null);
     } catch (err: any) {
       console.error('Erro ao salvar permissões:', err);
@@ -32249,7 +32294,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                   <div className="space-y-8">
                     <button 
                       type="button"
-                      onClick={() => setEditingUser(null)}
+                      onClick={cancelarEdicaoUsuario}
                       className="flex items-center gap-2 text-xs text-primary-450 font-bold hover:text-white uppercase tracking-wider bg-transparent border-0 cursor-pointer"
                     >
                       <ArrowLeft size={16} /> Voltar para a lista de colaboradores
@@ -32632,7 +32677,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-6 sm:pt-8 border-t border-white/5">
                       <button 
                         type="button"
-                        onClick={() => setEditingUser(null)} 
+                        onClick={cancelarEdicaoUsuario} 
                         className="w-full sm:flex-1 py-3.5 sm:py-4 bg-white/5 hover:bg-white/10 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all font-bold border-0 cursor-pointer"
                       >
                         Cancelar
