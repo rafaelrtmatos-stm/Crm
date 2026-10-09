@@ -112,7 +112,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span>Previsão de Recebimento</span>
             </div>
             <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
-              'Salário + comissão'
+              {modalidadeRemuneracao === 'meta' ? 'Meta da semana' : 'Salário + comissão'}
             </span>
           </div>
 
@@ -123,7 +123,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 Total a Receber
               </span>
               <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                'Salário + comissões - descontos'
+                {modalidadeRemuneracao === 'meta' ? 'Meta da semana - descontos' : 'Salário + comissões - descontos'}
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
@@ -211,7 +211,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             {modalidadeRemuneracao !== 'meta' && (baseSalary > 0 || modalidadeRemuneracao === 'fixo') && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
                 <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
-                  'Salário'
+                  Salário
                 </span>
                 <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
               </div>
@@ -271,7 +271,9 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
-                ℹ️ O total é calculado por salário + comissões − descontos ± saldo anterior.
+                {modalidadeRemuneracao === 'meta'
+                  ? 'ℹ️ O total é calculado pela meta da semana − descontos ± saldo anterior.'
+                  : 'ℹ️ O total é calculado por salário + comissões − descontos ± saldo anterior.'}
               </div>
             )}
           </div>

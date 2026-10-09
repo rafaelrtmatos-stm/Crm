@@ -783,9 +783,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
               <span>
-                {userSettings.modalidadeRemuneracao === 'meta' ? 'Meta Loja da Semana: ' : 'Acumulado Semana: '}
+                {userSettings.modalidadeRemuneracao === 'meta' ? 'Receita da loja: ' : 'Acumulado Semana: '}
                 <strong className="text-emerald-400 font-bold">
-                  {userSettings.modalidadeRemuneracao === 'meta' ? formatCurrency(metaCalculada?.comissaoEfetiva ?? 0) : formatCurrency(weeklyStats.weeklyCommission)}
+                  {userSettings.modalidadeRemuneracao === 'meta' ? formatCurrency(receitaLojaSemana) : formatCurrency(weeklyStats.weeklyCommission)}
                 </strong>
               </span>
               <span className="text-[var(--text-muted)]">
