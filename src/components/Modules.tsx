@@ -15882,33 +15882,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     try {
       const total = Math.max(0, contratoItemsTotal() - (contratoForm.desconto || 0));
 
-      // Sem Nota vinculada ainda: cria a Nota agora (em aberto, sem pagamento) — o faturamento
-      // so conta de verdade quando ela for paga, gerar o contrato aqui nao fatura nada
-      let vendaId = contratoForm.vendaId || null;
-      if (!vendaId) {
-        const { data: novaVenda, error: vendaError } = await supabase.from('vendas').insert({
-          cliente_id: contratoForm.clienteId || null,
-          customer_name: contratoForm.customerName,
-          customer_phone: contratoForm.phone || null,
-          items: contratoForm.items,
-          total,
-          discount_value: contratoForm.desconto || null,
-          down_payment: 0,
-          received_value: 0,
-          status: 'pending',
-          observacoes: contratoForm.observacoes || null,
-          orcamento_id: contratoForm.orcamentoId || null,
-          service_status: null,
-          etapa_servico: 'pedido_recebido',
-        }).select().single();
-        if (vendaError) throw vendaError;
-        vendaId = novaVenda.id;
-        // Guarda o vendaId no formulario JA -- se algo mais adiante nessa mesma funcao der erro
-        // (ex: salvar o contrato em si), uma nova tentativa reaproveita essa nota em vez de criar
-        // outra igual (que duplicava cliente/nota toda vez que dava erro e a pessoa tentava de novo)
-        setContratoForm(prev => ({ ...prev, vendaId: novaVenda.id }));
-        setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
-      } else {
+      // Contrato NÃO gera nota/recibo nem entra no faturamento: a nota só nasce quando alguém usa
+      // "Gerar Nota/Recibo". Se já existe nota vinculada, só mantém itens/valor em sincronia.
+      const vendaId: string | null = contratoForm.vendaId || null;
+      if (vendaId) {
         const { error: syncError } = await supabase.from('vendas').update({
           items: contratoForm.items,
           total,
@@ -16553,30 +16530,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       const total = Math.max(0, orcamentoItemsTotal() - (orcamentoForm.desconto || 0));
       const isContrato = orcamentoForm.documentType === 'contrato';
 
-      // Se esse Orcamento/Contrato ainda nao tem uma Nota vinculada, cria a Nota AGORA (em
-      // aberto, sem pagamento) so pra existir o registro no Historico — o faturamento so
-      // conta de verdade quando essa nota for paga, gerar o documento aqui nao fatura nada.
-      let vendaId = orcamentoForm.vendaId || null;
-      if (!vendaId) {
-        const { data: novaVenda, error: vendaError } = await supabase.from('vendas').insert({
-          cliente_id: orcamentoForm.clienteId || null,
-          customer_name: orcamentoForm.customerName,
-          customer_phone: orcamentoForm.phone || null,
-          items: orcamentoForm.items,
-          total,
-          discount_value: orcamentoForm.desconto || null,
-          down_payment: 0,
-          received_value: 0,
-          status: 'pending',
-          observacoes: orcamentoForm.observacoes || null,
-          service_status: null,
-          etapa_servico: 'pedido_recebido',
-        }).select().single();
-        if (vendaError) throw vendaError;
-        vendaId = novaVenda.id;
-        setOrcamentoForm(prev => ({ ...prev, vendaId: novaVenda.id }));
-        setAllSalesHistory(prev => [mapVendaRow(novaVenda), ...prev]);
-      } else {
+      // Orçamento NÃO gera nota/recibo nem entra no faturamento: a nota só nasce quando alguém usa
+      // "Gerar Nota/Recibo". Se já existe nota vinculada, só mantém itens/valor em sincronia.
+      const vendaId: string | null = orcamentoForm.vendaId || null;
+      if (vendaId) {
         // Ja tem nota vinculada: mantem os itens/valor em sincronia com o que foi editado aqui
         const { error: syncError } = await supabase.from('vendas').update({
           items: orcamentoForm.items,
