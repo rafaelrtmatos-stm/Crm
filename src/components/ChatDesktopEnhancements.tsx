@@ -847,6 +847,8 @@ export const CustomerContextSidebar = ({
   tasks,
   newTaskTitle,
   setNewTaskTitle,
+  newTaskWhen,
+  setNewTaskWhen,
   handleAddTask,
   isSavingTask,
   handleToggleTask,
@@ -902,6 +904,8 @@ export const CustomerContextSidebar = ({
   tasks: any[];
   newTaskTitle: string;
   setNewTaskTitle: (v: string) => void;
+  newTaskWhen: string;
+  setNewTaskWhen: (v: string) => void;
   handleAddTask: () => void;
   isSavingTask: boolean;
   handleToggleTask: (t: any) => void;
@@ -1530,6 +1534,13 @@ export const CustomerContextSidebar = ({
                 {isSavingTask ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
               </button>
             </div>
+            <input
+              type="datetime-local"
+              value={newTaskWhen}
+              onChange={(e) => setNewTaskWhen(e.target.value)}
+              title="Data e hora (opcional). Com data, a tarefa também aparece na Agenda e em Serviços Agendados."
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-primary-500"
+            />
 
             <div className="space-y-1.5 pt-1">
               {tasks.length === 0 ? (
@@ -1546,7 +1557,14 @@ export const CustomerContextSidebar = ({
                       >
                         {concluida && <Check size={10} />}
                       </button>
-                      <span className={cn("flex-1 truncate", concluida && "line-through text-white/40")}>{task.title}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className={cn("block truncate", concluida && "line-through text-white/40")}>{task.title}</span>
+                        {task.dueAt && (
+                          <span className={cn("block text-[10px] font-bold", !concluida && new Date(task.dueAt).getTime() < Date.now() ? "text-rose-400" : "text-purple-300/80")}>
+                            {new Date(task.dueAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </span>
                       <button
                         type="button"
                         onClick={() => handleDeleteTask(task)}

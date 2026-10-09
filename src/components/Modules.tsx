@@ -5872,6 +5872,9 @@ export const ChatPanel = ({
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  // Data/hora opcional da tarefa (datetime-local). Com data, a tarefa também vira um agendamento na Agenda
+  // (crm_agendamentos, tipo 'tarefa') — aparece na Agenda e na lista de Serviços Agendados.
+  const [newTaskWhen, setNewTaskWhen] = useState('');
   const [isSavingTask, setIsSavingTask] = useState(false);
   const taskInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -5889,6 +5892,28 @@ export const ChatPanel = ({
     if (!newTaskTitle.trim() || !conversation?.id || !currentCompany) return;
     setIsSavingTask(true);
     try {
+      const dueIso = localDatetimeToIso(newTaskWhen);
+      let agendamentoId: string | null = null;
+      if (dueIso) {
+        const { data: ag, error: agErr } = await supabase.from('crm_agendamentos').insert({
+          company_id: 'rafa-arts',
+          lead_id: conversation.id,
+          titulo: newTaskTitle.trim(),
+          cliente_nome: conversation.name || null,
+          cliente_telefone: conversation.phone || null,
+          data_hora: dueIso,
+          tipo: 'tarefa',
+          responsavel_nome: user?.name || null,
+          status: 'pendente',
+          updated_at: new Date().toISOString(),
+        }).select('id').maybeSingle();
+        if (agErr) {
+          console.warn('Não foi possível criar o agendamento da tarefa:', agErr);
+          showAlert('A tarefa foi salva, mas não consegui colocá-la na Agenda: ' + agErr.message);
+        } else {
+          agendamentoId = (ag as any)?.id || null;
+        }
+      }
       await addDoc(collection(db, 'tasks'), {
         companyId: currentCompany.id,
         title: newTaskTitle.trim(),
@@ -5896,8 +5921,11 @@ export const ChatPanel = ({
         relatedId: conversation.id,
         assignedUserId: user?.id || null,
         createdAt: Timestamp.now(),
+        ...(dueIso ? { dueAt: dueIso } : {}),
+        ...(agendamentoId ? { agendamentoId } : {}),
       });
       setNewTaskTitle('');
+      setNewTaskWhen('');
     } catch (err) {
       console.error('Erro ao criar tarefa:', err);
       showAlert('Não foi possível criar a tarefa.');
@@ -5906,12 +5934,20 @@ export const ChatPanel = ({
     }
   };
   const handleToggleTask = async (task: any) => {
-    try { await updateDoc(doc(db, 'tasks', task.id), { completedAt: task.completedAt ? null : Timestamp.now() }); }
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { completedAt: task.completedAt ? null : Timestamp.now() });
+      if (task.agendamentoId) {
+        await supabase.from('crm_agendamentos').update({ status: task.completedAt ? 'pendente' : 'concluido', updated_at: new Date().toISOString() }).eq('id', task.agendamentoId);
+      }
+    }
     catch (err) { console.error('Erro ao atualizar tarefa:', err); }
   };
   const handleDeleteTask = async (task: any) => {
     if (!(await showConfirm('Excluir esta tarefa?'))) return;
-    try { await deleteDoc(doc(db, 'tasks', task.id)); } catch (err) { console.error('Erro ao excluir tarefa:', err); }
+    try {
+      await deleteDoc(doc(db, 'tasks', task.id));
+      if (task.agendamentoId) await supabase.from('crm_agendamentos').delete().eq('id', task.agendamentoId);
+    } catch (err) { console.error('Erro ao excluir tarefa:', err); }
   };
 
   // --- Vendas do cliente -- fecha o ciclo conversa -> nota -> contrato/orçamento,
@@ -9539,6 +9575,16 @@ export const ChatPanel = ({
                     {isSavingTask ? 'Salvando...' : 'Adicionar'}
                   </Button>
                </div>
+               <div className="flex items-center gap-2 -mt-3">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-white/40 shrink-0">Data e hora (opcional)</label>
+                  <input
+                    type="datetime-local"
+                    value={newTaskWhen}
+                    onChange={(e) => setNewTaskWhen(e.target.value)}
+                    className="flex-1 h-9 bg-white/5 border border-white/10 rounded-xl px-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
+                  />
+               </div>
+               {newTaskWhen && <p className="text-[10px] text-purple-300/80 -mt-4">Com data e hora, a tarefa também aparece na Agenda e em Serviços Agendados.</p>}
                <div className="space-y-2">
                   {tasks.length === 0 && (
                     <p className="text-xs text-white/20 text-center py-8">Nenhuma tarefa pra esse contato ainda.</p>
@@ -9550,7 +9596,14 @@ export const ChatPanel = ({
                          <button onClick={() => handleToggleTask(task)} className={cn("w-6 h-6 rounded-lg border flex items-center justify-center shrink-0", concluida ? "bg-emerald-500 border-emerald-500" : "border-white/20 hover:border-primary-500")}>
                            {concluida && <Check size={12} className="text-slate-900" />}
                          </button>
-                         <p className={cn("text-xs font-bold flex-1", concluida ? "text-white/40 line-through" : "text-white/80")}>{task.title}</p>
+                         <div className="flex-1 min-w-0">
+                           <p className={cn("text-xs font-bold", concluida ? "text-white/40 line-through" : "text-white/80")}>{task.title}</p>
+                           {task.dueAt && (
+                             <p className={cn("text-[10px] font-bold mt-0.5 flex items-center gap-1", !concluida && new Date(task.dueAt).getTime() < Date.now() ? "text-rose-400" : "text-purple-300/80")}>
+                               <CalendarClock size={10} /> {safeFormat(task.dueAt, 'dd/MM/yyyy HH:mm')}
+                             </p>
+                           )}
+                         </div>
                          <Button variant="ghost" size="sm" icon={Trash2} onClick={() => handleDeleteTask(task)} className="p-1 h-6 w-6 text-rose-400 shrink-0" />
                       </div>
                     );
@@ -9861,6 +9914,8 @@ export const ChatPanel = ({
                 tasks={tasks}
                 newTaskTitle={newTaskTitle}
                 setNewTaskTitle={setNewTaskTitle}
+                newTaskWhen={newTaskWhen}
+                setNewTaskWhen={setNewTaskWhen}
                 handleAddTask={handleAddTask}
                 isSavingTask={isSavingTask}
                 handleToggleTask={handleToggleTask}
@@ -9930,6 +9985,8 @@ export const ChatPanel = ({
                 tasks={tasks}
                 newTaskTitle={newTaskTitle}
                 setNewTaskTitle={setNewTaskTitle}
+                newTaskWhen={newTaskWhen}
+                setNewTaskWhen={setNewTaskWhen}
                 handleAddTask={handleAddTask}
                 isSavingTask={isSavingTask}
                 handleToggleTask={handleToggleTask}
@@ -9992,6 +10049,8 @@ export const ChatPanel = ({
                 tasks={tasks}
                 newTaskTitle={newTaskTitle}
                 setNewTaskTitle={setNewTaskTitle}
+                newTaskWhen={newTaskWhen}
+                setNewTaskWhen={setNewTaskWhen}
                 handleAddTask={handleAddTask}
                 isSavingTask={isSavingTask}
                 handleToggleTask={handleToggleTask}
