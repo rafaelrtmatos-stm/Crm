@@ -1538,7 +1538,7 @@ export const CustomerContextSidebar = ({
               type="datetime-local"
               value={newTaskWhen}
               onChange={(e) => setNewTaskWhen(e.target.value)}
-              title="Data e hora (opcional). Com data, a tarefa também aparece na Agenda e em Serviços Agendados."
+              title="Data e hora (opcional). Com data, a tarefa também aparece na Agenda."
               className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-primary-500"
             />
 

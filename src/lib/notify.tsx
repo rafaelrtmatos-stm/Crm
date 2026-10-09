@@ -6,22 +6,27 @@ type ToastItem = { id: number; message: string };
 type MessageToastItem = { id: number; key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; onClick?: () => void };
 type ConfirmItem = { id: number; message: string; resolve: (v: boolean) => void };
 type PromptItem = { id: number; message: string; defaultValue: string; resolve: (v: string | null) => void };
+export type SelectOption = { id: string; label: string; detail?: string; right?: string; badge?: string };
+type SelectItem = { id: number; title: string; options: SelectOption[]; newLabel?: string; resolve: (v: { id: string } | { novo: true } | null) => void };
 
 let toastListeners: ((toasts: ToastItem[]) => void)[] = [];
 let messageToastListeners: ((toasts: MessageToastItem[]) => void)[] = [];
 let confirmListeners: ((c: ConfirmItem | null) => void)[] = [];
 let promptListeners: ((p: PromptItem | null) => void)[] = [];
+let selectListeners: ((s: SelectItem | null) => void)[] = [];
 let toasts: ToastItem[] = [];
 let messageToasts: MessageToastItem[] = [];
 const messageToastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 let confirmQueue: ConfirmItem[] = [];
 let promptQueue: PromptItem[] = [];
+let selectQueue: SelectItem[] = [];
 let idCounter = 0;
 
 function notifyToastListeners() { toastListeners.forEach(l => l(toasts)); }
 function notifyMessageToastListeners() { messageToastListeners.forEach(l => l(messageToasts)); }
 function notifyConfirmListeners() { confirmListeners.forEach(l => l(confirmQueue[0] || null)); }
 function notifyPromptListeners() { promptListeners.forEach(l => l(promptQueue[0] || null)); }
+function notifySelectListeners() { selectListeners.forEach(l => l(selectQueue[0] || null)); }
 
 /**
  * Aceita SO uma URL de imagem de verdade (http/https, data:image ou blob:). Descarta vazio, "null",
@@ -183,6 +188,26 @@ function resolveCurrentPrompt(result: string | null) {
   notifyPromptListeners();
 }
 
+/**
+ * Modal compacto (mesmo visual do showConfirm) para escolher UMA opção de uma lista.
+ * Retorna { id } da opção escolhida, { novo: true } se clicou em `newLabel` (ex: "Criar novo") ou null se cancelou.
+ */
+export function showSelect(title: string, options: SelectOption[], newLabel?: string): Promise<{ id: string } | { novo: true } | null> {
+  return new Promise((resolve) => {
+    const id = ++idCounter;
+    selectQueue = [...selectQueue, { id, title, options, newLabel, resolve }];
+    notifySelectListeners();
+  });
+}
+
+function resolveCurrentSelect(result: { id: string } | { novo: true } | null) {
+  const current = selectQueue[0];
+  if (!current) return;
+  current.resolve(result);
+  selectQueue = selectQueue.slice(1);
+  notifySelectListeners();
+}
+
 /** Renderizado uma unica vez, perto da raiz do app — mostra os toasts e o modal de confirmacao ativos */
 export function NotifyHost() {
   const [toastList, setToastList] = useState<ToastItem[]>(toasts);
@@ -190,6 +215,7 @@ export function NotifyHost() {
   const [confirmItem, setConfirmItem] = useState<ConfirmItem | null>(confirmQueue[0] || null);
   const [promptItem, setPromptItem] = useState<PromptItem | null>(promptQueue[0] || null);
   const [promptValue, setPromptValue] = useState('');
+  const [selectItem, setSelectItem] = useState<SelectItem | null>(selectQueue[0] || null);
 
   useEffect(() => {
     const handlePromptChange = (p: PromptItem | null) => { setPromptItem(p); setPromptValue(p?.defaultValue || ''); };
@@ -197,11 +223,13 @@ export function NotifyHost() {
     messageToastListeners.push(setMessageToastList);
     confirmListeners.push(setConfirmItem);
     promptListeners.push(handlePromptChange);
+    selectListeners.push(setSelectItem);
     return () => {
       toastListeners = toastListeners.filter(l => l !== setToastList);
       messageToastListeners = messageToastListeners.filter(l => l !== setMessageToastList);
       confirmListeners = confirmListeners.filter(l => l !== setConfirmItem);
       promptListeners = promptListeners.filter(l => l !== handlePromptChange);
+      selectListeners = selectListeners.filter(l => l !== setSelectItem);
     };
   }, []);
 
@@ -289,6 +317,58 @@ export function NotifyHost() {
               >
                 Confirmar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {selectItem && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center p-3 sm:p-4">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => resolveCurrentSelect(null)} />
+          <div className="relative w-full max-w-[320px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0">
+                <CheckCircle2 size={14} />
+              </div>
+              <h3 className="text-[11px] font-black text-white uppercase tracking-tight">{selectItem.title}</h3>
+            </div>
+            <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1">
+              {selectItem.options.map(o => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => resolveCurrentSelect({ id: o.id })}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-primary-500/10 hover:border-primary-500/40 transition-all cursor-pointer"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-white truncate">{o.label}</span>
+                    {o.right && <span className="text-[10px] font-black text-primary-300 shrink-0">{o.right}</span>}
+                  </div>
+                  {(o.detail || o.badge) && (
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <span className="text-[10px] text-white/50 truncate">{o.detail}</span>
+                      {o.badge && <span className="text-[9px] font-black uppercase tracking-wider text-white/60 shrink-0">{o.badge}</span>}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1.5 pt-0.5">
+              <button
+                type="button"
+                onClick={() => resolveCurrentSelect(null)}
+                className="flex-1 h-8 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer bg-transparent"
+              >
+                Cancelar
+              </button>
+              {selectItem.newLabel && (
+                <button
+                  type="button"
+                  onClick={() => resolveCurrentSelect({ novo: true })}
+                  className="flex-1 h-8 rounded-lg bg-primary-500 hover:bg-primary-400 text-slate-900 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-0 shadow-sm active:scale-95"
+                >
+                  {selectItem.newLabel}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -266,7 +266,7 @@ import {
 import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, updateDoc, getDocs, setDoc, limit, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { supabase } from '../supabase';
-import { showAlert, showConfirm, showPrompt } from '../lib/notify';
+import { showAlert, showConfirm, showPrompt, showSelect } from '../lib/notify';
 import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
@@ -5873,7 +5873,7 @@ export const ChatPanel = ({
   const [tasks, setTasks] = useState<any[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   // Data/hora opcional da tarefa (datetime-local). Com data, a tarefa também vira um agendamento na Agenda
-  // (crm_agendamentos, tipo 'tarefa') — aparece na Agenda e na lista de Serviços Agendados.
+  // (crm_agendamentos, tipo 'tarefa') — aparece só na Agenda (Serviços Agendados lê vendas/orçamentos, não crm_agendamentos).
   const [newTaskWhen, setNewTaskWhen] = useState('');
   const [isSavingTask, setIsSavingTask] = useState(false);
   const taskInputRef = useRef<HTMLInputElement>(null);
@@ -5888,6 +5888,89 @@ export const ChatPanel = ({
       console.warn('Aviso Firestore tasks (offline/conexão):', err?.message || err);
     });
   }, [conversation?.id, currentCompany]);
+  // Nome do cliente para o agendamento: nome real (cadastro/lead) > nome salvo > nome do WhatsApp > telefone.
+  // Ignora valores que são só telefone (o lead muitas vezes tem name = número) para só cair no telefone por último.
+  const nomeClienteParaAgenda = (): string | null => {
+    const candidatos = [
+      clienteVinculado?.full_name,
+      conversation?.fullName,
+      conversation?.contactName,
+      conversation?.whatsappName,
+      conversation?.name,
+    ];
+    for (const c of candidatos) {
+      const t = typeof c === 'string' ? c.trim() : '';
+      if (t && !isPhoneLike(t)) return t;
+    }
+    return (conversation?.phone || '').trim() || null;
+  };
+
+  // Pergunta qual serviço anexar ao agendamento. Retorna null se o usuário cancelar.
+  // Com histórico (notas em vendas + orçamentos ainda não convertidos): lista + "Criar novo".
+  // Sem histórico: vai direto para "Criar novo" (nome livre).
+  const escolherServicoDoAgendamento = async (): Promise<{ vendaId: string | null; orcamentoId: string | null; servicoNome: string | null } | null> => {
+    const brl = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const statusVenda = (v: any) => (v.status === 'completed' || v.isFullyPaid) ? 'Pago' : (v.status === 'cancelled' ? 'Cancelada' : 'Em aberto');
+    const opcoes: { id: string; label: string; detail?: string; right?: string; badge?: string }[] = [];
+    const mapa = new Map<string, { vendaId: string | null; orcamentoId: string | null; servicoNome: string }>();
+
+    // Etiqueta do serviço das notas (coluna pode não existir em bases antigas: ignora o erro)
+    const etiquetas = new Map<string, string>();
+    const idsVendas = (clienteVendas || []).map((v: any) => v.id).filter(Boolean);
+    if (idsVendas.length > 0) {
+      try {
+        const { data: et } = await supabase.from('vendas').select('id, servico_etiqueta').in('id', idsVendas);
+        (et || []).forEach((r: any) => { if (r.servico_etiqueta) etiquetas.set(r.id, String(r.servico_etiqueta)); });
+      } catch { /* sem etiqueta: usa os itens */ }
+    }
+    (clienteVendas || []).forEach((v: any) => {
+      const nome = etiquetas.get(v.id) || v.itemsSummary || 'Venda PDV';
+      const key = `v:${v.id}`;
+      opcoes.push({ id: key, label: nome, detail: etiquetas.get(v.id) ? v.itemsSummary : undefined, right: brl(v.total), badge: statusVenda(v) });
+      mapa.set(key, { vendaId: v.id, orcamentoId: null, servicoNome: nome });
+    });
+
+    // Orçamentos do cliente que ainda não viraram nota (os que viraram já aparecem como venda)
+    try {
+      const orClauses: string[] = [];
+      if (clienteVinculado?.id) orClauses.push(`cliente_id.eq.${clienteVinculado.id}`);
+      const u8 = (conversation?.phone || '').replace(/\D/g, '').slice(-8);
+      if (u8.length >= 6) orClauses.push(`phone.ilike.%${u8}%`);
+      const u8c = (clienteVinculado?.phone || '').replace(/\D/g, '').slice(-8);
+      if (u8c.length >= 6 && u8c !== u8) orClauses.push(`phone.ilike.%${u8c}%`);
+      if (orClauses.length > 0) {
+        const { data: orcs } = await supabase
+          .from('orcamentos')
+          .select('id, numero, total, status, venda_id, items, created_at')
+          .is('deleted_at', null)
+          .is('venda_id', null)
+          .or(orClauses.join(','))
+          .order('created_at', { ascending: false })
+          .limit(20);
+        (orcs || []).forEach((o: any) => {
+          const itens = (Array.isArray(o.items) ? o.items : []).map((i: any) => i.name || i.product_name).filter(Boolean).join(', ') || 'Orçamento';
+          const nome = `Orçamento ${o.numero || ''} · ${itens}`.trim();
+          const key = `o:${o.id}`;
+          opcoes.push({ id: key, label: nome, right: brl(o.total), badge: String(o.status || 'rascunho') });
+          mapa.set(key, { vendaId: null, orcamentoId: o.id, servicoNome: nome });
+        });
+      }
+    } catch (e) { console.warn('Não foi possível buscar orçamentos do cliente:', e); }
+
+    if (opcoes.length > 0) {
+      const escolha = await showSelect('Qual serviço anexar?', opcoes, 'Criar novo');
+      if (!escolha) return null;
+      if ('id' in escolha) {
+        const m = mapa.get(escolha.id);
+        if (m) return m;
+      }
+    }
+    // "Criar novo" (ou cliente sem histórico): só registra um nome livre no agendamento
+    const nome = await showPrompt('Nome do novo serviço', '');
+    if (nome === null) return null;
+    return { vendaId: null, orcamentoId: null, servicoNome: nome.trim() || null };
+  };
+
   const handleAddTask = async () => {
     if (!newTaskTitle.trim() || !conversation?.id || !currentCompany) return;
     setIsSavingTask(true);
@@ -5895,18 +5978,28 @@ export const ChatPanel = ({
       const dueIso = localDatetimeToIso(newTaskWhen);
       let agendamentoId: string | null = null;
       if (dueIso) {
-        const { data: ag, error: agErr } = await supabase.from('crm_agendamentos').insert({
+        const servico = await escolherServicoDoAgendamento();
+        if (!servico) return; // cancelou (o finally libera o botão): nada é salvo, o texto da tarefa fica no campo
+        const payloadAg: Record<string, any> = {
           company_id: 'rafa-arts',
           lead_id: conversation.id,
           titulo: newTaskTitle.trim(),
-          cliente_nome: conversation.name || null,
+          cliente_nome: nomeClienteParaAgenda(),
           cliente_telefone: conversation.phone || null,
           data_hora: dueIso,
           tipo: 'tarefa',
           responsavel_nome: user?.name || null,
           status: 'pendente',
           updated_at: new Date().toISOString(),
-        }).select('id').maybeSingle();
+        };
+        const comServico = { ...payloadAg, venda_id: servico.vendaId, orcamento_id: servico.orcamentoId, servico_nome: servico.servicoNome };
+        let { data: ag, error: agErr } = await supabase.from('crm_agendamentos').insert(comServico).select('id').maybeSingle();
+        if (agErr && /venda_id|orcamento_id|servico_nome/i.test(String(agErr.message || ''))) {
+          // Migração ainda não rodada (supabase/add_servico_crm_agendamentos.sql): salva sem o serviço
+          const r = await supabase.from('crm_agendamentos').insert(payloadAg).select('id').maybeSingle();
+          ag = r.data; agErr = r.error;
+          if (!agErr) showAlert('Agendado, mas sem o serviço: rode supabase/add_servico_crm_agendamentos.sql no Supabase.');
+        }
         if (agErr) {
           console.warn('Não foi possível criar o agendamento da tarefa:', agErr);
           showAlert('A tarefa foi salva, mas não consegui colocá-la na Agenda: ' + agErr.message);
@@ -9584,7 +9677,7 @@ export const ChatPanel = ({
                     className="flex-1 h-9 bg-white/5 border border-white/10 rounded-xl px-2.5 text-xs text-white focus:outline-none focus:border-primary-500"
                   />
                </div>
-               {newTaskWhen && <p className="text-[10px] text-purple-300/80 -mt-4">Com data e hora, a tarefa também aparece na Agenda e em Serviços Agendados.</p>}
+               {newTaskWhen && <p className="text-[10px] text-purple-300/80 -mt-4">Com data e hora, a tarefa também aparece na Agenda.</p>}
                <div className="space-y-2">
                   {tasks.length === 0 && (
                     <p className="text-xs text-white/20 text-center py-8">Nenhuma tarefa pra esse contato ainda.</p>

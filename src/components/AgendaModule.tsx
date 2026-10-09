@@ -30,6 +30,9 @@ export interface Agendamento {
   id: string;
   company_id: string;
   lead_id?: string | null;
+  venda_id?: string | null;      // nota (vendas) anexada ao agendamento
+  orcamento_id?: string | null;  // orçamento anexado (quando ainda não virou nota)
+  servico_nome?: string | null;  // serviço anexado: nome da nota/orçamento ou nome livre do "Criar novo"
   cliente_nome: string;
   cliente_telefone: string;
   titulo: string;
@@ -522,10 +525,11 @@ export const AgendaModule: React.FC<AgendaModuleProps> = ({ user, company, onOpe
                             conf.color,
                             isConcluido && "opacity-40 line-through grayscale"
                           )}
-                          title={`${hora} - ${item.titulo} (${item.cliente_nome || 'Sem cliente'})`}
+                          title={`${hora} - ${item.titulo} (${item.cliente_nome || 'Sem cliente'})${item.servico_nome ? ' · ' + item.servico_nome : ''}`}
                         >
                           <span className="font-mono font-bold shrink-0">{hora}</span>
                           <span className="truncate font-semibold">{item.titulo}</span>
+                          {item.cliente_nome && <span className="truncate opacity-70">· {item.cliente_nome}</span>}
                         </div>
                       );
                     })}
@@ -593,6 +597,11 @@ export const AgendaModule: React.FC<AgendaModuleProps> = ({ user, company, onOpe
                         {item.cliente_nome && (
                           <span className="flex items-center gap-1">
                             <User size={13} className="text-white/40" /> {item.cliente_nome}
+                          </span>
+                        )}
+                        {item.servico_nome && (
+                          <span className="flex items-center gap-1 text-amber-300/90 font-semibold">
+                            🏷️ {item.servico_nome}
                           </span>
                         )}
                         {item.responsavel_nome && (
