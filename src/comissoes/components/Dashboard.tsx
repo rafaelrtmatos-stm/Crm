@@ -18,6 +18,7 @@ import {
   WeeklyCaixa,
   Pagamento,
   getOrCreateCaixaAberto,
+  getHistoricoCaixasFechados,
   getPagamentosDoColaborador,
   avancarCaixaSeNecessario,
   getDataInicioColaborador,
@@ -199,6 +200,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // e já corrigidos na aba Descontos (caixaSemanalStorage).
   const [caixa, setCaixa] = useState<WeeklyCaixa | null>(null);
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  // Caixas já fechados: servem para achar o caixa da semana mostrada quando não é a atual.
+  const [caixasFechados, setCaixasFechados] = useState<WeeklyCaixa[]>([]);
+  useEffect(() => {
+    if (!colaboradorId) return;
+    let cancelled = false;
+    getHistoricoCaixasFechados(colaboradorId).then((list) => { if (!cancelled) setCaixasFechados(list); });
+    return () => { cancelled = true; };
+  }, [colaboradorId, caixa?.id]);
   // ✅ Data em que o colaborador começou (para os filtros Mês/Ano do card de Previsão) --
   // diferente de caixa.semanaInicio, que agora é sempre a semana atual (o caixa fecha
   // automaticamente todo sábado, ver avancarCaixaSeNecessario abaixo).
@@ -414,6 +423,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     );
   }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, commissionWeekBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo, receitaLojaSemana]);
+
+  // META: o que já foi recebido na semana mostrada no card. Soma só os pagamentos LIGADOS ao caixa
+  // dessa semana (caixa_id), e não por data: um pix com data de sábado pode ser da semana que
+  // acabou de fechar, e descontá-lo da semana nova deixaria a previsão errada.
+  const jaRecebidoSemana = useMemo(() => {
+    if (userSettings.modalidadeRemuneracao !== 'meta') return 0;
+    const caixaDaSemana =
+      caixa && caixa.semanaInicio === commissionWeekBounds.start
+        ? caixa
+        : caixasFechados.find((c) => c.semanaInicio === commissionWeekBounds.start);
+    if (!caixaDaSemana) return 0;
+    return pagamentos
+      .filter((p) => p.caixaId === caixaDaSemana.id)
+      .reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+  }, [userSettings.modalidadeRemuneracao, caixa, caixasFechados, pagamentos, commissionWeekBounds]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
@@ -737,6 +761,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
             totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
             totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
+            jaRecebido={jaRecebidoSemana}
             previousBalance={saldoAnteriorAoPeriodo}
             cycleDates={`Ponto: ${formatDateBR(pointWeekBounds.start)} a ${formatDateBR(pointWeekBounds.end)} • Comissão: ${formatDateBR(commissionWeekBounds.start)} a ${formatDateBR(commissionWeekBounds.end)}`}
             modalidadeRemuneracao={userSettings.modalidadeRemuneracao}

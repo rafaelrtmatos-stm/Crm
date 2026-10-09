@@ -12,6 +12,8 @@ interface ReceiptForecastCardProps {
   totalDiscounts?: number;
   // Quanto o colaborador já recebeu no período selecionado (dinheiro/pix/etc).
   totalPaid?: number;
+  // META: quanto já foi pago (pix/dinheiro) nos pagamentos LIGADOS ao caixa da semana mostrada.
+  jaRecebido?: number;
   // Saldo do caixa acumulado fora do período (dívida ou crédito).
   previousBalance?: number;
   cycleDates?: string;
@@ -29,6 +31,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   totalProduction = 0,
   totalDiscounts = 0,
   totalPaid = 0,
+  jaRecebido = 0,
   previousBalance = 0,
   cycleDates,
   modalidadeRemuneracao = 'fixo_comissao',
@@ -38,7 +41,8 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   onOpenDescontos,
 }) => {
   // Saldo anterior (dívida < 0, crédito > 0) entra na previsão, igual ao painel da equipe.
-  const forecastTotal = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance });
+  const recebidoNaSemana = modalidadeRemuneracao === 'meta' ? jaRecebido : 0;
+  const forecastTotal = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance, jaRecebido: recebidoNaSemana });
   const isHojeSabado = new Date().getDay() === 6;
 
   // Cálculo detalhado da modalidade META
@@ -123,7 +127,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 Total a Receber
               </span>
               <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                {modalidadeRemuneracao === 'meta' ? 'Meta da semana - descontos' : 'Salário + comissões - descontos'}
+                {modalidadeRemuneracao === 'meta' ? 'Meta - descontos - já recebido ± saldo anterior' : 'Salário + comissões - descontos'}
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
@@ -251,6 +255,14 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </div>
             )}
 
+            {/* 4.0 Já recebido na semana (META): pagamentos ligados ao caixa da semana */}
+            {recebidoNaSemana > 0 && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-amber-950/40 border border-amber-500/30 gap-2">
+                <span className="text-amber-200 font-semibold text-xs whitespace-nowrap">- Já recebido (pix)</span>
+                <span className="font-bold text-amber-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(recebidoNaSemana)}</span>
+              </div>
+            )}
+
             {/* 4.1 Saldo anterior (dívida ou crédito de semanas passadas) */}
             {previousBalance !== 0 && (
               <div className={`flex items-center justify-between py-1.5 px-3 rounded-xl gap-2 ${previousBalance < 0 ? 'bg-rose-950/40 border border-rose-500/30' : 'bg-emerald-950/40 border border-emerald-500/30'}`}>
@@ -272,7 +284,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
                 {modalidadeRemuneracao === 'meta'
-                  ? 'ℹ️ O total é calculado pela meta da semana − descontos ± saldo anterior.'
+                  ? 'ℹ️ O total é calculado pela meta da semana − descontos − já recebido ± saldo anterior.'
                   : 'ℹ️ O total é calculado por salário + comissões − descontos ± saldo anterior.'}
               </div>
             )}
