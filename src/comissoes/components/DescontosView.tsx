@@ -36,6 +36,7 @@ import {
   descreverCadeia,
   deletePagamento,
   calcularResumoCaixa,
+  buscarReceitaLojaQuitadas,
   calcularResumoPorPeriodo,
   PeriodoVisualizacao,
   getWorkWeekBounds,
@@ -45,7 +46,7 @@ import {
 import { supabase } from '../../supabase';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
-import { ServiceItem } from '../types';
+import { ServiceItem, MetaValorItem } from '../types';
 import { getTodayISO as getTodayISOLocal, toLocalISO } from '../utils/dateHelpers';
 
 interface DescontosViewProps {
@@ -64,6 +65,10 @@ interface DescontosViewProps {
   services?: ServiceItem[];
   modalidadeRemuneracao?: ModalidadeRemuneracao;
   metaPercentual?: number;
+  // Modalidade META: faixas, piso e teto, usados no fechamento e no resumo da semana.
+  metasValores?: MetaValorItem[];
+  metaValorMinimo?: number;
+  metaValorMaximo?: number;
 }
 
 const DIAS_UTEIS_SEMANA = 6; // dias úteis da semana
@@ -163,6 +168,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   services = [],
   modalidadeRemuneracao = 'fixo_comissao' as ModalidadeRemuneracao,
   metaPercentual = 0,
+  metasValores,
+  metaValorMinimo,
+  metaValorMaximo,
 }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -239,6 +247,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
       const atualizado = await avancarCaixaSeNecessario(c, baseSalary, services, descontos, {
         modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao',
         metaPercentual,
+        metasValores,
+        metaValorMinimo,
+        metaValorMaximo,
       });
       if (cancelled) return;
       setCaixa(atualizado);
@@ -276,9 +287,18 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
 
   // ✅ Resumo da semana atual (a do caixa aberto) -- alimenta o saldo acumulado
   // (dívida/crédito), que continua aparecendo sempre, independente do período visualizado.
+  // Modalidade META: a faixa da semana em curso vem da receita da loja (mesma base do fechamento).
+  const [receitaLojaCaixa, setReceitaLojaCaixa] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (modalidadeRemuneracao !== 'meta' || !caixa) { setReceitaLojaCaixa(undefined); return; }
+    let cancelled = false;
+    buscarReceitaLojaQuitadas(caixa.semanaInicio, caixa.semanaFim).then((v) => { if (!cancelled) setReceitaLojaCaixa(v ?? undefined); });
+    return () => { cancelled = true; };
+  }, [modalidadeRemuneracao, caixa?.semanaInicio, caixa?.semanaFim]);
+
   const resumoCaixa = useMemo(
-    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto, { modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao', metaPercentual }) : null),
-    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto, modalidadeRemuneracao, metaPercentual]
+    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto, { modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao', metaPercentual, metasValores, metaValorMinimo, metaValorMaximo, faturamentoGeral: receitaLojaCaixa }) : null),
+    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto, modalidadeRemuneracao, metaPercentual, metasValores, metaValorMinimo, metaValorMaximo, receitaLojaCaixa]
   );
 
   // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano): semana atual calcula

@@ -215,6 +215,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+        metasValores: userSettings.metasValores,
+        metaValorMinimo: userSettings.metaValorMinimo,
+        metaValorMaximo: userSettings.metaValorMaximo,
       });
       if (cancelled) return;
       setCaixa(atualizado);
