@@ -28,6 +28,7 @@ import {
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
+import { MetaFaixasCard } from './MetaFaixasCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
 
@@ -800,6 +801,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         </div>
       </div>
+
+      {/* Escala completa de metas (apenas modalidade META) */}
+      {userSettings.modalidadeRemuneracao === 'meta' && (
+        <MetaFaixasCard
+          metasValores={userSettings.metasValores}
+          metaValorMinimo={userSettings.metaValorMinimo}
+          metaValorMaximo={userSettings.metaValorMaximo}
+          receitaLoja={receitaLojaSemana}
+        />
+      )}
 
       {/* Visual Charts Section for Selected Period */}
       <ChartsSection services={filteredServices} weeklyGoal={userSettings.weeklyGoal} />
