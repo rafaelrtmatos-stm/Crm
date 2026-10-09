@@ -203,6 +203,86 @@ function getAvatarGradient(name: string): string {
   return AVATAR_GRADIENTS[index];
 }
 
+// Botão de status Ativo/Inativo único (grade e tabela).
+function StatusToggleButton({ ativo, onToggle, size }: { ativo: boolean; onToggle: () => void; size: 'card' | 'row' }) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`${size === 'card' ? 'text-[10px] px-2.5 py-1 shrink-0' : 'text-[9px] px-2.5 py-0.5'} font-black uppercase rounded-full border transition-all cursor-pointer ${
+        ativo
+          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+          : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+      }`}
+      title={ativo ? 'Clique para desativar' : 'Clique para ativar'}
+    >
+      {ativo ? 'Ativo' : 'Inativo'}
+    </button>
+  );
+}
+
+// Ações Editar / Conta / Copiar acesso / Excluir — um só lugar para grade e tabela.
+// "Conta" é o único caminho para anexar ou trocar a conta de login (abre o mesmo modal).
+function ColaboradorAcoes({
+  hasConta,
+  copiado,
+  showAcessoLabel,
+  onEditar,
+  onConta,
+  onCopiar,
+  onExcluir,
+}: {
+  hasConta: boolean;
+  copiado: boolean;
+  showAcessoLabel?: boolean;
+  onEditar: () => void;
+  onConta: () => void;
+  onCopiar: () => void;
+  onExcluir: () => void;
+}) {
+  return (
+    <>
+      <button
+        onClick={onEditar}
+        className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+        title="Editar funcionário"
+      >
+        <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+        <span>Editar</span>
+      </button>
+
+      <button
+        onClick={onConta}
+        className={`flex items-center gap-1.5 h-8 px-2.5 rounded-xl border text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+          hasConta
+            ? 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border-purple-500/30'
+            : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border-amber-500/30'
+        }`}
+        title={hasConta ? 'Trocar a conta de acesso anexada' : 'Anexar conta de acesso'}
+      >
+        <Link2 className={`w-3.5 h-3.5 ${hasConta ? 'text-purple-400' : 'text-amber-400'}`} />
+        <span>Conta</span>
+      </button>
+
+      <button
+        onClick={onCopiar}
+        className={`h-8 ${showAcessoLabel ? 'px-2.5 gap-1 text-[11px] font-bold' : 'w-8 justify-center'} rounded-xl bg-[var(--bg-card)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all cursor-pointer border border-[var(--border-color)] flex items-center shrink-0`}
+        title="Copiar dados de acesso (login e senha)"
+      >
+        {copiado ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        {showAcessoLabel && <span className="hidden lg:inline">Acesso</span>}
+      </button>
+
+      <button
+        onClick={onExcluir}
+        className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center shrink-0"
+        title="Excluir funcionário"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </>
+  );
+}
+
 export default function ComissoesAdminPanel() {
   const { user } = useApp();
   // Sincroniza com tema claro/escuro do CRM
@@ -1623,17 +1703,7 @@ export default function ComissoesAdminPanel() {
                       </div>
 
                       {/* Status Badge */}
-                      <button
-                        onClick={() => handleToggleAtivo(c)}
-                        className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border transition-all shrink-0 cursor-pointer ${
-                          c.ativo
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
-                        }`}
-                        title={c.ativo ? 'Clique para desativar' : 'Clique para ativar'}
-                      >
-                        {c.ativo ? 'Ativo' : 'Inativo'}
-                      </button>
+                      <StatusToggleButton ativo={!!c.ativo} onToggle={() => handleToggleAtivo(c)} size="card" />
                     </div>
 
                     {/* ========================================================= */}
@@ -1731,14 +1801,6 @@ export default function ComissoesAdminPanel() {
                             <UserCheck className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
                             <span className="truncate">Conta: <strong>{linkedUser.name}</strong> ({linkedUser.email})</span>
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => openLinkModal(c)}
-                            className="text-[10px] text-emerald-300 hover:text-white underline cursor-pointer shrink-0 font-bold"
-                            title="Trocar conta anexada"
-                          >
-                            Trocar
-                          </button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-between gap-1.5 text-[11px] text-[var(--text-muted)] bg-[var(--bg-card-sec)] border border-[var(--border-color)] px-3 py-1.5 rounded-xl">
@@ -1746,13 +1808,6 @@ export default function ComissoesAdminPanel() {
                             <UserX className="w-3.5 h-3.5 shrink-0" />
                             <span>Sem conta anexada</span>
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => openLinkModal(c)}
-                            className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer shrink-0"
-                          >
-                            Anexar conta
-                          </button>
                         </div>
                       );
                     })()}
@@ -1796,39 +1851,14 @@ export default function ComissoesAdminPanel() {
                   {/* Rodapé de Ações */}
                   <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => openEditForm(c)}
-                        className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
-                        title="Editar funcionário"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Editar</span>
-                      </button>
-
-                      <button
-                        onClick={() => openLinkModal(c)}
-                        className="flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
-                        title="Anexar / Gerenciar conta de acesso"
-                      >
-                        <Link2 className="w-3.5 h-3.5 text-purple-400" />
-                        <span>Conta</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleCopyAccess(c)}
-                        className="h-8 w-8 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all cursor-pointer border border-[var(--border-color)] flex items-center justify-center shrink-0"
-                        title="Copiar dados de acesso (login e senha)"
-                      >
-                        {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(c)}
-                        className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center shrink-0"
-                        title="Excluir funcionário"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <ColaboradorAcoes
+                        hasConta={usuariosContas.some((u) => u.colaborador_id === c.id)}
+                        copiado={copiedId === c.id}
+                        onEditar={() => openEditForm(c)}
+                        onConta={() => openLinkModal(c)}
+                        onCopiar={() => handleCopyAccess(c)}
+                        onExcluir={() => handleDelete(c)}
+                      />
                     </div>
 
                     <button
@@ -1927,16 +1957,7 @@ export default function ComissoesAdminPanel() {
                         </td>
 
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <button
-                            onClick={() => handleToggleAtivo(c)}
-                            className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border transition-all cursor-pointer ${
-                              c.ativo
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                                : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
-                            }`}
-                          >
-                            {c.ativo ? 'Ativo' : 'Inativo'}
-                          </button>
+                          <StatusToggleButton ativo={!!c.ativo} onToggle={() => handleToggleAtivo(c)} size="row" />
                         </td>
 
                         <td className="py-3.5 px-4 text-right font-black text-[var(--text-main)] whitespace-nowrap font-mono">
@@ -2009,40 +2030,15 @@ export default function ComissoesAdminPanel() {
 
                         <td className="py-3.5 px-5 text-right whitespace-nowrap min-w-[250px]">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => openEditForm(c)}
-                              className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
-                              title="Editar funcionário"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                              <span>Editar</span>
-                            </button>
-
-                            <button
-                              onClick={() => openLinkModal(c)}
-                              className="h-8 px-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 transition-all flex items-center gap-1.5 text-xs font-black uppercase tracking-wider shrink-0 cursor-pointer shadow-sm active:scale-95"
-                              title="Anexar ou trocar conta de login do sistema"
-                            >
-                              <Link2 className="w-3.5 h-3.5 text-purple-400" />
-                              <span>Conta</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleCopyAccess(c)}
-                              className="h-8 px-2.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] transition-all flex items-center gap-1 text-[11px] font-bold shrink-0"
-                              title="Copiar dados de acesso"
-                            >
-                              {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                              <span className="hidden lg:inline">Acesso</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleDelete(c)}
-                              className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-all shrink-0"
-                              title="Excluir"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <ColaboradorAcoes
+                              showAcessoLabel
+                              hasConta={usuariosContas.some((u) => u.colaborador_id === c.id)}
+                              copiado={copiedId === c.id}
+                              onEditar={() => openEditForm(c)}
+                              onConta={() => openLinkModal(c)}
+                              onCopiar={() => handleCopyAccess(c)}
+                              onExcluir={() => handleDelete(c)}
+                            />
 
                             <button
                               onClick={() => setSelected(c)}

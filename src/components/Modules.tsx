@@ -31469,6 +31469,12 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
   };
 
+  // Único ponto de "Simular visão": usado pela lista e pela tela de edição de permissões.
+  const simularVisaoDoUsuario = (u: { id: string; name: string }) => {
+    setSimulatedUserId(u.id);
+    showAlert(`Simulando a visão de ${u.name}.`);
+  };
+
   const handleCreateUser = async () => {
     if (!newUserName || !newUserEmail) {
       showAlert('Por favor, preencha o nome e o e-mail.');
@@ -32324,10 +32330,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                       <div className="flex gap-3">
                         <button
                           type="button"
-                          onClick={() => {
-                            setSimulatedUserId(editingUser.id);
-                            showAlert(`Simulando sessão de ${editingUser.name}!`);
-                          }}
+                          onClick={() => simularVisaoDoUsuario(editingUser)}
                           className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg text-slate-950 border-0 cursor-pointer"
                         >
                           <Eye size={16} /> Simular Visão deste Usuário
@@ -32883,12 +32886,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSimulatedUserId(u.id);
-                                  showAlert(`Alternando visualização para: ${u.name}`);
-                                }}
+                                onClick={() => simularVisaoDoUsuario(u)}
                                 className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white hover:text-amber-400 transition-all font-bold text-xs flex items-center justify-center cursor-pointer border-0 min-h-[40px] shrink-0"
-                                title="Simular Sessão"
+                                title="Simular visão deste usuário"
                               >
                                 <Eye size={15} />
                               </button>
