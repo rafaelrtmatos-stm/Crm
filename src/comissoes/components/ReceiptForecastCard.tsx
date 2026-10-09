@@ -43,6 +43,10 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   // Saldo anterior (dívida < 0, crédito > 0) entra na previsão, igual ao painel da equipe.
   const recebidoNaSemana = modalidadeRemuneracao === 'meta' ? jaRecebido : 0;
   const forecastTotal = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance, jaRecebido: recebidoNaSemana });
+  // META: se já foi pago mais do que a previsão, a previsão trava em R$ 0 e o excesso vira dívida
+  // (−) na próxima semana. Mostra o excesso aqui para ele ser visto na hora.
+  const previsaoSemPiso = baseSalary + totalCommission - totalDiscounts - recebidoNaSemana + previousBalance;
+  const pagoAMais = modalidadeRemuneracao === 'meta' && previsaoSemPiso < 0 ? Number((-previsaoSemPiso).toFixed(2)) : 0;
   const isHojeSabado = new Date().getDay() === 6;
 
   // Cálculo detalhado da modalidade META
@@ -280,6 +284,12 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
               <span className="font-black text-white font-mono text-base whitespace-nowrap">{formatCurrency(forecastTotal)}</span>
             </div>
+
+            {pagoAMais > 0 && (
+              <div className="text-[11px] font-bold text-amber-100 bg-amber-500/20 px-2.5 py-2 rounded-lg border border-amber-400/40 text-center leading-tight">
+                Pago a mais: {formatCurrency(pagoAMais)} — vira −{formatCurrency(pagoAMais)} (dívida) e será descontado na próxima semana.
+              </div>
+            )}
 
             {isHojeSabado && (
               <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
