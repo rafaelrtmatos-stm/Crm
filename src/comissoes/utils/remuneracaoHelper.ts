@@ -83,7 +83,7 @@ export function calcularRemuneracaoSemanal(
     let metaProximaValor: number | undefined = undefined;
     let metaProximaReceber: number | undefined = undefined;
 
-    const valorMinimo = Number(params.metaValorMinimo) > 0 ? Number(params.metaValorMinimo) : 600;
+    const valorMinimo = params.metaValorMinimo == null ? 600 : (Number(params.metaValorMinimo) || 0);
     // Base da meta escalável: Receita de notas 100% quitadas e recebidas da loja na semana (Sábado a Sexta).
     // Se não houver faturamento da loja fornecido, usa produção individual como fallback.
     const baseCalculoMeta = Number(params.faturamentoGeral) > 0 ? Number(params.faturamentoGeral) : producao;

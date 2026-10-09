@@ -66,7 +66,7 @@ export const mapColaboradorRow = (row: any): Colaborador => {
     fotoUrl: row.foto_url || undefined,
     cargo: row.cargo || undefined,
     salarioBase: Number(row.salario_base) || 0,
-    comissaoPadraoPercentual: Number(row.comissao_padrao_percentual) || 10,
+    comissaoPadraoPercentual: row.comissao_padrao_percentual == null ? 10 : (Number(row.comissao_padrao_percentual) || 0),
     metaSemanal: Number(row.meta_semanal) || 0,
     tema: (row.tema as ThemeMode) || 'dark',
     ativo: row.ativo !== false,
@@ -753,7 +753,7 @@ export const calculateSummaryStats = (
       (m: any) => Number(m.valorProducao) > 0 && Number(m.valorReceber) > 0
     ).sort((a: any, b: any) => Number(a.valorProducao) - Number(b.valorProducao));
     const atingidas = ordenadas.filter((m: any) => totalProduction >= Number(m.valorProducao));
-    const minimo = Number(settings?.metaValorMinimo) > 0 ? Number(settings.metaValorMinimo) : 600;
+    const minimo = settings?.metaValorMinimo == null ? 600 : (Number(settings.metaValorMinimo) || 0);
 
     if (atingidas.length > 0) {
       totalCommission = Number(atingidas[atingidas.length - 1].valorReceber);
