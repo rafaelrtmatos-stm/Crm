@@ -31184,14 +31184,16 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
   const alternarLiberacaoGrupoWhatsapp = async (grupoId: string, visivelAtual: boolean) => {
     setSalvandoGrupoWhatsappId(grupoId);
-    await supabase.from('whatsapp_groups').update({ visivel: !visivelAtual, updated_at: new Date().toISOString() }).eq('id', grupoId);
+    const { data: okLib, error: errLib } = await supabase.from('whatsapp_groups').update({ visivel: !visivelAtual, updated_at: new Date().toISOString() }).eq('id', grupoId).select('id');
+    if (errLib || !okLib || okLib.length === 0) showAlert(`Não foi possível ${visivelAtual ? 'bloquear' : 'liberar'} o grupo: ${errLib?.message || 'o banco não confirmou a gravação'}`);
     if (editingUser) await carregarGruposWhatsappParaEdicao(editingUser);
     setSalvandoGrupoWhatsappId(null);
   };
 
   const alternarAdminVeGrupoWhatsapp = async (grupoId: string, valorAtual: boolean) => {
     setSalvandoGrupoWhatsappId(grupoId);
-    await supabase.from('whatsapp_groups').update({ admin_ve: !valorAtual, updated_at: new Date().toISOString() }).eq('id', grupoId);
+    const { data: okAdm, error: errAdm } = await supabase.from('whatsapp_groups').update({ admin_ve: !valorAtual, updated_at: new Date().toISOString() }).eq('id', grupoId).select('id');
+    if (errAdm || !okAdm || okAdm.length === 0) showAlert(`Não foi possível alterar a visão do administrador: ${errAdm?.message || 'o banco não confirmou a gravação'}`);
     if (editingUser) await carregarGruposWhatsappParaEdicao(editingUser);
     setSalvandoGrupoWhatsappId(null);
   };
@@ -31200,11 +31202,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     if (!editingUser) return;
     setSalvandoGrupoWhatsappId(grupoId);
     const temAcesso = acessosGruposUsuario.has(grupoId);
-    if (temAcesso) {
-      await supabase.from('user_whatsapp_groups').delete().eq('group_id', grupoId).eq('user_id', editingUser.id);
-    } else {
-      await supabase.from('user_whatsapp_groups').insert({ group_id: grupoId, user_id: editingUser.id });
-    }
+    const { error: errAcesso } = temAcesso
+      ? await supabase.from('user_whatsapp_groups').delete().eq('group_id', grupoId).eq('user_id', editingUser.id)
+      : await supabase.from('user_whatsapp_groups').insert({ group_id: grupoId, user_id: editingUser.id });
+    if (errAcesso) showAlert(`Não foi possível alterar o acesso ao grupo: ${errAcesso.message}`);
     await carregarGruposWhatsappParaEdicao(editingUser);
     setSalvandoGrupoWhatsappId(null);
   };
@@ -31294,11 +31295,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
       : (Object.entries(initialPerms) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view).map(([id]) => id);
     const initialActions = u.allowedActions || getDefaultActions(userRole);
     const initialPdvTabs = u.allowedPdvTabs || getDefaultPdvTabs(userRole);
-    
-    // Se o usuário já tem permissão de gerenciar estoque, garante consistência inicial
-    const hasInventory = initialActions.includes('canManageInventory') || initialPerms['inventory']?.view || initialPerms['inventory']?.edit;
-    setEditedTabs(hasInventory && !activeTabs.includes('inventory') ? [...activeTabs, 'inventory'] : activeTabs);
-    setEditedPdvTabs(hasInventory && !initialPdvTabs.includes('estoque') ? [...initialPdvTabs, 'estoque'] : initialPdvTabs);
+
+    // A tela mostra exatamente o que está salvo (antes o Estoque era religado sozinho aqui).
+    setEditedTabs(activeTabs);
+    setEditedPdvTabs(initialPdvTabs);
     setEditedActions(initialActions);
     // Sem lista salva = ve todas as abas do Financeiro (comportamento de antes)
     setEditedFinanceiroTabs(u.allowedFinanceiroTabs || [...ALL_FINANCEIRO_TAB_IDS]);
@@ -31309,40 +31309,16 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     if (!editingUser) return;
     try {
       // Sincroniza abas permitidas garantindo que todos os módulos com 'view: true' fiquem visíveis
-      const hasInventoryPerm = editedActions.includes('canManageInventory') ||
-        editedModulePermissions['inventory']?.view ||
-        editedModulePermissions['inventory']?.edit ||
-        editedModulePermissions['inventory']?.create ||
-        editedTabs.includes('inventory') ||
-        editedPdvTabs.includes('estoque');
-
       // Apenas módulos com view === true são incluídos nas abas permitidas
       const syncedTabs = Array.from(new Set([
         ...(Object.entries(editedModulePermissions) as [string, ModuleCrudPermission][]).filter(([_, p]) => p?.view === true).map(([id]) => id),
-        ...(hasInventoryPerm ? ['inventory'] : [])
       ]));
 
-      const syncedPdvTabs = Array.from(new Set([
-        ...editedPdvTabs,
-        ...(hasInventoryPerm ? ['estoque'] : [])
-      ]));
+      const syncedPdvTabs = Array.from(new Set(editedPdvTabs));
 
-      const syncedActions = Array.from(new Set([
-        ...editedActions,
-        ...(editedModulePermissions['inventory']?.edit || editedModulePermissions['inventory']?.create ? ['canManageInventory'] : [])
-      ]));
+      const syncedActions = Array.from(new Set(editedActions));
 
-      const syncedModulePermissions = {
-        ...editedModulePermissions,
-        ...(hasInventoryPerm ? {
-          inventory: {
-            view: true,
-            create: editedModulePermissions['inventory']?.create ?? true,
-            edit: editedModulePermissions['inventory']?.edit ?? true,
-            delete: editedModulePermissions['inventory']?.delete ?? false,
-          }
-        } : {})
-      };
+      const syncedModulePermissions = { ...editedModulePermissions };
 
       // Se o SQL da coluna allowed_financeiro_tabs ainda nao foi rodado no Supabase, o resto e salvo e o admin e avisado
       let colunaFinanceiroFaltando = false;
@@ -31367,12 +31343,18 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
         let colaboradorId = editingUser.colaboradorId || null;
         if (editedRole === 'comissao') {
           if (colaboradorId) {
-            await supabase.from('colaboradores').update({
-              nome: editedName,
-              ...(editedPassword ? { senha: editedPassword } : {}),
-              ativo: true,
-              updated_at: new Date().toISOString(),
-            }).eq('id', colaboradorId);
+            // Só sincroniza o que foi alterado AGORA nesta tela; nunca força "ativo" nem desfaz
+            // nome/senha que foram editados no painel de Comissões.
+            const nomeMudou = editedName !== editingUser.name;
+            const senhaMudou = !!editedPassword && editedPassword !== (editingUser.password || '');
+            if (nomeMudou || senhaMudou) {
+              const { error: colabErr } = await supabase.from('colaboradores').update({
+                ...(nomeMudou ? { nome: editedName } : {}),
+                ...(senhaMudou ? { senha: editedPassword } : {}),
+                updated_at: new Date().toISOString(),
+              }).eq('id', colaboradorId);
+              if (colabErr) throw colabErr;
+            }
           } else {
             const { data: colaboradorCriado, error: colaboradorErr } = await supabase
               .from('colaboradores')
@@ -31398,9 +31380,16 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
           updated_at: new Date().toISOString(),
         };
-        const gravarUsuario = (dados: Record<string, any>) => isUuid
-          ? supabase.from('usuarios').update(dados).eq('id', editingUser.id)
-          : supabase.from('usuarios').upsert(dados, { onConflict: 'email' });
+        // Confere se alguma linha foi realmente gravada (update bloqueado/sem linha não dá erro no Supabase).
+        const gravarUsuario = async (dados: Record<string, any>): Promise<{ error: any }> => {
+          const { data, error: errGravar } = await (isUuid
+            ? supabase.from('usuarios').update(dados).eq('id', editingUser.id).select('id')
+            : supabase.from('usuarios').upsert(dados, { onConflict: 'email' }).select('id'));
+          if (!errGravar && (!data || data.length === 0)) {
+            return { error: new Error('O banco não confirmou a gravação do usuário (nenhuma linha foi atualizada). Nada foi salvo.') };
+          }
+          return { error: errGravar };
+        };
         let { error } = await gravarUsuario(payload);
         if (error && /allowed_financeiro_tabs/i.test(error.message || '')) {
           const { allowed_financeiro_tabs: _semColuna, ...payloadSemFinanceiro } = payload;
@@ -31635,10 +31624,74 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     }
   };
 
-  const handleSetAllPdvTabs = (enable: boolean) => {
-    const allPdv = ['venda', 'historico', 'estoque', 'servicos', 'orcamentos', 'contratos', 'excluidos', 'clientes'];
-    setEditedPdvTabs(enable ? allPdv : []);
-  };
+  const PDV_SUBTABS = [
+    { id: 'venda', label: 'Terminal Venda', desc: 'Faturamento rápido e PDV' },
+    { id: 'historico', label: 'Histórico & Abertas', desc: 'Vendas realizadas' },
+    { id: 'estoque', label: 'Estoque / Produtos', desc: 'Catálogo de itens' },
+    { id: 'servicos', label: 'Serviços', desc: 'Ordens de serviço' },
+    { id: 'orcamentos', label: 'Orçamentos', desc: 'Propostas comerciais' },
+    { id: 'contratos', label: 'Contratos', desc: 'Contratos gerados' },
+    { id: 'excluidos', label: 'Excluídos', desc: 'Lixeira de vendas' },
+    { id: 'clientes', label: 'Clientes', desc: 'Gestão no balcão' },
+  ];
+
+  // Subabas dentro de uma aba (subpasta): só aparece com a aba ligada; aba desligada esconde tudo.
+  const renderSubTabs = (
+    opts: readonly { id: string; label: string; desc: string }[],
+    allowed: string[],
+    setAllowed: React.Dispatch<React.SetStateAction<string[]>>
+  ) => (
+    <div className="ml-3 sm:ml-8 pl-3 sm:pl-5 border-l-2 border-primary-500/30 space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-white/50 font-medium">Dentro desta aba, este usuário vê:</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAllowed(opts.map(o => o.id))}
+            className="text-[10px] font-black uppercase text-primary-300 hover:text-primary-200 bg-primary-500/10 hover:bg-primary-500/20 px-2.5 py-1 rounded-lg border border-primary-500/30 transition-all cursor-pointer"
+          >
+            Marcar todas
+          </button>
+          <button
+            type="button"
+            onClick={() => setAllowed([])}
+            className="text-[10px] font-black uppercase text-white/40 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 transition-all cursor-pointer"
+          >
+            Desmarcar todas
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {opts.map((opt) => {
+          const isAllowed = allowed.includes(opt.id);
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setAllowed(prev => isAllowed ? prev.filter(t => t !== opt.id) : [...prev, opt.id])}
+              className={cn(
+                "flex items-center gap-2.5 text-left p-2.5 rounded-xl border transition-all cursor-pointer",
+                isAllowed
+                  ? "bg-primary-500/10 border-primary-500/40 text-white"
+                  : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+              )}
+            >
+              <span className={cn(
+                "w-4 h-4 rounded-md border flex items-center justify-center shrink-0",
+                isAllowed ? "bg-primary-500 border-primary-500 text-slate-950" : "border-white/20"
+              )}>
+                {isAllowed && <Check size={10} strokeWidth={4} />}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-bold text-xs leading-tight">{opt.label}</span>
+                <span className="block text-[10px] text-white/30 leading-tight">{opt.desc}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   const handleSetActionGroup = (actionIds: string[], enable: boolean) => {
     setEditedActions(prev => {
@@ -32309,8 +32362,8 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                           const ModIcon = mod.icon || LayoutDashboard;
 
                           return (
+                            <div key={mod.id} className="space-y-2">
                             <div
-                              key={mod.id}
                               className={cn(
                                 "p-3.5 sm:p-5 rounded-2xl border transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-3.5 sm:gap-4",
                                 isEnabled
@@ -32401,157 +32454,13 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                                 </div>
                               </div>
                             </div>
+                            {isEnabled && mod.id === 'pos' && renderSubTabs(PDV_SUBTABS, editedPdvTabs, setEditedPdvTabs)}
+                            {isEnabled && mod.id === 'comissoes' && renderSubTabs(FINANCEIRO_TABS, editedFinanceiroTabs, setEditedFinanceiroTabs)}
+                            </div>
                           );
                         })}
                       </div>
                     </div>
-
-                    {/* SEÇÃO 2: ABAS INTERNAS DO PDV (CONDICIONAL) */}
-                    {editedTabs.includes('pos') && (
-                      <div className="space-y-6 pt-6 border-t border-white/5">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-start sm:items-center gap-3">
-                            <span className="w-8 h-8 rounded-full bg-purple-500/15 text-purple-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">2</span>
-                            <div>
-                              <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
-                                <ShoppingCart size={18} className="text-purple-400 shrink-0" />
-                                Telas Internas do PDV / Balcão
-                              </h4>
-                              <p className="text-xs text-white/40 font-medium">Selecione quais seções internas do terminal de vendas estarão liberadas</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 self-start sm:self-auto">
-                            <button
-                              type="button"
-                              onClick={() => handleSetAllPdvTabs(true)}
-                              className="text-[10px] font-black uppercase text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 px-3 py-1.5 rounded-xl border border-purple-500/30 transition-all cursor-pointer"
-                            >
-                              Marcar Todas
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSetAllPdvTabs(false)}
-                              className="text-[10px] font-black uppercase text-white/40 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer"
-                            >
-                              Desmarcar Todas
-                            </button>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
-                          {[
-                            { id: 'venda', label: 'Terminal Venda', desc: 'Faturamento rápido e PDV' },
-                            { id: 'historico', label: 'Histórico & Abertas', desc: 'Vendas realizadas' },
-                            { id: 'estoque', label: 'Estoque / Produtos', desc: 'Catálogo de itens' },
-                            { id: 'servicos', label: 'Serviços', desc: 'Ordens de serviço' },
-                            { id: 'orcamentos', label: 'Orçamentos', desc: 'Propostas comerciais' },
-                            { id: 'contratos', label: 'Contratos', desc: 'Contratos gerados' },
-                            { id: 'excluidos', label: 'Excluídos', desc: 'Lixeira de vendas' },
-                            { id: 'clientes', label: 'Clientes', desc: 'Gestão no balcão' },
-                          ].map((opt) => {
-                            const isAllowed = editedPdvTabs.includes(opt.id);
-                            return (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => {
-                                  if (isAllowed) {
-                                    setEditedPdvTabs(prev => prev.filter(t => t !== opt.id));
-                                  } else {
-                                    setEditedPdvTabs(prev => [...prev, opt.id]);
-                                  }
-                                }}
-                                className={cn(
-                                  "flex flex-col text-left p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 relative cursor-pointer",
-                                  isAllowed
-                                    ? "bg-purple-500/10 border-purple-500/50 text-white shadow-sm"
-                                    : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
-                                )}
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="font-bold uppercase tracking-wide text-xs">{opt.label}</span>
-                                  <div className={cn(
-                                    "w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ml-2",
-                                    isAllowed ? "bg-purple-500 border-purple-500 text-slate-950" : "border-white/20"
-                                  )}>
-                                    {isAllowed && <Check size={10} strokeWidth={4} />}
-                                  </div>
-                                </div>
-                                <span className="text-[10px] text-white/30 leading-tight">{opt.desc}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SEÇÃO 2b: ABAS INTERNAS DO FINANCEIRO (CONDICIONAL) */}
-                    {editedTabs.includes('comissoes') && (
-                      <div className="space-y-6 pt-6 border-t border-white/5">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-start sm:items-center gap-3">
-                            <span className="w-8 h-8 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">{editedTabs.includes('pos') ? '3' : '2'}</span>
-                            <div>
-                              <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
-                                <Calculator size={18} className="text-emerald-400 shrink-0" />
-                                Abas Internas do Financeiro
-                              </h4>
-                              <p className="text-xs text-white/40 font-medium">Selecione quais abas do Financeiro este usuário poderá ver</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 self-start sm:self-auto">
-                            <button
-                              type="button"
-                              onClick={() => setEditedFinanceiroTabs([...ALL_FINANCEIRO_TAB_IDS])}
-                              className="text-[10px] font-black uppercase text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/20 transition-all cursor-pointer"
-                            >
-                              Marcar Todas
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditedFinanceiroTabs([])}
-                              className="text-[10px] font-black uppercase text-white/40 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer"
-                            >
-                              Desmarcar Todas
-                            </button>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
-                          {FINANCEIRO_TABS.map((opt) => {
-                            const isAllowed = editedFinanceiroTabs.includes(opt.id);
-                            return (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => {
-                                  if (isAllowed) {
-                                    setEditedFinanceiroTabs(prev => prev.filter(t => t !== opt.id));
-                                  } else {
-                                    setEditedFinanceiroTabs(prev => [...prev, opt.id]);
-                                  }
-                                }}
-                                className={cn(
-                                  "flex flex-col text-left p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 relative cursor-pointer",
-                                  isAllowed
-                                    ? "bg-emerald-500/10 border-emerald-500/50 text-white shadow-sm"
-                                    : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
-                                )}
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="font-bold uppercase tracking-wide text-xs">{opt.label}</span>
-                                  <div className={cn(
-                                    "w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ml-2",
-                                    isAllowed ? "bg-emerald-500 border-emerald-500 text-slate-950" : "border-white/20"
-                                  )}>
-                                    {isAllowed && <Check size={10} strokeWidth={4} />}
-                                  </div>
-                                </div>
-                                <span className="text-[10px] text-white/30 leading-tight">{opt.desc}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
 
                     {/* SEÇÃO 2c: GRUPOS DO WHATSAPP -- movido da aba Mensagens pra cá: quais grupos existem,
                         se estão liberados, e se ESTE usuário em edição os vê, tudo decidido aqui. */}
@@ -32568,6 +32477,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                             {((editedRole as any) === 'admin')
                               ? 'Grupo novo chega represado: libere-o. "Eu vejo este grupo" vale pra todo usuário administrador.'
                               : 'Grupo novo chega represado: libere-o e marque quais grupos este usuário pode ver.'}
+                            {' '}Estas escolhas são salvas na hora (não dependem do botão Salvar) e "Liberar/Bloquear" vale para todos os usuários.
                           </p>
                         </div>
                       </div>
@@ -32639,7 +32549,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                     <div className="space-y-6 pt-6 border-t border-white/5">
                       <div className="flex items-start sm:items-center gap-3">
                         <span className="w-8 h-8 rounded-full bg-primary-500/15 text-primary-400 text-xs font-black flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
-                          {2 + (editedTabs.includes('pos') ? 1 : 0) + (editedTabs.includes('comissoes') ? 1 : 0)}
+                          2
                         </span>
                         <div>
                           <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
