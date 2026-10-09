@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Settings, Building2, Users, CreditCard, Shield, Download, 
-  Smartphone, Save, RefreshCw, Key, Check, Palette, Image as ImageIcon
+  Smartphone, Save, RefreshCw, Key, Check, Palette, Image as ImageIcon, Bell
 } from 'lucide-react';
+import { getNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from '../lib/notificationPrefs';
 import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
@@ -14,7 +15,11 @@ interface SettingsModuleProps {
 }
 
 export const SettingsModule: React.FC<SettingsModuleProps> = ({ currentCompany, user }) => {
-  const [activeTab, setActiveTab] = useState<'empresa' | 'usuarios' | 'taxas' | 'integracoes' | 'backup'>('empresa');
+  const [activeTab, setActiveTab] = useState<'empresa' | 'usuarios' | 'taxas' | 'integracoes' | 'notificacoes' | 'backup'>('empresa');
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(() => getNotificationPrefs());
+  const alterarNotifPref = (chave: keyof NotificationPrefs) => {
+    setNotifPrefs(prev => { const novo = { ...prev, [chave]: !prev[chave] }; setNotificationPrefs(novo); return novo; });
+  };
   const [saving, setSaving] = useState(false);
 
   // Company Form
@@ -157,6 +162,7 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ currentCompany, 
           { id: 'taxas', label: 'Taxas & Cartões', icon: CreditCard },
           { id: 'usuarios', label: 'Colaboradores', icon: Users },
           { id: 'integracoes', label: 'WhatsApp / Meta API', icon: Smartphone },
+          { id: 'notificacoes', label: 'Notificações', icon: Bell },
           { id: 'backup', label: 'Backup & Exportação', icon: Download }
         ].map(tab => {
           const Icon = tab.icon;
@@ -451,6 +457,41 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ currentCompany, 
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Tab: Notificações (preferências deste aparelho) */}
+      {activeTab === 'notificacoes' && (
+        <div className="bg-slate-900/60 p-6 rounded-3xl border border-white/10 space-y-5">
+          <div className="space-y-1">
+            <h3 className="text-base font-black text-white uppercase tracking-tight">Notificações de Mensagens</h3>
+            <p className="text-xs text-white/50">
+              Vale só para este aparelho/navegador. O número de mensagens não lidas continua somando sempre. Grupos silenciados (sino na conversa) nunca avisam.
+            </p>
+          </div>
+          {([
+            { id: 'som', titulo: 'Som', desc: 'Toca um som quando chega mensagem nova.' },
+            { id: 'avisoTela', titulo: 'Aviso na tela', desc: 'Mostra o card no canto da tela quando o CRM está aberto.' },
+            { id: 'notificacaoNavegador', titulo: 'Notificação do navegador/celular', desc: 'Mostra a notificação quando o CRM está em segundo plano.' },
+          ] as const).map(op => {
+            const ligado = notifPrefs[op.id];
+            return (
+              <button
+                key={op.id}
+                type="button"
+                onClick={() => alterarNotifPref(op.id)}
+                className="w-full flex items-center justify-between gap-4 p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-left transition-all cursor-pointer"
+              >
+                <div>
+                  <h4 className="font-bold text-white text-sm">{op.titulo}</h4>
+                  <p className="text-xs text-white/50 mt-0.5">{op.desc}</p>
+                </div>
+                <span className={`w-11 h-6 rounded-full p-0.5 flex items-center shrink-0 transition-all ${ligado ? 'bg-emerald-500 justify-end' : 'bg-white/15 justify-start'}`}>
+                  <span className="w-5 h-5 rounded-full bg-white shadow" />
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 

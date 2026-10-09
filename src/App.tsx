@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
+import { getNotificationPrefs } from './lib/notificationPrefs';
 import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida, buscarFotoAtual, textoTempoDeEspera } from './lib/notify';
 import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
@@ -1734,11 +1735,16 @@ export default function App() {
       if (await grupoEstaSilenciado(row.phone)) return;
     }
 
+    // Preferências deste aparelho (Configurações → Notificações): som, aviso na tela e notificação do navegador.
+    const prefsNotif = getNotificationPrefs();
+    if (!prefsNotif.som && !prefsNotif.avisoTela && !prefsNotif.notificacaoNavegador) return;
+
     try {
+      if (!prefsNotif.som) throw new Error('som desligado');
       const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
       audio.currentTime = 0;
       audio.play().catch((e) => console.warn('Som de mensagem bloqueado pelo navegador (precisa de 1 clique na pagina antes):', e));
-    } catch (e) { console.warn('Falha ao tocar som de mensagem:', e); }
+    } catch (e) { if (prefsNotif.som) console.warn('Falha ao tocar som de mensagem:', e); }
 
     try {
       const emSegundoPlano = document.hidden || !document.hasFocus();
@@ -1777,6 +1783,7 @@ export default function App() {
       // Aba em foco: a notificacao nativa do navegador nao aparece (so quando esta em segundo
       // plano), entao mostra um aviso visual no canto inferior do proprio CRM. Clicar abre a conversa.
       if (!emSegundoPlano) {
+        if (!prefsNotif.avisoTela) return;
         showMessageToast({
           key: `msg-${row.phone || row.id}`,
           title: remetente,
@@ -1790,6 +1797,7 @@ export default function App() {
         return;
       }
 
+      if (!prefsNotif.notificacaoNavegador) return;
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const opcoes = {
         body: corpo.length > 120 ? `${corpo.slice(0, 117)}...` : corpo,
