@@ -388,7 +388,7 @@ export function calcularResumoCaixa(
   services: ServiceItem[],
   descontos: Desconto[],
   pagamentos: Pagamento[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; faturamentoGeral?: number }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO');
@@ -405,6 +405,9 @@ export function calcularResumoCaixa(
       metasValores: extra?.metasValores,
       metaValorMinimo: extra?.metaValorMinimo,
       metaValorMaximo: extra?.metaValorMaximo,
+      // Modalidade META: a faixa e escolhida pela receita da loja na semana (notas quitadas Sab-Sex).
+      // Sem isso o helper cai na producao individual e a semana fecha no piso.
+      faturamentoGeral: extra?.faturamentoGeral,
     },
     totalProducao,
     totalComissaoServicos
@@ -663,6 +666,30 @@ export async function fecharCaixa(caixa: WeeklyCaixa, resumo: ResumoCaixa): Prom
 }
 
 /**
+ * Receita da loja numa semana (sabado a sexta): notas quitadas (status 'completed' ou entrada >= total),
+ * sem canceladas nem excluidas. E a base que escolhe a faixa da modalidade META. Sexta-feira entra
+ * inteira (fuso de Brasilia, sem horario de verao). Devolve null se a consulta falhar, para quem
+ * chama NAO fechar a semana com um valor errado.
+ */
+export async function buscarReceitaLojaQuitadas(inicio: string, fim: string): Promise<number | null> {
+  const { data, error } = await supabase
+    .from('vendas')
+    .select('total, status, down_payment')
+    .gte('created_at', `${inicio}T00:00:00-03:00`)
+    .lt('created_at', `${addDaysISO(fim, 1)}T00:00:00-03:00`)
+    .is('deleted_at', null);
+  if (error) { console.error('Erro ao buscar receita da loja da semana:', error); return null; }
+  return (data || [])
+    .filter((v: any) => {
+      if (v.status === 'canceled') return false;
+      const total = Number(v.total) || 0;
+      const down = Number(v.down_payment) || 0;
+      return total > 0 && (v.status === 'completed' || down >= total);
+    })
+    .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
+}
+
+/**
  * Chamada toda vez que a tela carrega, logo depois de já termos o caixa aberto + serviços +
  * descontos + salário do colaborador em mãos. Se a semana desse caixa já virou (semana_fim já
  * passou -- ex: ninguém abriu o app no sábado, ou o colaborador ficou uma semana de férias),
@@ -675,7 +702,7 @@ export async function avancarCaixaSeNecessario(
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; faturamentoGeral?: number }
 ): Promise<WeeklyCaixa> {
   let caixa = caixaInicial;
   const hoje = getTodayISO();
@@ -687,7 +714,15 @@ export async function avancarCaixaSeNecessario(
   while (caixa.status === 'aberto' && addDaysISO(caixa.semanaFim, 1) < hoje && guard < 260) {
     guard++;
     const pagamentosDaSemana = await getPagamentosDoCaixa(caixa.id);
-    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, extra);
+    // META: a faixa sai da receita da loja DAQUELA semana. Se nao der pra buscar, nao fecha agora
+    // (fechar errado grava o valor e ele vai pro saldo da semana seguinte); tenta de novo na proxima carga.
+    let extraDaSemana = extra;
+    if (extra?.modalidadeRemuneracao === 'meta') {
+      const receita = await buscarReceitaLojaQuitadas(caixa.semanaInicio, caixa.semanaFim);
+      if (receita === null) break;
+      extraDaSemana = { ...extra, faturamentoGeral: receita };
+    }
+    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, extraDaSemana);
     const proximo = await fecharCaixa(caixa, resumo);
     if (!proximo) break; // não trava a tela numa semana antiga se o fechamento falhar
     caixa = proximo;

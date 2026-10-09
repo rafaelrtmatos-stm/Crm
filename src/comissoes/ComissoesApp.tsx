@@ -433,6 +433,9 @@ export default function ComissoesApp() {
                 services={services}
                 modalidadeRemuneracao={colaborador.modalidadeRemuneracao}
                 metaPercentual={colaborador.metaPercentual}
+                metasValores={colaborador.metasValores}
+                metaValorMinimo={colaborador.metaValorMinimo}
+                metaValorMaximo={colaborador.metaValorMaximo}
               />
             )}
           </>
