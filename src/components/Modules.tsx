@@ -27527,14 +27527,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            onClose={() => setIsPixQrModalOpen(false)}
            title="Pagamento via PIX"
            size="compact"
-           className="max-w-[320px] w-full mx-auto p-3 sm:p-4 rounded-2xl"
+           className="max-w-[360px] w-full mx-auto p-3 rounded-2xl"
          >
-           <div className="flex flex-col items-center gap-2 p-0.5">
-             <div className="w-[210px] h-[210px] max-w-full bg-white rounded-xl p-2 shadow-md flex items-center justify-center shrink-0">
+           <div className="flex flex-col items-center gap-1.5 p-0.5">
+             <div className="w-[315px] max-w-full aspect-square bg-white rounded-xl p-2 shadow-md flex items-center justify-center shrink-0">
                <PixQrImage payload={pixPayload} className="h-full w-full object-contain" />
              </div>
 
-             <div className="w-full bg-slate-900/80 rounded-xl border border-white/10 p-2.5 space-y-1 text-xs">
+             <div className="w-full bg-slate-900/80 rounded-xl border border-white/10 p-2 space-y-0.5 text-xs">
                <div className="flex justify-between items-center text-xs">
                  <span className="text-white/40 font-bold uppercase text-[10px]">Valor</span>
                  <span className="text-emerald-400 font-black text-sm">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
@@ -27555,14 +27555,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                </div>
              </div>
 
-             <div className="w-full grid grid-cols-2 gap-1.5 pt-0.5">
+             <div className="w-full grid grid-cols-2 gap-1.5">
                <button
                   type="button"
                   onClick={() => {
                      navigator.clipboard.writeText(pixConfig.key);
                      showAlert("Chave PIX copiada!");
                   }}
-                  className="py-2 px-2 rounded-xl bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
+                  className="py-1.5 px-2 rounded-lg bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
                >
                   Copiar Chave
                </button>
@@ -27572,12 +27572,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      navigator.clipboard.writeText(pixPayload);
                      showAlert("Código Pix Copia e Cola copiado!");
                   }}
-                  className="py-2 px-2 rounded-xl bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
+                  className="py-1.5 px-2 rounded-lg bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
                >
                   Copia e Cola
                </button>
              </div>
-             <Button variant="ghost" size="sm" className="w-full h-8 text-[11px] font-bold text-white/50 hover:text-white" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
+             <Button variant="ghost" size="sm" className="w-full h-7 text-[11px] font-bold text-white/50 hover:text-white" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
            </div>
          </Modal>
        );
