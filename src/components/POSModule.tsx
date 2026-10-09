@@ -2090,7 +2090,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       )}
       <Modal isOpen={isPaymentModalOpen && !(paymentMethod === 'pix' && pixConfig)} onClose={() => setIsPaymentModalOpen(false)}
         title={paymentMethod === 'pix' ? 'PAGAMENTO VIA PIX' : 'Finalizar Cobrança'} size="sm"
-        className="w-full max-w-[calc(100vw-24px)] sm:max-w-2xl mx-auto rounded-[26px] p-3 sm:p-5">
+        className="w-full max-w-[calc(100vw-24px)] sm:max-w-md mx-auto rounded-[22px] p-3 sm:p-4">
         {paymentMethod === 'pix' ? (
           <div className="space-y-4">
             {pixConfig ? null : (

@@ -7,7 +7,7 @@ import { showAlert } from '../lib/notify';
 // botões "Copiar chave" / "Copia e cola" e "Fechar". Usado no PDV e na tela de Vendas.
 
 /** Logo do PIX: quatro losangos arredondados em cruz. */
-const PixLogo = ({ size = 44 }: { size?: number }) => (
+const PixLogo = ({ size = 36 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true" className="shrink-0">
     {[[24, 12], [36, 24], [24, 36], [12, 24]].map(([cx, cy], i) => (
       <rect
@@ -67,10 +67,10 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   };
 
   const linhas: Row[] = [
-    { icon: <DollarSign size={20} strokeWidth={2.6} />, label: 'Valor', value: `R$ ${amount.toFixed(2).replace('.', ',')}`, destaque: true, verde: true },
-    { icon: <User size={19} />, label: 'Beneficiário', value: beneficiaryName },
-    ...(bank ? [{ icon: <Landmark size={19} />, label: 'Banco', value: bank } as Row] : []),
-    { icon: <KeyRound size={19} />, label: 'Chave', value: pixKey, mono: true },
+    { icon: <DollarSign size={18} strokeWidth={2.6} />, label: 'Valor', value: `R$ ${amount.toFixed(2).replace('.', ',')}`, destaque: true, verde: true },
+    { icon: <User size={17} />, label: 'Beneficiário', value: beneficiaryName },
+    ...(bank ? [{ icon: <Landmark size={17} />, label: 'Banco', value: bank } as Row] : []),
+    { icon: <KeyRound size={17} />, label: 'Chave', value: pixKey, mono: true },
   ];
 
   return (
@@ -80,27 +80,27 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
       <div
         role="dialog"
         aria-label="Pagamento via PIX"
-        className="relative w-full max-w-[860px] my-auto rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-4 sm:p-7 animate-in zoom-in-95 fade-in duration-200"
+        className="relative w-fit max-w-full my-auto rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-4 sm:p-5 animate-in zoom-in-95 fade-in duration-200"
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Fechar"
-          className="absolute top-3 right-3 sm:top-4 sm:right-5 p-1 text-white/50 hover:text-white transition-colors cursor-pointer bg-transparent border-0"
+          className="absolute top-2.5 right-3 p-1 text-white/50 hover:text-white transition-colors cursor-pointer bg-transparent border-0"
         >
-          <X size={26} strokeWidth={1.6} />
+          <X size={22} strokeWidth={1.6} />
         </button>
 
-        <div className="grid grid-cols-1 sm:grid-cols-[auto_1px_1fr] gap-5 sm:gap-7">
+        <div className="grid grid-cols-1 sm:grid-cols-[auto_1px_auto] gap-4 sm:gap-5">
           {/* Esquerda: título + QR Code */}
-          <div className="flex flex-col items-center sm:items-start gap-4">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <PixLogo />
               <div className="leading-tight">
-                <h2 className="text-[22px] sm:text-[26px] font-black uppercase tracking-tight text-white">
+                <h2 className="whitespace-nowrap text-[17px] sm:text-[19px] font-black uppercase tracking-tight text-white">
                   Pagamento via <span className="text-[#2de3a0]">PIX</span>
                 </h2>
-                <p className="text-[13px] sm:text-sm font-medium text-slate-400">Escaneie o QR Code para pagar</p>
+                <p className="text-xs font-medium text-slate-400">Escaneie o QR Code para pagar</p>
               </div>
             </div>
             <div className="rounded-3xl bg-white/[0.04] p-4 sm:p-5 shadow-[0_0_40px_rgba(45,227,160,0.06)]">
@@ -113,25 +113,25 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
           <div className="hidden sm:block bg-white/10" />
 
           {/* Direita: dados + botões */}
-          <div className="flex flex-col gap-2.5 sm:pt-12 min-w-0">
+          <div className="flex flex-col gap-2 sm:pt-8">
             {linhas.map((l) => (
               <div
                 key={l.label}
-                className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0c1829] px-3.5 py-2.5"
+                className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#0c1829] px-3 py-2"
               >
                 <div
                   className={
-                    'w-10 h-10 rounded-full flex items-center justify-center shrink-0 ' +
+                    'w-8 h-8 rounded-full flex items-center justify-center shrink-0 ' +
                     (l.verde ? 'bg-emerald-500/20 text-[#2de3a0]' : 'bg-[#1d2b4a] text-slate-300')
                   }
                 >
                   {l.icon}
                 </div>
-                <span className="text-[13px] font-extrabold uppercase tracking-wide text-slate-400 shrink-0">{l.label}</span>
+                <span className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 shrink-0">{l.label}</span>
                 <span
                   className={
-                    'ml-auto text-right font-extrabold min-w-0 break-words ' +
-                    (l.destaque ? 'text-[26px] text-[#2de3a0]' : 'text-[17px] text-white') +
+                    'ml-auto pl-4 text-right font-extrabold whitespace-nowrap ' +
+                    (l.destaque ? 'text-[22px] text-[#2de3a0]' : 'text-[15px] text-white') +
                     (l.mono ? ' tabular-nums tracking-wide' : '')
                   }
                 >
@@ -143,28 +143,28 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
             <button
               type="button"
               onClick={() => copiar(pixKey, 'key')}
-              className="mt-1 h-12 w-full rounded-xl border border-red-500/70 bg-gradient-to-b from-[#a1243a] to-[#7f1d33] text-white text-[15px] font-black uppercase tracking-wider flex items-center justify-center gap-3 shadow-[0_0_18px_rgba(239,68,68,0.18)] hover:brightness-110 active:scale-[.99] transition-all cursor-pointer"
+              className="mt-0.5 h-10 w-full rounded-xl border border-red-500/70 bg-gradient-to-b from-[#a1243a] to-[#7f1d33] text-white text-[13px] font-black uppercase tracking-wider flex items-center justify-center gap-2.5 shadow-[0_0_18px_rgba(239,68,68,0.18)] hover:brightness-110 active:scale-[.99] transition-all cursor-pointer"
             >
-              <Clipboard size={22} strokeWidth={1.8} />
+              <Clipboard size={18} strokeWidth={1.8} />
               {copiado === 'key' ? 'Chave copiada!' : 'Copiar chave'}
             </button>
             <button
               type="button"
               onClick={() => copiar(payload, 'payload')}
-              className="h-12 w-full rounded-xl border border-red-500/80 bg-[#3a1424]/70 text-red-400 text-[15px] font-black uppercase tracking-wider flex items-center justify-center gap-3 hover:bg-[#4a1a2d]/80 active:scale-[.99] transition-all cursor-pointer"
+              className="h-10 w-full rounded-xl border border-red-500/80 bg-[#3a1424]/70 text-red-400 text-[13px] font-black uppercase tracking-wider flex items-center justify-center gap-2.5 hover:bg-[#4a1a2d]/80 active:scale-[.99] transition-all cursor-pointer"
             >
-              <Copy size={22} strokeWidth={1.8} />
+              <Copy size={18} strokeWidth={1.8} />
               {copiado === 'payload' ? 'PIX copiado!' : 'Copia e cola'}
             </button>
           </div>
         </div>
 
         {/* Rodapé */}
-        <div className="mt-5 sm:mt-6 border-t border-white/10 pt-4 flex items-center justify-center gap-3">
+        <div className="mt-4 border-t border-white/10 pt-2.5 flex items-center justify-center gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-6 h-10 text-[14px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors cursor-pointer bg-transparent border-0"
+            className="px-5 h-8 text-[12px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors cursor-pointer bg-transparent border-0"
           >
             Fechar
           </button>
@@ -173,7 +173,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
               type="button"
               onClick={onConfirm}
               disabled={confirmDisabled}
-              className="px-6 h-10 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 text-[13px] font-black uppercase tracking-wider transition-all cursor-pointer border-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 h-8 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer border-0 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {confirmLabel || 'Confirmar pagamento'}
             </button>

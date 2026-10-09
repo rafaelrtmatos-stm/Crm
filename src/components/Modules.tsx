@@ -24213,7 +24213,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         size={settlingOrder ? "lg" : "xl"}
         className={cn(
           "max-h-[96vh] my-auto",
-          settlingOrder && "max-w-4xl w-full mx-auto"
+          (settlingOrder || !editingFullOrder) && "max-w-4xl w-full mx-auto"
         )}
         contentClassName="min-h-0"
       >
