@@ -440,7 +440,7 @@ export function calcularResumoNoIntervalo(
   pagamentos: Pagamento[],
   inicio: string,
   fim: string,
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; faturamentoGeral?: number }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO');
@@ -461,6 +461,9 @@ export function calcularResumoNoIntervalo(
       metasValores: extra?.metasValores,
       metaValorMinimo: extra?.metaValorMinimo,
       metaValorMaximo: extra?.metaValorMaximo,
+      // Modalidade META: a faixa é escolhida pela receita da loja (notas quitadas Sáb–Sex).
+      // Sem isso o helper cai na produção individual e o valor sai menor que o degrau atingido.
+      faturamentoGeral: extra?.faturamentoGeral,
     },
     totalProducao,
     totalComissaoServicos

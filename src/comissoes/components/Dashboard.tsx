@@ -404,9 +404,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metasValores: userSettings.metasValores,
         metaValorMinimo: userSettings.metaValorMinimo,
         metaValorMaximo: userSettings.metaValorMaximo,
+        faturamentoGeral: userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : undefined,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, commissionWeekBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, commissionWeekBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo, receitaLojaSemana]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
