@@ -120,6 +120,20 @@ const prepararListaDeConversas = (rows: any[]): Lead[] => ordenarEDeduplicarConv
 //  - nomes: nome real do grupo (whatsapp_groups.nome) pra mostrar no lugar do nome de um participante.
 export const digitosDoGrupo = (jid?: string | null) => (jid || '').replace('@g.us', '').replace(/\D/g, '');
 export type InfoGrupos = { permitidos: Set<string>; todos: Set<string>; nomes: Map<string, string> };
+// Regra unica de visibilidade de conversa quanto a grupos do WhatsApp (balao, modulo Mensagens e abertura por
+// notificacao/agenda/link):
+//  - grupo cadastrado: so aparece/abre se ESTE usuario tem acesso a ele (permitidos);
+//  - grupo AINDA NAO cadastrado em whatsapp_groups: some (nao ha como saber quem pode ver);
+//  - leitura dos grupos falhou (info nula, ex.: primeira carga): some tudo que tem cara de grupo.
+// "Cara de grupo" = digitos do group_jid, sempre maiores que um telefone (mais de 15 digitos).
+export const TAMANHO_MAX_TELEFONE = 15;
+export const conversaVisivelPorGrupo = (phone: string | null | undefined, info: Pick<InfoGrupos, 'permitidos' | 'todos'> | null): boolean => {
+  const d = digitosDoGrupo(phone);
+  const temCaraDeGrupo = d.length > TAMANHO_MAX_TELEFONE;
+  if (!info) return !temCaraDeGrupo;
+  if (info.todos.has(d)) return info.permitidos.has(d);
+  return !temCaraDeGrupo;
+};
 export const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrupos | null> => {
   const { data: grupos, error } = await supabase.from('whatsapp_groups').select('id,group_jid,nome,visivel,admin_ve').eq('company_id', 'rafa-arts');
   if (error) return null;
@@ -207,8 +221,10 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [gruposTodos, setGruposTodos] = useState<Set<string>>(new Set());
   const [nomesGrupos, setNomesGrupos] = useState<Map<string, string>>(new Map());
   const gruposTodosRef = useRef<Set<string>>(new Set()); // mesma info, lida pela reconciliacao (closure sem state novo)
+  const [gruposCarregados, setGruposCarregados] = useState(false); // false ate a 1a leitura dar certo: ate la esconde o que tem cara de grupo
   const aplicarInfoGrupos = (info: InfoGrupos | null) => {
     if (!info) return; // falha na consulta: mantem o que ja estava
+    setGruposCarregados(true);
     gruposTodosRef.current = info.todos;
     setGroupPhones(info.permitidos); setGruposTodos(info.todos); setNomesGrupos(info.nomes);
   };
@@ -554,10 +570,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
   // Conversa de grupo so aparece se o usuario pode ver aquele grupo; nome do grupo no lugar do participante.
   const nomeDaConversa = (l: Lead) => nomesGrupos.get((l.phone || '').replace(/\D/g, '')) || (l.contactName || l.fullName || l.whatsappName || l.phone || 'Cliente').trim();
-  const conversaPermitida = (l: Lead) => {
-    const d = (l.phone || '').replace(/\D/g, '');
-    return !gruposTodos.has(d) || groupPhones.has(d);
-  };
+  const conversaPermitida = (l: Lead) => conversaVisivelPorGrupo(l.phone, gruposCarregados ? { permitidos: groupPhones, todos: gruposTodos } : null);
 
   // Conversas ativas: quando um serviço/atendimento for concluído, ele sai da lista de mensagens
   const activeLeads = leads.filter(l => !l.archived && l.status !== 'CONCLUIDO' && conversaPermitida(l));

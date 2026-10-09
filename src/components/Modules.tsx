@@ -5,7 +5,7 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
-import { carregarInfoGrupos, digitosDoGrupo, type InfoGrupos } from './MessagesSidebarPopup';
+import { carregarInfoGrupos, conversaVisivelPorGrupo, digitosDoGrupo, TAMANHO_MAX_TELEFONE, type InfoGrupos } from './MessagesSidebarPopup';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
 import { 
   AudioMessagePlayer, 
@@ -10314,19 +10314,36 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
     const targetLeadId = pendingOpenLeadId || (pendingWhatsAppShare ? pendingWhatsAppShare.leadId : null);
     if (!targetLeadId) return;
 
+    // Conversa de GRUPO do WhatsApp so abre se este usuario tem acesso ao grupo (mesma regra da lista de
+    // Mensagens). Telefone comum (ate 15 digitos) abre direto; com cara de grupo consulta as permissoes e,
+    // se negado, nao cadastrado ou a leitura falhar, descarta o pedido.
+    const liberarConversa = async (l: { phone?: string | null }): Promise<boolean> => {
+      if (digitosDoGrupo(l.phone).length <= TAMANHO_MAX_TELEFONE) return true;
+      const info = await carregarInfoGrupos(user).catch(() => null);
+      return conversaVisivelPorGrupo(l.phone, info);
+    };
+    const descartarPedido = () => {
+      if (pendingOpenLeadId === targetLeadId) setPendingOpenLeadId(null);
+      if (pendingWhatsAppShare && pendingWhatsAppShare.leadId === targetLeadId) setPendingWhatsAppShare(null);
+    };
+
     const lead = leads.find(l => l.id === targetLeadId);
     if (lead) {
-      if (lead.funnelId && lead.funnelId !== selectedFunnelId && (!funisComEtapasIds || funisComEtapasIds.has(lead.funnelId))) {
-        setSelectedFunnelId(lead.funnelId);
-      }
-      setSelectedLead(lead);
-      setOpenedViaJump(true);
-      if (pendingOpenLeadId === targetLeadId) setPendingOpenLeadId(null);
+      liberarConversa(lead).then(ok => {
+        if (!ok) { descartarPedido(); return; }
+        if (lead.funnelId && lead.funnelId !== selectedFunnelId && (!funisComEtapasIds || funisComEtapasIds.has(lead.funnelId))) {
+          setSelectedFunnelId(lead.funnelId);
+        }
+        setSelectedLead(lead);
+        setOpenedViaJump(true);
+        if (pendingOpenLeadId === targetLeadId) setPendingOpenLeadId(null);
+      });
     } else {
       // Se a lista de leads local ainda não carregou ou o lead acabou de ser criado, busca direto no Supabase
-      supabase.from('leads').select('*').eq('id', targetLeadId).maybeSingle().then(({ data, error }) => {
+      supabase.from('leads').select('*').eq('id', targetLeadId).maybeSingle().then(async ({ data, error }) => {
         if (data && !error) {
           const mapped = mapLeadRow(data);
+          if (!(await liberarConversa(mapped))) { descartarPedido(); return; }
           setLeads(prev => {
             const exists = prev.some(l => l.id === mapped.id);
             return exists ? prev.map(l => l.id === mapped.id ? mapped : l) : [mapped, ...prev];
@@ -13355,10 +13372,13 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     if (!pendingOpenLeadId || leads.length === 0) return;
     const target = leads.find(l => l.id === pendingOpenLeadId);
     if (!target) return;
+    // Grupo sem permissao (ou ainda nao cadastrado / leitura falhou): nao abre; so consome o pedido.
+    if (!infoGrupos && digitosDoGrupo(target.phone).length > TAMANHO_MAX_TELEFONE) return; // espera a lista de grupos carregar
+    if (!conversaVisivelPorGrupo(target.phone, infoGrupos)) { setPendingOpenLeadId(null); return; }
     const clientName = (target.contactName || target.fullName || target.whatsappName || target.phone || 'Cliente').trim();
     if (selectedChat?.id !== target.id) setSelectedChat({ ...target, name: clientName });
     setPendingOpenLeadId(null);
-  }, [pendingOpenLeadId, leads]);
+  }, [pendingOpenLeadId, leads, infoGrupos]);
 
   // O som de notificação de mensagem nova (incoming) e a notificação nativa do
   // navegador foram movidos pro shell raiz do app (ver notifyIncomingMessage em
@@ -13379,11 +13399,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     const timer = setInterval(carregar, 60000);
     return () => { ativo = false; clearInterval(timer); };
   }, [user?.id, user?.isAdmin]);
-  const conversaVisivel = (l: Lead): boolean => {
-    const d = digitosDoGrupo(l.phone);
-    if (infoGrupos) return !infoGrupos.todos.has(d) || infoGrupos.permitidos.has(d);
-    return d.length <= 15;
-  };
+  const conversaVisivel = (l: Lead): boolean => conversaVisivelPorGrupo(l.phone, infoGrupos);
   const nomeDaConversa = (l: Lead): string => infoGrupos?.nomes.get(digitosDoGrupo(l.phone)) || (l.contactName || l.fullName || l.whatsappName || l.phone || 'Cliente').trim();
 
   const unrepliedCount = leads.filter(l => l.waitingSince && conversaVisivel(l)).length;
