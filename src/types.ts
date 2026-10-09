@@ -175,6 +175,7 @@ export interface AppUser extends BaseEntity {
   allowedCompanies?: string[]; // IDs of companies this user can access
   allowedTabs?: string[];      // IDs of tabs this user can access
   allowedPdvTabs?: string[];   // IDs das abas horizontais de dentro do PDV que esse usuario pode ver (Venda, Historico, Estoque, etc)
+  allowedColaboradores?: string[]; // IDs de colaboradores (Financeiro → Funcionários) cujos cards este usuario pode ver, ALEM do card do funcionario anexado a conta dele; admin ve todos
   allowedFinanceiroTabs?: string[]; // IDs das sub-abas de dentro do Financeiro que esse usuario pode ver (funcionarios, materias_primas, maquinas, precificacao); ausente = todas
   allowedActions?: string[];   // Specific action permissions allowed
   modulePermissions?: ModulePermissions; // Permissoes granulares (ver/criar/editar/excluir) por modulo

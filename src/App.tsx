@@ -544,6 +544,7 @@ function mapUsuarioRow(row: any): AppUser {
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
     allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
     allowedFinanceiroTabs: Array.isArray(row.allowed_financeiro_tabs) ? row.allowed_financeiro_tabs : undefined,
+    allowedColaboradores: Array.isArray(row.allowed_colaboradores) ? row.allowed_colaboradores : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     colaboradorId: row.colaborador_id || undefined,

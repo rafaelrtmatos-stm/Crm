@@ -358,6 +358,7 @@ function mapUsuarioRow(row: any): AppUser {
     allowedTabs: Array.isArray(row.allowed_tabs) ? row.allowed_tabs : undefined,
     allowedPdvTabs: Array.isArray(row.allowed_pdv_tabs) ? row.allowed_pdv_tabs : undefined,
     allowedFinanceiroTabs: Array.isArray(row.allowed_financeiro_tabs) ? row.allowed_financeiro_tabs : undefined,
+    allowedColaboradores: Array.isArray(row.allowed_colaboradores) ? row.allowed_colaboradores : undefined,
     allowedActions: Array.isArray(row.allowed_actions) ? row.allowed_actions : undefined,
     modulePermissions: row.module_permissions && typeof row.module_permissions === 'object' ? row.module_permissions : undefined,
     colaboradorId: row.colaborador_id || undefined,
@@ -31268,6 +31269,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
   const [editedTabs, setEditedTabs] = useState<string[]>([]);
   const [editedPdvTabs, setEditedPdvTabs] = useState<string[]>([]);
   const [editedFinanceiroTabs, setEditedFinanceiroTabs] = useState<string[]>([]);
+  // Cards de funcionários (Financeiro → Funcionários) que este usuário pode ver além do card anexado à conta dele
+  const [editedColaboradores, setEditedColaboradores] = useState<string[]>([]);
+  const [colaboradoresLista, setColaboradoresLista] = useState<{ id: string; nome: string }[]>([]);
   const [editedActions, setEditedActions] = useState<string[]>([]);
   const [editedModulePermissions, setEditedModulePermissions] = useState<ModulePermissions>({});
 
@@ -31415,6 +31419,10 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
     setEditedActions(initialActions);
     // Sem lista salva = ve todas as abas do Financeiro (comportamento de antes)
     setEditedFinanceiroTabs(u.allowedFinanceiroTabs || [...ALL_FINANCEIRO_TAB_IDS]);
+    setEditedColaboradores(u.allowedColaboradores || []);
+    supabase.from('colaboradores').select('id,nome').order('nome', { ascending: true }).then(({ data }) => {
+      setColaboradoresLista((data || []).map((c: any) => ({ id: c.id, nome: c.nome || 'Sem nome' })));
+    });
     carregarGruposWhatsappParaEdicao(u);
   };
 
@@ -31459,6 +31467,7 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
 
       // Se o SQL da coluna allowed_financeiro_tabs ainda nao foi rodado no Supabase, o resto e salvo e o admin e avisado
       let colunaFinanceiroFaltando = false;
+      let colunaColaboradoresFaltando = false;
 
       if (editingUser.id === 'admin-rafael') {
         // Admin master continua no Firebase
@@ -31506,23 +31515,31 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           allowed_tabs: syncedTabs,
           allowed_pdv_tabs: syncedPdvTabs,
           allowed_financeiro_tabs: editedFinanceiroTabs,
+          allowed_colaboradores: editedColaboradores,
           allowed_actions: syncedActions,
           module_permissions: syncedModulePermissions,
-          colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
+          colaborador_id: colaboradorId,
           updated_at: new Date().toISOString(),
         };
         const gravarUsuario = (dados: Record<string, any>) => isUuid
           ? supabase.from('usuarios').update(dados).eq('id', editingUser.id)
           : supabase.from('usuarios').upsert(dados, { onConflict: 'email' });
         let { error } = await gravarUsuario(payload);
+        const { allowed_colaboradores: _semColab, ...payloadSemColab } = payload;
+        if (error && /allowed_colaboradores/i.test(error.message || '')) {
+          ({ error } = await gravarUsuario(payloadSemColab));
+          colunaColaboradoresFaltando = true;
+        }
         if (error && /allowed_financeiro_tabs/i.test(error.message || '')) {
-          const { allowed_financeiro_tabs: _semColuna, ...payloadSemFinanceiro } = payload;
+          const { allowed_financeiro_tabs: _semColuna, ...payloadSemFinanceiro } = payloadSemColab;
           ({ error } = await gravarUsuario(payloadSemFinanceiro));
           colunaFinanceiroFaltando = true;
         }
         if (error) throw error;
       }
-      showAlert(colunaFinanceiroFaltando
+      showAlert(colunaColaboradoresFaltando
+        ? 'Dados e permissões salvos, MAS os cards de funcionários liberados NÃO foram salvos: falta rodar o arquivo supabase/add_allowed_colaboradores_usuarios.sql no SQL Editor do Supabase.'
+        : colunaFinanceiroFaltando
         ? 'Dados e permissões salvos, MAS as abas do Financeiro NÃO foram salvas: falta rodar o arquivo supabase/add_allowed_financeiro_tabs.sql no SQL Editor do Supabase.'
         : 'Dados, permissões e acessos do usuário atualizados com sucesso!');
       setEditingUser(null);
@@ -32663,6 +32680,56 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
                             );
                           })}
                         </div>
+                      </div>
+                    )}
+
+                    {/* SEÇÃO 2b-2: CARDS DE FUNCIONÁRIOS VISÍVEIS (Financeiro → Funcionários) */}
+                    {editedTabs.includes('comissoes') && editedFinanceiroTabs.includes('funcionarios') && (
+                      <div className="space-y-4 pt-6 border-t border-white/5">
+                        <div>
+                          <h4 className="text-base sm:text-lg font-bold text-white uppercase italic tracking-tight font-black flex items-center gap-2">
+                            <Users size={18} className="text-emerald-400 shrink-0" />
+                            Cards de Funcionários Visíveis
+                          </h4>
+                          <p className="text-xs text-white/40 font-medium">
+                            Este usuário sempre vê o card do funcionário anexado à conta dele. Marque aqui outros cards que ele também poderá ver em Financeiro → Funcionários.
+                          </p>
+                        </div>
+                        {colaboradoresLista.length === 0 ? (
+                          <p className="text-[11px] text-white/30">Nenhum funcionário cadastrado.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                            {colaboradoresLista.map((c) => {
+                              const proprio = c.id === editingUser?.colaboradorId;
+                              const isAllowed = proprio || editedColaboradores.includes(c.id);
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  disabled={proprio}
+                                  onClick={() => setEditedColaboradores(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
+                                  className={cn(
+                                    "flex items-center justify-between text-left p-3 rounded-2xl border transition-all duration-300 cursor-pointer disabled:cursor-default",
+                                    isAllowed
+                                      ? "bg-emerald-500/10 border-emerald-500/50 text-white shadow-sm"
+                                      : "bg-slate-950/40 border-white/5 text-white/40 hover:border-white/10 hover:text-white"
+                                  )}
+                                >
+                                  <span className="min-w-0">
+                                    <span className="font-bold uppercase tracking-wide text-xs block truncate">{c.nome}</span>
+                                    {proprio && <span className="text-[10px] text-emerald-300/70">Anexado a esta conta</span>}
+                                  </span>
+                                  <div className={cn(
+                                    "w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ml-2",
+                                    isAllowed ? "bg-emerald-500 border-emerald-500 text-slate-950" : "border-white/20"
+                                  )}>
+                                    {isAllowed && <Check size={10} strokeWidth={4} />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 

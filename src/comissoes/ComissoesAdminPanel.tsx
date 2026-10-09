@@ -267,7 +267,13 @@ export default function ComissoesAdminPanel() {
         return;
       }
 
-      const colabs = colabData as ColaboradorRow[];
+      let colabs = colabData as ColaboradorRow[];
+      // Quem não é admin só vê o card do funcionário anexado à própria conta, mais os cards que o admin
+      // liberou em Usuários (allowedColaboradores). Os totais da equipe também consideram só esses cards.
+      if (!user?.isAdmin) {
+        const liberados = new Set<string>([...(user?.colaboradorId ? [user.colaboradorId] : []), ...(user?.allowedColaboradores || [])]);
+        colabs = colabs.filter((c) => liberados.has(c.id));
+      }
       setColaboradores(colabs);
       setSelected((prev) => (prev ? colabs.find((c) => c.id === prev.id) ?? null : prev));
 
@@ -506,7 +512,7 @@ export default function ComissoesAdminPanel() {
     } finally {
       if (!opts?.silent) setLoading(false);
     }
-  }, [weekBounds]);
+  }, [weekBounds, user?.isAdmin, user?.colaboradorId, JSON.stringify(user?.allowedColaboradores || [])]);
 
   useEffect(() => {
     loadData();
@@ -829,7 +835,6 @@ export default function ComissoesAdminPanel() {
           .from('usuarios')
           .update({
             colaborador_id: linkingColaborador.id,
-            role: 'comissao',
             updated_at: new Date().toISOString(),
           })
           .eq('id', selectedUsuarioForLink);
@@ -1044,7 +1049,6 @@ export default function ComissoesAdminPanel() {
             .from('usuarios')
             .update({
               colaborador_id: targetId,
-              role: 'comissao',
               password: finalSenha,
               updated_at: new Date().toISOString(),
             })
