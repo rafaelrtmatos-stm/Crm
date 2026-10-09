@@ -271,6 +271,7 @@ import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
+import { PixPaymentModal } from './PixPaymentModal';
 import { PixQrImage } from './PixQrImage';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
@@ -27632,64 +27633,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          amount: amountToCharge,
        });
        return (
-         <Modal
+         <PixPaymentModal
            isOpen={isPixQrModalOpen}
            onClose={() => setIsPixQrModalOpen(false)}
-           title="Pagamento via PIX"
-           size="compact"
-           className="max-w-[360px] w-full mx-auto p-3 rounded-2xl"
-         >
-           <div className="flex flex-col items-center gap-1.5 p-0.5">
-             <div className="w-[315px] max-w-full aspect-square bg-white rounded-xl p-2 shadow-md flex items-center justify-center shrink-0">
-               <PixQrImage payload={pixPayload} className="h-full w-full object-contain" />
-             </div>
-
-             <div className="w-full bg-slate-900/80 rounded-xl border border-white/10 p-2 space-y-0.5 text-xs">
-               <div className="flex justify-between items-center text-xs">
-                 <span className="text-white/40 font-bold uppercase text-[10px]">Valor</span>
-                 <span className="text-emerald-400 font-black text-sm">R$ {amountToCharge.toFixed(2).replace('.', ',')}</span>
-               </div>
-               <div className="flex justify-between items-center text-xs">
-                 <span className="text-white/40 font-bold uppercase text-[10px]">Beneficiário</span>
-                 <span className="text-white font-bold truncate max-w-[170px]">{pixConfig.beneficiaryName}</span>
-               </div>
-               {pixConfig.bank && (
-                 <div className="flex justify-between items-center text-xs">
-                   <span className="text-white/40 font-bold uppercase text-[10px]">Banco</span>
-                   <span className="text-white/80 font-medium truncate max-w-[170px]">{pixConfig.bank}</span>
-                 </div>
-               )}
-               <div className="flex justify-between items-center text-xs pt-1 border-t border-white/5">
-                 <span className="text-white/40 font-bold uppercase text-[10px]">Chave</span>
-                 <span className="text-white font-mono text-[11px] font-bold break-all text-right ml-2">{pixConfig.key}</span>
-               </div>
-             </div>
-
-             <div className="w-full grid grid-cols-2 gap-1.5">
-               <button
-                  type="button"
-                  onClick={() => {
-                     navigator.clipboard.writeText(pixConfig.key);
-                     showAlert("Chave PIX copiada!");
-                  }}
-                  className="py-1.5 px-2 rounded-lg bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
-               >
-                  Copiar Chave
-               </button>
-               <button
-                  type="button"
-                  onClick={() => {
-                     navigator.clipboard.writeText(pixPayload);
-                     showAlert("Código Pix Copia e Cola copiado!");
-                  }}
-                  className="py-1.5 px-2 rounded-lg bg-primary-500/15 border border-primary-500/25 text-primary-300 hover:bg-primary-500/25 text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 text-center cursor-pointer"
-               >
-                  Copia e Cola
-               </button>
-             </div>
-             <Button variant="ghost" size="sm" className="w-full h-7 text-[11px] font-bold text-white/50 hover:text-white" onClick={() => setIsPixQrModalOpen(false)}>Fechar</Button>
-           </div>
-         </Modal>
+           payload={pixPayload}
+           pixKey={pixConfig.key}
+           amount={amountToCharge}
+           beneficiaryName={pixConfig.beneficiaryName}
+           bank={pixConfig.bank || undefined}
+         />
        );
      })()}
 

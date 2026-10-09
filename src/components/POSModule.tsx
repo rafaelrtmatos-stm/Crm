@@ -49,6 +49,7 @@ import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orca
 import { downloadCanvasAsPdf, downloadCanvasAsPng } from '../lib/receipt';
 import { PixQrImage } from './PixQrImage';
 import { buildPixPayload } from '../lib/pix';
+import { PixPaymentModal } from './PixPaymentModal';
 import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue, isNetworkError } from '../lib/offlineSync';
 import type { VendaOfflinePayload } from '../lib/offlineSync';
 
@@ -313,21 +314,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [downPayment, setDownPayment] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('pix');
   const [isSavingSale, setIsSavingSale] = useState(false);
-  const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: any; beneficiaryName: string; city: string } | null>(null);
-  const [pixCopied, setPixCopied] = useState<'key' | 'payload' | null>(null);
+  const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: any; beneficiaryName: string; city: string; bank?: string } | null>(null);
 
   useEffect(() => {
     if (!isPaymentModalOpen || !currentCompany) return;
     let cancelled = false;
     const companyId = (currentCompany as any).id || 'rafa-arts';
-    supabase.from('configuracoes').select('pix_key,pix_key_type,beneficiary_name,city').eq('company_id', companyId).maybeSingle()
+    supabase.from('configuracoes').select('*').eq('company_id', companyId).maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
         setPixConfig(data?.pix_key ? {
           key: data.pix_key,
           keyType: data.pix_key_type,
           beneficiaryName: data.beneficiary_name || currentCompany.name || 'Rafa Arts Graphics',
-          city: data.city || 'SANTAREM'
+          city: data.city || 'SANTAREM',
+          bank: data.pix_bank || ''
         } : null);
       }, () => { if (!cancelled) setPixConfig(null); });
     return () => { cancelled = true; };
@@ -2073,55 +2074,26 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       )}
 
       {/* Payment & Checkout Modal */}
-      <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)}
+      {isPaymentModalOpen && paymentMethod === 'pix' && pixConfig && (
+        <PixPaymentModal
+          isOpen
+          onClose={() => setIsPaymentModalOpen(false)}
+          payload={buildPixPayload({ key: pixConfig.key, keyType: pixConfig.keyType, beneficiaryName: pixConfig.beneficiaryName, city: pixConfig.city, amount: Number(total.toFixed(2)) })}
+          pixKey={pixConfig.key}
+          amount={total}
+          beneficiaryName={pixConfig.beneficiaryName}
+          bank={pixConfig.bank || undefined}
+          confirmLabel={isSavingSale ? 'Processando...' : 'Confirmar Pagamento'}
+          confirmDisabled={isSavingSale}
+          onConfirm={() => { if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }}
+        />
+      )}
+      <Modal isOpen={isPaymentModalOpen && !(paymentMethod === 'pix' && pixConfig)} onClose={() => setIsPaymentModalOpen(false)}
         title={paymentMethod === 'pix' ? 'PAGAMENTO VIA PIX' : 'Finalizar Cobrança'} size="sm"
         className="w-full max-w-[calc(100vw-24px)] sm:max-w-2xl mx-auto rounded-[26px] p-3 sm:p-5">
         {paymentMethod === 'pix' ? (
           <div className="space-y-4">
-            {pixConfig ? (() => {
-              const pixPayload = buildPixPayload({ key: pixConfig.key, keyType: pixConfig.keyType, beneficiaryName: pixConfig.beneficiaryName, city: pixConfig.city, amount: Number(total.toFixed(2)) });
-              const copy = async (value: string, kind: 'key' | 'payload') => {
-                try { await navigator.clipboard.writeText(value); setPixCopied(kind); setTimeout(() => setPixCopied(null), 1600); }
-                catch { showAlert('Não foi possível copiar. Copie manualmente.'); }
-              };
-              return (<>
-                <div className="flex justify-center pt-1">
-                  <div className="bg-white rounded-[14px] p-2 shadow-xl shadow-black/20">
-                    <PixQrImage payload={pixPayload} className="block w-[210px] h-[210px] sm:w-[230px] sm:h-[230px] object-contain rounded-lg" />
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-950/45 overflow-hidden">
-                  <div className="grid grid-cols-[88px_1fr] gap-y-2 px-3 py-3 text-[10px] sm:text-[11px]">
-                    <span className="font-black uppercase tracking-wide text-white/35">Valor</span>
-                    <strong className="text-right text-emerald-400 font-black text-sm sm:text-base">R$ {total.toFixed(2).replace('.', ',')}</strong>
-                    <span className="font-black uppercase tracking-wide text-white/35">Beneficiário</span>
-                    <strong className="text-right text-white font-bold">{pixConfig.beneficiaryName}</strong>
-                    <span className="font-black uppercase tracking-wide text-white/35">Banco</span>
-                    <span className="text-right text-white/75 font-bold">PIX</span>
-                    <span className="font-black uppercase tracking-wide text-white/35">Chave</span>
-                    <strong className="text-right text-white font-mono break-all">{pixConfig.key}</strong>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button type="button" onClick={() => copy(pixConfig.key,'key')}
-                    className="h-10 rounded-xl border border-primary-500/35 bg-primary-500/15 text-primary-300 hover:bg-primary-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
-                    {pixCopied === 'key' ? 'CHAVE COPIADA' : 'COPIAR CHAVE'}
-                  </button>
-                  <button type="button" onClick={() => copy(pixPayload,'payload')}
-                    className="h-10 rounded-xl border border-primary-500/35 bg-primary-500/15 text-primary-300 hover:bg-primary-500/22 font-black text-[10px] uppercase tracking-wide transition-all active:scale-[.99]">
-                    {pixCopied === 'payload' ? 'PIX COPIADO' : 'COPIA E COLA'}
-                  </button>
-                </div>
-                <div className="border-t border-white/10 pt-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant="ghost" onClick={() => setIsPaymentModalOpen(false)} className="justify-center">Fechar</Button>
-                    <Button variant="primary" onClick={() => { if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }} disabled={isSavingSale} className="justify-center">
-                      <CheckCircle2 size={14} /> {isSavingSale ? 'Processando...' : 'Confirmar Pagamento'}
-                    </Button>
-                  </div>
-                </div>
-              </>);
-            })() : (
+            {pixConfig ? null : (
               <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-center">
                 <QrCode size={30} className="mx-auto mb-2 text-amber-300" />
                 <p className="text-sm font-black text-white">PIX não configurado</p>
