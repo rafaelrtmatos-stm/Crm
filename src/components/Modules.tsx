@@ -17416,12 +17416,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Editar a etiqueta do serviço direto no Histórico de Vendas. Atualiza a nota e também o serviço
   // no cartão do lead (só quando o lead ainda está com o mesmo serviço da nota ou sem serviço, pra
   // nunca sobrescrever um serviço novo de outro pedido do mesmo cliente).
-  const handleEditServicoEtiqueta = async (sale: SaleOrder) => {
+  const handleEditServicoEtiqueta = async (sale: SaleOrder, remover = false) => {
     const antigo = (sale.servicoEtiqueta || '').trim();
-    const resposta = await showPrompt('Serviço / produto desta nota (aparece pro funcionário e no cartão do lead):', antigo);
-    if (resposta === null || resposta === undefined) return;
-    const novo = resposta.trim();
-    if (novo === antigo) return;
+    let novo = '';
+    if (remover) {
+      if (!antigo) return;
+      if (!(await showConfirm(`Excluir a etiqueta "${antigo}" desta nota?`))) return;
+    } else {
+      const resposta = await showPrompt(antigo ? 'Editar a etiqueta (serviço / produto) desta nota. Aparece pro funcionário e no cartão do lead:' : 'Adicionar etiqueta (serviço / produto) a esta nota. Aparece pro funcionário e no cartão do lead:', antigo);
+      if (resposta === null || resposta === undefined) return;
+      novo = resposta.trim();
+      if (novo === antigo) return;
+    }
     try {
       const { error } = await supabase.from('vendas').update({ servico_etiqueta: novo || null, updated_at: new Date().toISOString() }).eq('id', sale.id);
       if (error) throw error;
@@ -17456,7 +17462,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           console.warn('Etiqueta da nota salva, mas não foi possível atualizar o serviço no lead:', leadErr);
         }
       }
-      showAlert('Serviço da nota atualizado.');
+      showAlert(!novo ? 'Etiqueta excluída.' : antigo ? 'Etiqueta atualizada.' : 'Etiqueta adicionada.');
     } catch (err: any) {
       console.error('Erro ao editar serviço da nota:', err);
       showAlert('Não foi possível editar o serviço da nota. Se for a primeira vez, rode a migração add_servico_etiqueta_to_vendas.sql no Supabase.');
@@ -21298,7 +21304,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                         <button onClick={async () => { setOpenSaleRowActionsId(null); if (!(await showConfirm('Gerar um contrato a partir desta nota?'))) return; handleCreateContratoFromNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-purple-300 hover:bg-white/5 text-left cursor-pointer"><FileSignature size={13} /> Gerar Contrato</button>
                       )}
                       <button onClick={() => { setOpenSaleRowActionsId(null); openCustosDaNota(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-emerald-400 hover:bg-white/5 text-left cursor-pointer"><Calculator size={13} /> Custos da Nota</button>
-                      <button onClick={() => { setOpenSaleRowActionsId(null); handleEditServicoEtiqueta(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-300 hover:bg-white/5 text-left cursor-pointer"><Tag size={13} /> Editar Serviço{sale.servicoEtiqueta ? '' : ' (etiqueta)'}</button>
+                      <button onClick={() => { setOpenSaleRowActionsId(null); handleEditServicoEtiqueta(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-300 hover:bg-white/5 text-left cursor-pointer"><Tag size={13} /> {sale.servicoEtiqueta ? 'Editar Etiqueta' : 'Adicionar Etiqueta'}</button>
+                      {sale.servicoEtiqueta && (
+                        <button onClick={() => { setOpenSaleRowActionsId(null); handleEditServicoEtiqueta(sale, true); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-rose-400/80 hover:bg-white/5 text-left cursor-pointer"><Tag size={13} /> Excluir Etiqueta</button>
+                      )}
                       {sale.serviceStatus ? (
                         <button onClick={() => { setOpenSaleRowActionsId(null); handleRemoverDaProducao(sale); }} className="flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold text-amber-400 hover:bg-white/5 text-left cursor-pointer"><Factory size={13} /> Desmarcar Produção</button>
                       ) : (
