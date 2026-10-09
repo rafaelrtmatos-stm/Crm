@@ -140,6 +140,40 @@ export const carregarInfoGrupos = async (user: AppUser | null): Promise<InfoGrup
   return info;
 };
 
+// SILENCIAR GRUPO (sino no cabecalho da conversa): grupo silenciado continua recebendo mensagens e somando o numero
+// de nao lidas, mas nao toca som, nao mostra aviso na tela e nao gera notificacao do navegador. Vale pra todos os
+// usuarios (coluna whatsapp_groups.silenciado, ver supabase/add_silenciado_to_whatsapp_groups.sql). Se a coluna
+// ainda nao existe, a consulta falha e ninguem fica silenciado (nada quebra).
+let cacheSilenciados: { em: number; set: Set<string> } | null = null;
+const TTL_SILENCIADOS_MS = 15000;
+export const carregarGruposSilenciados = async (forcar = false): Promise<Set<string>> => {
+  if (!forcar && cacheSilenciados && Date.now() - cacheSilenciados.em < TTL_SILENCIADOS_MS) return cacheSilenciados.set;
+  const { data, error } = await supabase.from('whatsapp_groups').select('group_jid').eq('company_id', 'rafa-arts').eq('silenciado', true);
+  if (error) return cacheSilenciados?.set || new Set<string>();
+  const set = new Set<string>((data || []).map((g: any) => digitosDoGrupo(g.group_jid)).filter(Boolean));
+  cacheSilenciados = { em: Date.now(), set };
+  return set;
+};
+export const grupoEstaSilenciado = async (phone?: string | null): Promise<boolean> => {
+  const d = digitosDoGrupo(phone);
+  if (!d) return false;
+  try { return (await carregarGruposSilenciados()).has(d); } catch { return false; }
+};
+export const definirGrupoSilenciado = async (phone: string | null | undefined, silenciado: boolean): Promise<boolean> => {
+  const d = digitosDoGrupo(phone);
+  if (!d) return false;
+  const { data: grupos, error } = await supabase.from('whatsapp_groups').select('id,group_jid').eq('company_id', 'rafa-arts');
+  if (error) return false;
+  const grupo = (grupos || []).find((g: any) => digitosDoGrupo(g.group_jid) === d);
+  if (!grupo) return false;
+  const { error: erroUpdate } = await supabase.from('whatsapp_groups').update({ silenciado, updated_at: new Date().toISOString() }).eq('id', (grupo as any).id);
+  if (erroUpdate) return false;
+  const set = new Set<string>(cacheSilenciados?.set || []);
+  if (silenciado) set.add(d); else set.delete(d);
+  cacheSilenciados = { em: Date.now(), set };
+  return true;
+};
+
 interface MessagesSidebarPopupProps {
   isOpen: boolean;
   onClose: () => void;
@@ -206,6 +240,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   const [groupPhones, setGroupPhones] = useState<Set<string>>(new Set()); // grupos que ESTE usuario pode ver
   const [gruposTodos, setGruposTodos] = useState<Set<string>>(new Set());
   const [nomesGrupos, setNomesGrupos] = useState<Map<string, string>>(new Map());
+  const [gruposSilenciados, setGruposSilenciados] = useState<Set<string>>(new Set());
   const gruposTodosRef = useRef<Set<string>>(new Set()); // mesma info, lida pela reconciliacao (closure sem state novo)
   const aplicarInfoGrupos = (info: InfoGrupos | null) => {
     if (!info) return; // falha na consulta: mantem o que ja estava
@@ -517,7 +552,10 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
   // no lead, ver api/whatsapp-webhook.js) pra dar pra filtrar a aba "Grupos".
   useEffect(() => {
     if (!currentCompany || !isOpen) return;
-    const loadGroupPhones = async () => { aplicarInfoGrupos(await carregarInfoGrupos(user)); };
+    const loadGroupPhones = async () => {
+      aplicarInfoGrupos(await carregarInfoGrupos(user));
+      setGruposSilenciados(new Set(await carregarGruposSilenciados(true).catch(() => new Set<string>())));
+    };
     loadGroupPhones();
     const channel = supabase.channel('sidebar-popup-groups').on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_groups', filter: `company_id=eq.rafa-arts` }, loadGroupPhones).subscribe();
     // Fallback por polling: whatsapp_groups só recebe eventos em tempo real depois
@@ -1101,8 +1139,8 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
 
                 const hasStatusRing = l.priority === 'alta';
                 const isPinned = l.priority === 'alta' || (l as any).pinned;
-                const isMuted = l.muted;
                 const isGroup = groupPhones.has((l.phone || '').replace(/\D/g, ''));
+                const isMuted = l.muted || (isGroup && gruposSilenciados.has((l.phone || '').replace(/\D/g, '')));
                 const isUnread = !!l.unread || (!!l.waitingSince && l.lastMessageDirection !== 'resolved') || Number((l as any).unreadCount || 0) > 0;
                 const unreadCountNumber = Number((l as any).unreadCount || 0) > 0 
                   ? Number((l as any).unreadCount) 

@@ -103,7 +103,7 @@ import {
   ClientesEsperaModule
 } from './components/Modules';
 import { AgendaModule } from './components/AgendaModule';
-import { MessagesSidebarPopup, carregarInfoGrupos } from './components/MessagesSidebarPopup';
+import { MessagesSidebarPopup, carregarInfoGrupos, grupoEstaSilenciado } from './components/MessagesSidebarPopup';
 import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, marcarNotificacoesResolvidas, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
@@ -1725,6 +1725,12 @@ export default function App() {
       } else if (digitosTel.length > 15) {
         return; // nao deu pra conferir e o "telefone" tem cara de grupo: nao arrisca avisar
       }
+    }
+
+    // Grupo silenciado (sino no cabecalho da conversa): a mensagem continua entrando e somando o numero de nao
+    // lidas, mas nao toca som, nao mostra aviso na tela e nao gera notificacao do navegador.
+    if (info?.isGroup || grupoSemNotificacao || String(row.phone || '').replace(/\D/g, '').length > 15) {
+      if (await grupoEstaSilenciado(row.phone)) return;
     }
 
     try {

@@ -5,7 +5,7 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
-import { carregarInfoGrupos, digitosDoGrupo, type InfoGrupos } from './MessagesSidebarPopup';
+import { carregarInfoGrupos, digitosDoGrupo, carregarGruposSilenciados, definirGrupoSilenciado, type InfoGrupos } from './MessagesSidebarPopup';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
 import { 
   AudioMessagePlayer, 
@@ -5432,6 +5432,25 @@ export const ChatPanel = ({
           });
       });
   }, [isGroup, conversation?.phone]);
+  // Sino do grupo: silencia/ativa o som e os avisos desse grupo (o numero de nao lidas continua somando).
+  const [grupoSilenciado, setGrupoSilenciado] = useState(false);
+  const [salvandoSilencio, setSalvandoSilencio] = useState(false);
+  useEffect(() => {
+    if (!isGroup || !conversation?.phone) { setGrupoSilenciado(false); return; }
+    let cancelado = false;
+    const d = digitosDoGrupo(conversation.phone);
+    carregarGruposSilenciados(true).then(set => { if (!cancelado) setGrupoSilenciado(set.has(d)); }).catch(() => {});
+    return () => { cancelado = true; };
+  }, [isGroup, conversation?.phone]);
+  const handleToggleSilenciarGrupo = async () => {
+    if (salvandoSilencio || !conversation?.phone) return;
+    const novo = !grupoSilenciado;
+    setSalvandoSilencio(true);
+    const ok = await definirGrupoSilenciado(conversation.phone, novo);
+    setSalvandoSilencio(false);
+    if (ok) setGrupoSilenciado(novo);
+    else showAlert('Não foi possível alterar o silêncio do grupo. Se for a primeira vez, rode a migração add_silenciado_to_whatsapp_groups.sql no Supabase.');
+  };
   const toggleDesktopSidebar = () => {
     setShowDesktopSidebar(prev => {
       const next = !prev;
@@ -7718,6 +7737,24 @@ export const ChatPanel = ({
             {isGroup ? <Users size={13} className="text-emerald-400" /> : <User size={13} />}
             <span className="inline">{isGroup ? "Grupo" : "Perfil"}</span>
           </button>
+
+          {/* Sino do grupo: ativa/silencia som e avisos (o número de não lidas continua somando) */}
+          {isGroup && (
+            <button
+              type="button"
+              onClick={handleToggleSilenciarGrupo}
+              disabled={salvandoSilencio}
+              title={grupoSilenciado ? 'Grupo silenciado: sem som e sem aviso (só soma o número). Clique para ativar as notificações' : 'Notificações ativas. Clique para silenciar este grupo (só soma o número, sem som e sem aviso)'}
+              className={cn(
+                "flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg border transition-all shrink-0 shadow-sm active:scale-95 cursor-pointer disabled:opacity-50",
+                grupoSilenciado
+                  ? "bg-white/5 text-white/50 hover:text-white hover:bg-white/10 border-white/10"
+                  : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border-amber-500/40"
+              )}
+            >
+              {grupoSilenciado ? <BellOff size={13} /> : <Bell size={13} />}
+            </button>
+          )}
 
           {/* Botão Resolvido (Alerta de Vácuo / Tempo de Espera) */}
           {(effectiveWaitingSince || conversation.waitingSince) && !notificacaoPendente && (
