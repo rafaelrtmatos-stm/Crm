@@ -10,6 +10,8 @@ export const FINANCEIRO_TABS = [
   { id: 'materias_primas', label: 'Matérias-Primas', desc: 'Insumos e custo por unidade' },
   { id: 'maquinas', label: 'Máquinas & Equipamentos', desc: 'Custos operacionais e depreciação' },
   { id: 'precificacao', label: 'Precificação', desc: 'Formação automática de preços' },
+  // Só aparece para quem tem um colaborador vinculado à conta (ver FinanceiroModule em App.tsx).
+  { id: 'meu_card', label: 'Meu card', desc: 'Seu painel de comissões e previsão de recebimento (conta vinculada a um colaborador)' },
 ] as const;
 
 export const ALL_FINANCEIRO_TAB_IDS: string[] = FINANCEIRO_TABS.map(t => t.id);

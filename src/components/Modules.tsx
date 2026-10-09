@@ -31437,7 +31437,9 @@ export const SettingsModule = ({ currentCompany, user }: { currentCompany: Compa
           allowed_financeiro_tabs: editedFinanceiroTabs,
           allowed_actions: syncedActions,
           module_permissions: syncedModulePermissions,
-          colaborador_id: editedRole === 'comissao' ? colaboradorId : null,
+          // Cargo "comissão" sempre tem colaborador. Outros cargos MANTÊM o vínculo que já existe
+          // (é ele que mostra a subaba "Meu card" no Financeiro); só não criam um novo sozinhos.
+          colaborador_id: editedRole === 'comissao' ? colaboradorId : (editingUser.colaboradorId || null),
           updated_at: new Date().toISOString(),
         };
         // Confere se alguma linha foi realmente gravada (update bloqueado/sem linha não dá erro no Supabase).

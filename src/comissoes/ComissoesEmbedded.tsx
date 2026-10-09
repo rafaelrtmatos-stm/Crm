@@ -49,7 +49,10 @@ import './comissoes-theme.css';
 // Sessão própria (não mexe na sessão do colaborador usada em /comissoes)
 const COLABORADOR_SESSION_KEY = 'rpro_comissoes_colaborador_id_menu';
 
-export default function ComissoesEmbedded({ presetColaborador }: { presetColaborador?: Colaborador } = {}) {
+// `meuColaboradorId`: o próprio usuário do CRM (qualquer cargo) com um colaborador vinculado vendo o SEU card
+// dentro do Financeiro. É a visão do colaborador (somente leitura, sem login/logout próprios): não usa nem
+// altera a sessão salva do navegador.
+export default function ComissoesEmbedded({ presetColaborador, meuColaboradorId }: { presetColaborador?: Colaborador; meuColaboradorId?: string } = {}) {
   const [colaborador, setColaborador] = useState<Colaborador | null>(presetColaborador ?? null);
   const [checkingSession, setCheckingSession] = useState(!presetColaborador);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -95,6 +98,17 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     // sem precisar de login/senha. Não mexe em nenhuma sessão salva no navegador.
     if (presetColaborador) { setColaborador(presetColaborador); setCheckingSession(false); return; }
 
+    if (meuColaboradorId) {
+      let cancelado = false;
+      import('../supabase').then(async ({ supabase }) => {
+        const { data } = await supabase.from('colaboradores').select('*').eq('id', meuColaboradorId).eq('ativo', true).maybeSingle();
+        if (cancelado) return;
+        setColaborador(data ? mapColaboradorRow(data) : null);
+        setCheckingSession(false);
+      });
+      return () => { cancelado = true; };
+    }
+
     const savedId = localStorage.getItem(COLABORADOR_SESSION_KEY);
     if (!savedId) { setCheckingSession(false); return; }
     import('../supabase').then(async ({ supabase }) => {
@@ -106,7 +120,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
       }
       setCheckingSession(false);
     });
-  }, [presetColaborador]);
+  }, [presetColaborador, meuColaboradorId]);
 
   // Dentro do CRM, o modulo de Comissoes nao usa mais o tema salvo por
   // colaborador — ele segue o tema claro/escuro do CRM principal (ver hook).
@@ -195,7 +209,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   };
 
   const handleLogout = () => {
-    if (presetColaborador) return; // visão do admin não tem sessão própria pra deslogar
+    if (presetColaborador || meuColaboradorId) return; // visão do admin / "meu card" não tem sessão própria pra deslogar
     localStorage.removeItem(COLABORADOR_SESSION_KEY);
     setColaborador(null);
     setServices([]);
@@ -401,6 +415,14 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
     );
   }
 
+  if (!colaborador && meuColaboradorId) {
+    return (
+      <div className="comissoes-app h-full min-h-[420px] flex items-center justify-center px-6 text-center">
+        <p className="text-[var(--text-muted)] text-sm">Seu cadastro de colaborador não foi encontrado ou está inativo. Peça ao administrador para conferir o vínculo.</p>
+      </div>
+    );
+  }
+
   if (!colaborador) {
     return <ColaboradorLogin onLoginSuccess={handleLoginSuccess} embedded />;
   }
@@ -420,7 +442,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         userSettings={userSettings}
         onOpenAddModal={() => handleOpenAddModal()}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onLogout={presetColaborador ? undefined : handleLogout}
+        onLogout={presetColaborador || meuColaboradorId ? undefined : handleLogout}
       />
 
       <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-6">

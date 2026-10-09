@@ -855,6 +855,20 @@ export default function ComissoesAdminPanel() {
     setLinkingColaborador(c);
   };
 
+  // Anexar conta NÃO muda o cargo nem as permissões do usuário. A única coisa liberada é a subaba
+  // "Meu card" do Financeiro, e só para quem já tem uma lista explícita de abas (sem lista, ela já aparece).
+  const liberarMeuCardFinanceiro = async (usuarioId: string) => {
+    try {
+      const { data } = await supabase.from('usuarios').select('allowed_financeiro_tabs').eq('id', usuarioId).maybeSingle();
+      const lista = data?.allowed_financeiro_tabs;
+      if (Array.isArray(lista) && !lista.includes('meu_card')) {
+        await supabase.from('usuarios').update({ allowed_financeiro_tabs: [...lista, 'meu_card'] }).eq('id', usuarioId);
+      }
+    } catch (e) {
+      console.warn('Não foi possível liberar a subaba "Meu card" para o usuário:', e);
+    }
+  };
+
   const handleSaveLink = async () => {
     if (!linkingColaborador) return;
     setSavingLink(true);
@@ -909,12 +923,12 @@ export default function ComissoesAdminPanel() {
           .from('usuarios')
           .update({
             colaborador_id: linkingColaborador.id,
-            role: 'comissao',
             updated_at: new Date().toISOString(),
           })
           .eq('id', selectedUsuarioForLink);
 
         if (error) throw error;
+        await liberarMeuCardFinanceiro(selectedUsuarioForLink);
 
         // Se o usuário selecionado tem senha cadastrada, sincroniza para o colaborador usar a mesma senha
         if (linkedUserObj?.password) {
@@ -1120,16 +1134,15 @@ export default function ComissoesAdminPanel() {
             .eq('colaborador_id', targetId)
             .neq('id', form.usuarioId);
 
-          // Vincula o usuário selecionado ao colaborador e sincroniza a mesma senha
+          // Vincula o usuário selecionado ao colaborador (cargo, permissões e senha de login do usuário não mudam)
           await supabase
             .from('usuarios')
             .update({
               colaborador_id: targetId,
-              role: 'comissao',
-              password: finalSenha,
               updated_at: new Date().toISOString(),
             })
             .eq('id', form.usuarioId);
+          await liberarMeuCardFinanceiro(form.usuarioId);
         } else {
           // Se selecionou nenhuma conta, desvincula qualquer conta deste colaborador
           await supabase

@@ -44,13 +44,15 @@ import {
   Key,
   Bot,
   Calculator,
-  CalendarDays
+  CalendarDays,
+  Wallet,
 } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
 
 import { NotifyHost, showAlert, showMessageToast, urlDeFotoValida, buscarFotoAtual, textoTempoDeEspera } from './lib/notify';
 import { sincronizarFilaOffline } from './lib/sincronizacaoOffline';
 import ComissoesAdminPanel from './comissoes/ComissoesAdminPanel';
+import ComissoesEmbedded from './comissoes/ComissoesEmbedded';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -205,6 +207,8 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
     return list.filter(t => {
       const isVisibleByAdmin = configMap.get(t.id) !== false;
       const isAllowedByUser = canSeeFinanceiroTab(user, t.id);
+      // "Meu card" só existe para quem tem um colaborador vinculado à conta.
+      if (t.id === 'meu_card' && !user?.colaboradorId) return false;
       return isVisibleByAdmin && isAllowedByUser;
     });
   }, [financeiroMenuConfig, user]);
@@ -271,6 +275,8 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
           } else if (tab.id === 'precificacao') {
             Icon = Calculator;
             iconColor = subTab === 'precificacao' ? 'text-white' : 'text-emerald-400';
+          } else if (tab.id === 'meu_card') {
+            Icon = Wallet;
           }
           const isActive = subTab === tab.id;
           return (
@@ -300,6 +306,12 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
           <ModuleErrorBoundary label="Funcionários">
             <div className="overflow-y-auto custom-scrollbar h-full">
               <ComissoesAdminPanel />
+            </div>
+          </ModuleErrorBoundary>
+        ) : subTab === 'meu_card' && user?.colaboradorId ? (
+          <ModuleErrorBoundary label="Meu card">
+            <div className="overflow-y-auto custom-scrollbar h-full">
+              <ComissoesEmbedded meuColaboradorId={user.colaboradorId} />
             </div>
           </ModuleErrorBoundary>
         ) : subTab === 'ponto' ? (
