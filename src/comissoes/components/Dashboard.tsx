@@ -385,9 +385,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metasValores: userSettings.metasValores,
         metaValorMinimo: userSettings.metaValorMinimo,
         metaValorMaximo: userSettings.metaValorMaximo,
+        // META: a faixa sai da receita da loja da semana. Só vale quando o período mostrado é a
+        // própria semana (a receita carregada é de uma semana; mês/ano/personalizado não usam).
+        faturamentoGeral: userSettings.modalidadeRemuneracao === 'meta' && period === 'semana' ? receitaLojaSemana : undefined,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, period, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo, receitaLojaSemana]);
 
   // Resumo da comissão da semana vigente, independente do fechamento do ponto.
   const resumoComissaoSemanaVigente = useMemo(() => {
@@ -453,9 +456,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metasValores: userSettings.metasValores,
         metaValorMinimo: userSettings.metaValorMinimo,
         metaValorMaximo: userSettings.metaValorMaximo,
+        // META: a faixa sai da receita da loja. A receita carregada é da semana de `weekOffset`;
+        // `weeklyBounds` coincide com ela quando o período é "semana" ou o offset é 0.
+        faturamentoGeral: userSettings.modalidadeRemuneracao === 'meta' && (period === 'semana' || weekOffset === 0) ? receitaLojaSemana : undefined,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, period, weekOffset, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo, receitaLojaSemana]);
 
   const weeklyStats = useMemo(() => {
     const prod = weeklyServices.reduce((acc, s) => acc + s.productionValue, 0);
