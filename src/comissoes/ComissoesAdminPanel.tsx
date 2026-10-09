@@ -696,7 +696,7 @@ export default function ComissoesAdminPanel() {
       cargo: c.cargo || '',
       telefoneWhatsapp: c.telefone_whatsapp || '',
       salarioBase: Number(c.salario_base) || 0,
-      comissaoPadraoPercentual: modalidade === 'fixo' ? 0 : (Number(c.comissao_padrao_percentual) || 10),
+      comissaoPadraoPercentual: modalidade === 'fixo' ? 0 : (c.comissao_padrao_percentual == null ? 10 : (Number(c.comissao_padrao_percentual) || 0)),
       metaSemanal: modalidade === 'fixo' ? 0 : (Number(c.meta_semanal) || 0),
       modoLancamento: 'livre',
       modalidadeRemuneracao: modalidade,
@@ -919,13 +919,14 @@ export default function ComissoesAdminPanel() {
       senha: finalSenha,
       cargo: form.cargo.trim() || null,
       telefone_whatsapp: form.telefoneWhatsapp.replace(/\D/g, '') || null,
-      salario_base: (isMeta || isFatGeral) ? 0 : (Number(form.salarioBase) || 0),
+      salario_base: Number(form.salarioBase) || 0,
       comissao_padrao_percentual: (isMeta || isFixo || isFatGeral) ? 0 : (Number(form.comissaoPadraoPercentual) || 0),
       meta_semanal: (isFixo || isFatGeral) ? 0 : (Number(form.metaSemanal) || 0),
       modo_lancamento_comissao: 'livre',
       modalidade_remuneracao: form.modalidadeRemuneracao,
       meta_percentual: (isFatGeral || isMeta) ? (Number(form.metaPercentual) || 0) : 0,
-      meta_valor_minimo: isMeta ? (Number(form.metaValorMinimo) || 600) : 0,
+      meta_valor_minimo: isMeta ? (Number(form.metaValorMinimo) || 0) : 0,
+      meta_valor_maximo: isMeta ? (Number(form.metaValorMaximo) || 0) : 0,
       metas_valores: isMeta ? form.metasValores : null,
       ativo: form.ativo,
       updated_at: new Date().toISOString(),
@@ -2344,7 +2345,7 @@ export default function ComissoesAdminPanel() {
 
                     <button
                       type="button"
-                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'meta', metaValorMinimo: form.metaValorMinimo || 600 })}
+                      onClick={() => setForm({ ...form, modalidadeRemuneracao: 'meta', metaValorMinimo: form.metaValorMinimo ?? 600 })}
                       className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
                         form.modalidadeRemuneracao === 'meta'
                           ? 'border-[var(--accent-red)] bg-[var(--accent-red)]/10 shadow-sm'
@@ -2461,6 +2462,30 @@ export default function ComissoesAdminPanel() {
                             </label>
                             <span className="text-[11px] text-[var(--text-muted)] max-w-xs sm:text-right">
                               Se a produção semanal não atingir nenhuma faixa, o colaborador receberá este piso garantido.
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Teto da Meta */}
+                        <div className="p-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <label className="block space-y-1">
+                              <span className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1.5">
+                                <Target className="w-3.5 h-3.5 text-amber-400" />
+                                Valor Máximo Semanal (R$) — teto
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={form.metaValorMaximo ?? 0}
+                                onChange={(e) => setForm({ ...form, metaValorMaximo: Number(e.target.value) || 0 })}
+                                placeholder="0 = sem teto"
+                                className="w-48 h-10 bg-[var(--bg-card-sec)] border border-[var(--border-color)] rounded-xl px-3.5 text-sm text-amber-400 focus:outline-none focus:border-[var(--accent-red)] transition-all font-bold"
+                              />
+                            </label>
+                            <span className="text-[11px] text-[var(--text-muted)] max-w-xs sm:text-right">
+                              Limita o quanto o colaborador recebe na semana, mesmo que passe da maior faixa. Deixe 0 para não ter teto.
                             </span>
                           </div>
                         </div>
@@ -2594,7 +2619,7 @@ export default function ComissoesAdminPanel() {
                           <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed">
                             📌 <strong>Regra de Cálculo Semanal (Sábado a Sexta):</strong>
                             <ul className="list-disc list-inside mt-1 space-y-0.5 text-[10px] text-amber-200/90">
-                              <li>Se a produção não atingir nenhuma faixa: recebe o <strong>Piso Mínimo Garantido (R$ {form.metaValorMinimo || 600})</strong>.</li>
+                              <li>Se a produção não atingir nenhuma faixa: recebe o <strong>Piso Mínimo Garantido (R$ {form.metaValorMinimo ?? 0})</strong>.</li>
                               <li>Se atingir uma faixa: recebe o valor da respectiva faixa.</li>
                               <li>Se ultrapassar várias faixas: recebe o valor da <strong>maior faixa atingida</strong>.</li>
                             </ul>

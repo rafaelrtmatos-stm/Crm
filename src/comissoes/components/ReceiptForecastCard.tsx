@@ -45,7 +45,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   const infoMeta = useMemo(() => {
     if (modalidadeRemuneracao !== 'meta') return null;
 
-    const valorMinimo = Number(metaValorMinimo) > 0 ? Number(metaValorMinimo) : 600;
+    const valorMinimo = metaValorMinimo == null ? 600 : (Number(metaValorMinimo) || 0);
     const metasValidas = (metasValores || []).filter(
       (m) => Number(m.valorProducao) > 0 && Number(m.valorReceber) > 0
     );
@@ -223,7 +223,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
                   {infoMeta?.bateuAlgumaFaixa
                     ? `+ Meta (${infoMeta.atualNome})`
-                    : `+ Piso Mínimo Garantido (${formatCurrency(infoMeta?.valorMinimo || 600)})`}
+                    : `+ Piso Mínimo Garantido (${formatCurrency(infoMeta?.valorMinimo ?? 600)})`}
                 </span>
                 <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">
                   +{formatCurrency(totalCommission)}
