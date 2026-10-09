@@ -294,7 +294,7 @@ export function NotifyHost() {
       {confirmItem && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-3 sm:p-4">
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => resolveCurrentConfirm(false)} />
-          <div className="relative w-full max-w-[280px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
+          <div className="relative w-fit min-w-[190px] max-w-[280px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
                 <AlertTriangle size={14} />
@@ -324,7 +324,7 @@ export function NotifyHost() {
       {selectItem && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-3 sm:p-4">
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => resolveCurrentSelect(null)} />
-          <div className="relative w-full max-w-[320px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
+          <div className="relative w-fit min-w-[240px] max-w-[320px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0">
                 <CheckCircle2 size={14} />
@@ -376,7 +376,7 @@ export function NotifyHost() {
       {promptItem && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-3 sm:p-4">
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => resolveCurrentPrompt(null)} />
-          <div className="relative w-full max-w-[280px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
+          <div className="relative w-fit min-w-[190px] max-w-[280px] bg-[#1a2333]/98 border border-white/10 rounded-xl shadow-2xl p-3 space-y-2 animate-in zoom-in-95 fade-in duration-200">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg bg-primary-500/15 text-primary-400 flex items-center justify-center shrink-0">
                 <AlertTriangle size={14} />
