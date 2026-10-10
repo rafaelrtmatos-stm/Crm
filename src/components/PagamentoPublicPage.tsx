@@ -140,7 +140,7 @@ export default function PagamentoPublicPage() {
     <div className="min-h-screen bg-[#070d18] text-white flex items-start sm:items-center justify-center p-3 sm:p-4">
       {/* Mesmo padrão do modal PIX do sistema: card compacto (w-fit), largura guiada pelo QR Code. */}
       <div className="w-fit max-w-full rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-4 sm:p-5">
-        <div className="w-[240px] max-w-full space-y-3">
+        <div className="w-[260px] max-w-full space-y-3">
           {filhos}
         </div>
       </div>
@@ -166,11 +166,11 @@ export default function PagamentoPublicPage() {
 
   const cabecalho = (
     <div className="space-y-1">
-      <h1 className="text-lg font-black uppercase tracking-tight">
+      <h1 className="whitespace-nowrap text-[17px] font-black uppercase tracking-tight">
         Pagamento via <span className="text-[#2de3a0]">PIX</span>
       </h1>
-      {link.cliente_nome && <p className="text-sm text-slate-300">Olá, {link.cliente_nome}!</p>}
-      {link.resumo && <p className="text-xs text-slate-400">Referente a: {link.resumo}</p>}
+      {link.cliente_nome && <p className="break-words text-sm text-slate-300">Olá, {link.cliente_nome}!</p>}
+      {link.resumo && <p className="break-words text-xs text-slate-400">Referente a: {link.resumo}</p>}
       {link.expira_em && <p className="text-[11px] font-semibold text-slate-500">Válido até {fmtValidade(link.expira_em)}</p>}
     </div>
   );
