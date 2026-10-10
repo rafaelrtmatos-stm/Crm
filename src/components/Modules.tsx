@@ -15423,7 +15423,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const valor = avisoPixAutoRef.current;
     if (valor == null) return;
     avisoPixAutoRef.current = null;
-    enviarAvisoPagamentoPix({ phone: telefone, customerName: order.customerName, valor, itens: order.items, orderId: order.id, restante }).catch(() => {});
+    enviarAvisoPagamentoPix({ phone: telefone, customerName: order.customerName, valor, itens: order.items, orderId: order.id, restante, total: order.total, pagamentos: order.payments, pago: order.downPayment }).catch(() => {});
   };
   const salesHistoryDebounceRef = React.useRef<any>(null);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);

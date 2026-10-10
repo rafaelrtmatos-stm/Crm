@@ -76,33 +76,65 @@ async function aplicarBaixaNaNota(link, valor) {
         updated_at: new Date().toISOString(),
       }),
     });
-    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim() };
+    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim(), itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
     // Alguém alterou a nota entre a leitura e a gravação: relê e tenta de novo.
   }
   throw new Error('não foi possível atualizar a nota (conflito)');
 }
 
-async function avisarCliente(link, valor, restante) {
+const ROTULO_PAGAMENTO = {
+  pix: 'PIX', dinheiro: 'Dinheiro', cartao_debito: 'Cartão de Débito', cartao_credito: 'Cartão de Crédito',
+  transferencia: 'Transferência', boleto: 'Boleto', crediario: 'Crediário',
+};
+
+function montarMensagemPagamento({ nome, valor, resumo, itens, total, pagamentos }) {
+  const lista = (Array.isArray(pagamentos) ? pagamentos : [])
+    .filter((x) => Number(x?.value) > 0)
+    .map((x) => ({ metodo: String(x.method || 'pix'), valor: Number(x.value) }));
+  const totalPago = round2(lista.reduce((a, x) => a + x.valor, 0));
+  const falta = Math.max(0, round2(Number(total) - totalPago));
+  const linhas = [`Olá ${nome}!`, '', `Valor: ${fmtBRL(valor)}`, `Referente a: ${resumo || 'Pedido'}`];
+  const its = (Array.isArray(itens) ? itens : []).filter((i) => i && i.name);
+  if (its.length > 0) {
+    linhas.push('');
+    for (const i of its) {
+      const qtd = Number(i.quantity) || 1;
+      linhas.push(`* ${qtd}x ${i.name} (${fmtBRL((Number(i.price) || 0) * qtd)})`);
+    }
+  }
+  linhas.push('', `💰 Total dos Itens: ${fmtBRL(Number(total))}`);
+  for (const x of lista) linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}: ${fmtBRL(x.valor)}`);
+  linhas.push(`✅ Total Pago/Recebido: ${fmtBRL(totalPago)}`);
+  linhas.push(falta > 0.009 ? `🔴 Valor que Falta Pagar: ${fmtBRL(falta)}` : '🟢 Nota quitada!');
+  linhas.push('', 'Obrigado pela preferência!');
+  return linhas.join('\n');
+}
+
+async function avisarCliente(link, valor, restante, resultado) {
   try {
     if (!APP_BASE_URL || !link.cliente_phone || !link.criado_por) return;
     // Nome completo: vem da própria nota (o link guarda só o nome abreviado, que é o que a página pública mostra).
-    let nomeCompleto = '';
-    try {
-      const n = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=customer_name&limit=1`);
-      if (n.ok && Array.isArray(n.corpo) && n.corpo[0]?.customer_name) nomeCompleto = String(n.corpo[0].customer_name).trim();
-    } catch { /* usa o nome do link */ }
-    const linhas = [
-      '✅ *Pagamento PIX confirmado*',
-      `Cliente: ${nomeCompleto || link.cliente_nome || 'Cliente'}`,
-      `Valor: ${fmtBRL(valor)}`,
-      `Referente a: ${link.resumo || 'Pedido'}`,
-      `Nota #${String(link.sale_id).slice(-6).toUpperCase()}`,
-      restante != null && restante > 0.009 ? `Restante: ${fmtBRL(restante)}` : 'Nota quitada. Obrigado!',
-    ];
+    let nomeCompleto = resultado?.clienteNome || '';
+    if (!nomeCompleto) {
+      try {
+        const n = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=customer_name&limit=1`);
+        if (n.ok && Array.isArray(n.corpo) && n.corpo[0]?.customer_name) nomeCompleto = String(n.corpo[0].customer_name).trim();
+      } catch { /* usa o nome do link */ }
+    }
+    const texto = (resultado?.total > 0 && Array.isArray(resultado?.pagamentos))
+      ? montarMensagemPagamento({ nome: nomeCompleto || link.cliente_nome || 'Cliente', valor, resumo: link.resumo, itens: resultado.itens, total: resultado.total, pagamentos: resultado.pagamentos })
+      : [
+        '✅ *Pagamento PIX confirmado*',
+        `Cliente: ${nomeCompleto || link.cliente_nome || 'Cliente'}`,
+        `Valor: ${fmtBRL(valor)}`,
+        `Referente a: ${link.resumo || 'Pedido'}`,
+        `Nota #${String(link.sale_id).slice(-6).toUpperCase()}`,
+        restante != null && restante > 0.009 ? `Restante: ${fmtBRL(restante)}` : 'Nota quitada. Obrigado!',
+      ].join('\n');
     await fetch(`${APP_BASE_URL}/api/whatsapp-send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-user-id': String(link.criado_por) },
-      body: JSON.stringify({ phone: link.cliente_phone, text: linhas.join('\n'), senderName: 'Sistema' }),
+      body: JSON.stringify({ phone: link.cliente_phone, text: texto, senderName: 'Sistema' }),
     });
   } catch (err) {
     console.warn('[pagar-link] aviso por WhatsApp falhou:', err?.message || err);
@@ -172,7 +204,7 @@ async function darBaixa(link, pendencia) {
   }
   // Aviso interno (som + notificação clicável no CRM). Await curto e sem lançar: não adia nem derruba o aviso ao cliente.
   await registrarNotificacaoPagamento(link, pendencia, valor, resultado);
-  waitUntil(avisarCliente(link, valor, resultado.restante));
+  waitUntil(avisarCliente(link, valor, resultado.restante, resultado));
   return true;
 }
 

@@ -96,27 +96,89 @@ async function postarWhatsApp(body: Record<string, unknown>): Promise<{ ok: bool
 
 const numeroDaNota = (orderId?: string) => (orderId ? `#${String(orderId).slice(-6).toUpperCase()}` : '');
 
+const ROTULO_PAGAMENTO: Record<string, string> = {
+  pix: 'PIX',
+  dinheiro: 'Dinheiro',
+  cartao_debito: 'Cartão de Débito',
+  cartao_credito: 'Cartão de Crédito',
+  transferencia: 'Transferência',
+  boleto: 'Boleto',
+  crediario: 'Crediário',
+};
+
+/** Texto do aviso de pagamento: itens, cada pagamento (PIX/Dinheiro/...), total pago e o que falta. */
+export function montarMensagemPagamento(p: {
+  customerName?: string | null;
+  valor: number;
+  itens?: Array<{ name?: string; quantity?: number; price?: number }>;
+  total: number;
+  pagamentos?: Array<{ method?: string; value?: number }>;
+  pago?: number;
+}): string {
+  const nome = String(p.customerName || '').trim() || 'Cliente';
+  const itens = (p.itens || []).filter(i => i && i.name);
+  let pagamentos = (p.pagamentos || [])
+    .filter(x => Number(x.value) > 0)
+    .map(x => ({ metodo: String(x.method || 'pix'), valor: Number(x.value) }));
+  if (pagamentos.length === 0) {
+    // Nota sem lista de pagamentos: o que veio antes do PIX atual é tratado como dinheiro.
+    const anterior = Math.max(0, Math.round(((p.pago ?? p.valor) - p.valor) * 100) / 100);
+    if (anterior > 0.009) pagamentos.push({ metodo: 'dinheiro', valor: anterior });
+    pagamentos.push({ metodo: 'pix', valor: p.valor });
+  }
+  const totalPago = Math.round(pagamentos.reduce((a, x) => a + x.valor, 0) * 100) / 100;
+  const falta = Math.max(0, Math.round((p.total - totalPago) * 100) / 100);
+  const linhas = [
+    `Olá ${nome}!`,
+    '',
+    `Valor: ${fmtBRL(p.valor)}`,
+    `Referente a: ${resumirItens(p.itens)}`,
+  ];
+  if (itens.length > 0) {
+    linhas.push('');
+    for (const i of itens) {
+      const qtd = Number(i.quantity) || 1;
+      linhas.push(`* ${qtd}x ${i.name} (${fmtBRL((Number(i.price) || 0) * qtd)})`);
+    }
+  }
+  linhas.push('', `💰 Total dos Itens: ${fmtBRL(p.total)}`);
+  for (const x of pagamentos) linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}: ${fmtBRL(x.valor)}`);
+  linhas.push(`✅ Total Pago/Recebido: ${fmtBRL(totalPago)}`);
+  linhas.push(falta > 0.009 ? `🔴 Valor que Falta Pagar: ${fmtBRL(falta)}` : '🟢 Nota quitada!');
+  linhas.push('', 'Obrigado pela preferência!');
+  return linhas.join('\n');
+}
+
 /** Aviso de PIX confirmado ao número da nota. Nunca lança erro; devolve true se foi enviado. */
 export async function enviarAvisoPagamentoPix(p: {
   phone?: string | null;
   customerName?: string | null;
   valor: number;
-  itens?: Array<{ name?: string; quantity?: number }>;
+  itens?: Array<{ name?: string; quantity?: number; price?: number }>;
   orderId?: string;
   restante?: number;
+  total?: number;
+  pagamentos?: Array<{ method?: string; value?: number }>;
+  pago?: number;
 }): Promise<boolean> {
   const phone = telefoneParaEnvio(p.phone);
   if (!phone) return false;
-  const linhas = [
-    '✅ *Pagamento PIX confirmado*',
-    `Cliente: ${String(p.customerName || '').trim() || 'Cliente'}`,
-    `Valor: ${fmtBRL(p.valor)}`,
-    `Referente a: ${resumirItens(p.itens)}`,
-  ];
-  const nota = numeroDaNota(p.orderId);
-  if (nota) linhas.push(`Nota ${nota}`);
-  linhas.push(p.restante && p.restante > 0.009 ? `Restante: ${fmtBRL(p.restante)}` : 'Nota quitada. Obrigado!');
-  const r = await postarWhatsApp({ phone, text: linhas.join('\n'), senderName: 'Sistema' });
+  let texto: string;
+  if (p.total != null && p.total > 0) {
+    texto = montarMensagemPagamento({ customerName: p.customerName, valor: p.valor, itens: p.itens, total: p.total, pagamentos: p.pagamentos, pago: p.pago });
+  } else {
+    const linhas = [
+      '✅ *Pagamento PIX confirmado*',
+      `Cliente: ${String(p.customerName || '').trim() || 'Cliente'}`,
+      `Valor: ${fmtBRL(p.valor)}`,
+      `Referente a: ${resumirItens(p.itens)}`,
+    ];
+    const nota = numeroDaNota(p.orderId);
+    if (nota) linhas.push(`Nota ${nota}`);
+    linhas.push(p.restante && p.restante > 0.009 ? `Restante: ${fmtBRL(p.restante)}` : 'Nota quitada. Obrigado!');
+    texto = linhas.join('\n');
+  }
+  const r = await postarWhatsApp({ phone, text: texto, senderName: 'Sistema' });
   if (!r.ok) console.warn('Aviso de pagamento PIX não enviado:', r.erro);
   return r.ok;
 }

@@ -1152,6 +1152,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           itens: finalizedOrder.items,
           orderId: finalizedOrder.id,
           restante: Math.max(0, total - finalDownPayment),
+          total,
+          pagamentos: finalizedOrder.payments,
+          pago: finalDownPayment,
         }).catch(() => {});
       }
 
