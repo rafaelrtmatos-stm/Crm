@@ -106,6 +106,8 @@ import {
 import { AgendaModule } from './components/AgendaModule';
 import { MessagesSidebarPopup, carregarInfoGrupos, grupoEstaSilenciado } from './components/MessagesSidebarPopup';
 import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, marcarNotificacoesResolvidas, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
+import { PagamentosRecebidosBell } from './components/PagamentosRecebidosBell';
+import { usePagamentosRecebidos } from './lib/pagamentoRecebido';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
 import { AssistantChatWidget } from './components/AssistantChatWidget';
@@ -348,7 +350,7 @@ const FinanceiroModule = ({ currentCompany, user }: { currentCompany: Company | 
 };
 
 const Navbar = () => {
-  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab, notificacoesPendentes, abrirNotificacao } = useApp();
+  const { user, companies, currentCompany, setCurrentCompany, setIsSidebarOpen, theme, toggleTheme, logout, logoLightUrl, logoDarkUrl, activeTab, notificacoesPendentes, abrirNotificacao, pagamentosRecebidos, abrirPagamentoRecebido, marcarPagamentosVisualizados } = useApp();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCompanySelectOpen, setIsCompanySelectOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -461,6 +463,9 @@ const Navbar = () => {
         {/* Sino: notificacoes pendentes (contador + lista). Clicar num item abre a conversa na
             mensagem que gerou a notificacao -- NAO resolve; so o botao "Marcar como resolvido". */}
         <NotificacoesPendentesBell itens={notificacoesPendentes} onAbrir={abrirNotificacao} />
+
+        {/* Pagamentos recebidos por link: aviso unico por pagamento (sem lembrete de 5 min), com historico. Clicar abre a nota. */}
+        <PagamentosRecebidosBell itens={pagamentosRecebidos} onAbrir={abrirPagamentoRecebido} onMarcarTodasVistas={() => marcarPagamentosVisualizados()} />
 
         {/* Theme Toggle Button */}
         <button
@@ -935,6 +940,13 @@ export default function App() {
   const [pendingOpenMessageId, setPendingOpenMessageId] = useState<string | null>(null);
   // Notificacoes pendentes do usuario (agrupadas por cliente/grupo, filtradas por permissao)
   const { itens: notificacoesPendentes } = useNotificacoesPendentes(user);
+  // Pagamentos recebidos por link de pagamento: som de dinheiro + aviso clicavel UMA vez por pagamento confirmado, historico no
+  // sino de pagamentos e evento para o PDV fechar o modal de pagamento daquela nota. Clicar abre a nota no Historico do PDV.
+  const { itens: pagamentosRecebidos, abrirPagamento: abrirPagamentoRecebido, marcarVisualizadas: marcarPagamentosVisualizados } = usePagamentosRecebidos(
+    user,
+    currentCompany?.id || 'rafa-arts',
+    (saleId) => { setPendingOpenNotaNoPdv({ saleId, aba: 'historico' }); setActiveTab('pos'); },
+  );
   // Os listeners do Realtime sao criados uma vez: leem o usuario atual por ref, nao por closure velha
   const userRef = React.useRef<AppUser | null>(null);
   userRef.current = user;
@@ -3093,6 +3105,9 @@ export default function App() {
     setPendingOpenMessageId,
     notificacoesPendentes,
     abrirNotificacao,
+    pagamentosRecebidos,
+    abrirPagamentoRecebido,
+    marcarPagamentosVisualizados,
     simulatedUserId,
     setSimulatedUserId,
     theme,

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle2, MessageSquare, User, X } from 'lucide-react';
+import { AlertTriangle, BadgeDollarSign, CheckCircle2, MessageSquare, User, X } from 'lucide-react';
 import { fotoUsavel, marcarFotoQuebrada } from './foto';
 
 type ToastItem = { id: number; message: string };
-type MessageToastItem = { id: number; key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; onClick?: () => void };
+type MessageToastItem = { id: number; key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; icon?: 'pagamento'; onClick?: () => void };
 type ConfirmItem = { id: number; message: string; resolve: (v: boolean) => void };
 type PromptItem = { id: number; message: string; defaultValue: string; resolve: (v: string | null) => void };
 export type SelectOption = { id: string; label: string; detail?: string; right?: string; badge?: string };
@@ -134,7 +134,7 @@ function dismissMessageToast(id: number) {
  * Clicar no aviso chama onClick (ex: abrir a conversa). Mensagens seguidas do mesmo contato
  * (mesma `key`) substituem o aviso anterior em vez de empilhar; no maximo 3 avisos na tela.
  */
-export function showMessageToast(opts: { key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; onClick?: () => void }) {
+export function showMessageToast(opts: { key: string; title: string; body: string; photoUrl?: string; time?: string; waitLabel?: string; icon?: 'pagamento'; onClick?: () => void }) {
   const repetidos = messageToasts.filter(t => t.key === opts.key);
   repetidos.forEach(t => {
     const timer = messageToastTimers.get(t.id);
@@ -263,6 +263,11 @@ export function NotifyHost() {
               onKeyDown={(e) => { if (e.key === 'Enter') { dismissMessageToast(t.id); t.onClick?.(); } }}
               className="flex items-start gap-3 bg-[#1a2333]/95 border border-white/10 shadow-2xl rounded-2xl px-4 py-3 cursor-pointer hover:border-primary-500/40 animate-in slide-in-from-bottom-4 fade-in duration-300"
             >
+              {t.icon === 'pagamento' ? (
+                <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                  <BadgeDollarSign size={20} />
+                </div>
+              ) : (
               <FotoNotificacao
                 url={t.photoUrl}
                 className="w-10 h-10 rounded-full object-cover shrink-0 border border-white/10 shadow-sm"
@@ -272,12 +277,13 @@ export function NotifyHost() {
                   </div>
                 }
               />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-black text-white truncate">{t.title}</p>
+                  <p className={`text-xs font-black text-white${t.icon === 'pagamento' ? ' break-words' : ' truncate'}`}>{t.title}</p>
                   {t.time && <span className="text-[10px] text-white/40 shrink-0">{t.time}</span>}
                 </div>
-                <p className="text-xs text-white/70 leading-snug line-clamp-2 break-words">{t.body}</p>
+                <p className={`text-xs text-white/70 leading-snug line-clamp-2 break-words${t.icon === 'pagamento' ? ' whitespace-pre-line' : ''}`}>{t.body}</p>
                 {t.waitLabel && <p className="text-[10px] font-black uppercase tracking-wider text-rose-400 mt-1">{t.waitLabel}</p>}
               </div>
               <button

@@ -274,6 +274,7 @@ import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
 import { enviarAvisoPagamentoPix } from '../lib/cobrancaPix';
 import { verificarPagamentosLinks } from '../lib/verificarPagamentosLinks';
+import { EVENTO_PAGAMENTO_LINK, modaisParaFechar, tocarSomDeDinheiro } from '../lib/pagamentoRecebido';
 import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { PixPaymentModal } from './PixPaymentModal';
 import { PixQrImage } from './PixQrImage';
@@ -18969,10 +18970,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!atual) return;
     const pagoDe = (s: SaleOrder) => s.downPayment ?? s.receivedValue ?? (s.status === 'completed' ? s.total : 0);
     if (pagoDe(atual) > pagoDe(viewingReceiptSale) + 0.004) {
-      try {
-        const audio = new Audio('/sounds/sale-complete.mp3');
-        audio.play().catch(() => {});
-      } catch (e) {}
+      // Mesma trava de som da notificacao de pagamento por link (lib/pagamentoRecebido): a baixa chega por dois caminhos
+      // quase juntos e o som de dinheiro nao pode tocar duas vezes.
+      tocarSomDeDinheiro();
       setViewingReceiptSale(atual);
     }
   }, [allSalesHistory, viewingReceiptSale?.id]);
@@ -18987,6 +18987,20 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     }, 30000);
     return () => clearInterval(t);
   }, [viewingReceiptSale?.id]);
+
+  // Cliente pagou o LINK de uma nota: o servidor deu a baixa e a notificacao de pagamento (App) avisou. Se o modal de pagamento
+  // (Quitar Debito / Salvar Alteracoes) ou o de cobranca estiver aberto para ESSA nota, fecha sozinho: os valores dentro dele
+  // ficaram velhos e lancar de novo duplicaria o recebimento. Saldo e recibo ja atualizam pelo realtime de `vendas`.
+  useEffect(() => {
+    const aoReceberPagamentoDoLink = (e: Event) => {
+      const saleId = String((e as CustomEvent).detail?.saleId || '');
+      const fechar = modaisParaFechar(saleId, { pagamentoAberto: isPaymentModalOpen, pagamentoNotaIds: [settlingOrder?.id, editingFullOrder?.id], cobrancaNotaId: cobrancaOrder?.id });
+      if (fechar.pagamento) handleClosePaymentModal();
+      if (fechar.cobranca) setCobrancaOrder(null);
+    };
+    window.addEventListener(EVENTO_PAGAMENTO_LINK, aoReceberPagamentoDoLink);
+    return () => window.removeEventListener(EVENTO_PAGAMENTO_LINK, aoReceberPagamentoDoLink);
+  }, [isPaymentModalOpen, settlingOrder?.id, editingFullOrder?.id, cobrancaOrder?.id, receiptOpenedFromProduction]);
 
   // Botão "Verificar pagamentos": uma nota (saleId) ou todas as notas abertas com link ativo.
   const handleVerificarPagamentos = async (saleId?: string) => {

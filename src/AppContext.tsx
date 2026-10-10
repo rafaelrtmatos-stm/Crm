@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import { Company, AppUser, SaleOrder } from './types';
 import type { NotificacaoPendente } from './components/NotificacaoPendenteBanner';
+import type { PagamentoRecebido } from './lib/pagamentoRecebido';
 
 export type MainTab = 
   | 'dashboard' 
@@ -69,6 +70,12 @@ export interface AppContextType {
   // a acao de abrir a conversa na mensagem que gerou a notificacao. Abrir NAO resolve.
   notificacoesPendentes: NotificacaoPendente[];
   abrirNotificacao: (n: NotificacaoPendente) => void;
+  // Pagamentos recebidos por LINK de pagamento (uma notificacao por pagamento confirmado, tabela crm_payment_notifications).
+  // Fica FORA de notificacoesPendentes de proposito: aquela lista e de conversas e alimenta o lembrete de 5 em 5 minutos.
+  // Abrir leva direto a nota do pedido no PDV e marca como visualizada (continua no historico).
+  pagamentosRecebidos: PagamentoRecebido[];
+  abrirPagamentoRecebido: (p: PagamentoRecebido) => void;
+  marcarPagamentosVisualizados: (ids?: string[]) => void;
   simulatedUserId: string | null;
   setSimulatedUserId: (id: string | null) => void;
   theme: 'dark' | 'light';

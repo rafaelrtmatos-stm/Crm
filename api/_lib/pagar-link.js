@@ -56,7 +56,7 @@ async function carregarPendencia(id) {
 /** Soma o PIX recebido na nota (down_payment/received_value/payments/status), com trava otimista. */
 async function aplicarBaixaNaNota(link, valor) {
   for (let tentativa = 0; tentativa < 3; tentativa++) {
-    const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,payments,status&limit=1`);
+    const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,payments,status,customer_name&limit=1`);
     if (!g.ok || !Array.isArray(g.corpo) || !g.corpo[0]) throw new Error('nota não encontrada para a baixa');
     const venda = g.corpo[0];
     if (venda.status === 'canceled') return { restante: null };
@@ -76,7 +76,7 @@ async function aplicarBaixaNaNota(link, valor) {
         updated_at: new Date().toISOString(),
       }),
     });
-    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante };
+    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim() };
     // Alguém alterou a nota entre a leitura e a gravação: relê e tenta de novo.
   }
   throw new Error('não foi possível atualizar a nota (conflito)');
@@ -109,6 +109,38 @@ async function avisarCliente(link, valor, restante) {
   }
 }
 
+/**
+ * Notificação interna "pagamento recebido" (tabela crm_payment_notifications): UMA por pagamento confirmado.
+ * pendente_id é UNIQUE e o insert usa ignore-duplicates, então o mesmo evento repetido pelo provedor/e-mail não gera
+ * segunda notificação; dois pagamentos diferentes (duas pendências) geram duas. Nunca lança: qualquer falha (inclusive a
+ * tabela ainda não existir) só vai para o log e NÃO atrapalha a baixa nem o aviso ao cliente.
+ */
+async function registrarNotificacaoPagamento(link, pendencia, valor, resultado) {
+  try {
+    if (!pendencia?.id || !UUID_RE.test(String(pendencia.id))) return;
+    const restante = Math.max(0, round2(Number(resultado.restante) || 0));
+    const quitou = restante <= 0.009;
+    const r = await rest('crm_payment_notifications?on_conflict=pendente_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({
+        company_id: link.company_id,
+        sale_id: String(link.sale_id),
+        link_id: link.id,
+        pendente_id: pendencia.id,
+        cliente_nome: resultado.clienteNome || link.cliente_nome || null,
+        valor_centavos: Math.round(valor * 100),
+        total_centavos: Number.isFinite(resultado.total) ? Math.round(resultado.total * 100) : null,
+        restante_centavos: Math.round(restante * 100),
+        tipo: quitou ? 'pagamento' : 'entrada',
+      }),
+    });
+    if (!r.ok) console.warn(`[pagar-link] notificação de pagamento não registrada (${r.status}):`, JSON.stringify(r.corpo)?.slice(0, 200));
+  } catch (err) {
+    console.warn('[pagar-link] notificação de pagamento falhou:', err?.message || err);
+  }
+}
+
 /** Dá a baixa uma única vez: o PATCH condicional em baixa_em IS NULL só vence para UMA chamada. */
 async function darBaixa(link, pendencia) {
   const valor = round2(pendencia.valor_centavos / 100);
@@ -138,6 +170,8 @@ async function darBaixa(link, pendencia) {
     console.warn(`[pagar-link] PIX de ${fmtBRL(valor)} recebido em nota cancelada (link ${link.id}); sem baixa nem aviso.`);
     return true;
   }
+  // Aviso interno (som + notificação clicável no CRM). Await curto e sem lançar: não adia nem derruba o aviso ao cliente.
+  await registrarNotificacaoPagamento(link, pendencia, valor, resultado);
   waitUntil(avisarCliente(link, valor, resultado.restante));
   return true;
 }
