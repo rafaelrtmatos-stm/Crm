@@ -27637,6 +27637,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            amount={amountToCharge}
            beneficiaryName={pixConfig.beneficiaryName}
            bank={pixConfig.bank || undefined}
+           autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: settlingOrder?.id || editingFullOrder?.id || null }}
          />
        );
      })()}

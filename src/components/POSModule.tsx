@@ -2086,6 +2086,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           confirmLabel={isSavingSale ? 'Processando...' : 'Confirmar Pagamento'}
           confirmDisabled={isSavingSale}
           onConfirm={() => { if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }}
+          autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: null }}
         />
       )}
       <Modal isOpen={isPaymentModalOpen && !(paymentMethod === 'pix' && pixConfig)} onClose={() => setIsPaymentModalOpen(false)}

@@ -12,6 +12,11 @@
 //   body: { text: "...", action: "correct" | "professional" | "friendly" | "funny" | "longer" | "shorter" | "simple" }
 //   resposta: { text: "..." }
 //
+// POST /api/pix-email-check   (chega aqui como ?rota=pix-email-check) — lógica em _lib/pix-email.js
+//   headers: x-user-id: <id do usuário logado>
+//   body: { id: "<id em pix_pendentes>" }
+//   resposta: { pago: true | false }
+//
 // POST /api/ai/suggest-reply  (chega aqui como ?rota=suggest-reply)
 //   headers: x-user-id: <id do usuário logado>
 //   body: { clientMessage: "...", history: [{ direction: "incoming"|"outgoing", text: "..." }], clientName?: "..." }
@@ -350,6 +355,12 @@ export default async function handler(req, res) {
   }
 
   const rota = String(req.query?.rota || '');
+  if (rota === 'pix-email-check') {
+    // Carregamento dinâmico: imapflow/mailparser só entram na memória nessa rota, sem pesar as de IA.
+    const { handlePixEmailCheck } = await import('./_lib/pix-email.js');
+    await handlePixEmailCheck(req, res);
+    return;
+  }
   if (rota === 'suggest-reply') {
     await handleSuggestReply(req, res);
     return;

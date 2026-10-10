@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Clipboard, Copy, DollarSign, KeyRound, Landmark, User, X } from 'lucide-react';
 import { PixQrImage } from './PixQrImage';
 import { showAlert } from '../lib/notify';
+import { cancelarPixPendente, consultarPixPago, INTERVALO_CONSULTA_PIX_MS, registrarPixPendente } from '../lib/pixPendentes';
 
 // Card "Pagamento via PIX": QR Code à esquerda, dados (valor, beneficiário, banco, chave) à direita,
 // botões "Copiar chave" / "Copia e cola" e "Fechar". Usado no PDV e na tela de Vendas.
@@ -40,12 +41,74 @@ export interface PixPaymentModalProps {
   confirmLabel?: React.ReactNode;
   onConfirm?: () => void;
   confirmDisabled?: boolean;
+  /**
+   * Confirmação automática por e-mail do Nubank. Enquanto o card estiver aberto, registra uma pendência
+   * e consulta o servidor a cada ~8 s; ao detectar o pagamento, aciona o onConfirm e fecha o card.
+   * Sem isso, o card funciona só com a baixa manual. `saleId` é nulo quando a venda ainda não existe (PDV).
+   */
+  autoConfirm?: { companyId: string; saleId?: string | null };
 }
 
 export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
-  isOpen, onClose, payload, pixKey, amount, beneficiaryName, bank, confirmLabel, onConfirm, confirmDisabled,
+  isOpen, onClose, payload, pixKey, amount, beneficiaryName, bank, confirmLabel, onConfirm, confirmDisabled, autoConfirm,
 }) => {
   const [copiado, setCopiado] = useState<'key' | 'payload' | null>(null);
+  const [autoStatus, setAutoStatus] = useState<'off' | 'aguardando' | 'expirado'>('off');
+
+  // Sempre a versão mais recente dos callbacks, sem reiniciar a consulta a cada render do pai.
+  const onConfirmRef = useRef(onConfirm);
+  const onCloseRef = useRef(onClose);
+  const confirmDisabledRef = useRef(confirmDisabled);
+  onConfirmRef.current = onConfirm;
+  onCloseRef.current = onClose;
+  confirmDisabledRef.current = confirmDisabled;
+
+  const autoCompanyId = autoConfirm?.companyId;
+  const autoSaleId = autoConfirm?.saleId ?? null;
+  const valorCentavos = Math.round(amount * 100);
+
+  useEffect(() => {
+    if (!isOpen || !autoCompanyId || !(valorCentavos > 0)) return;
+    let ativo = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pendenciaId: string | null = null;
+    setAutoStatus('aguardando');
+
+    const aoPagar = () => {
+      const confirmar = onConfirmRef.current;
+      if (confirmar) {
+        if (!confirmDisabledRef.current) confirmar(); // mesma ação do botão "Confirmar Pagamento"
+      } else {
+        showAlert('PIX recebido: pagamento confirmado automaticamente.');
+      }
+      onCloseRef.current();
+    };
+
+    (async () => {
+      const pend = await registrarPixPendente({ companyId: autoCompanyId, saleId: autoSaleId, valorCentavos });
+      if (!pend) { if (ativo) setAutoStatus('off'); return; } // sem pendência -> só o fluxo manual
+      if (!ativo) { cancelarPixPendente(pend.id); return; }
+      pendenciaId = pend.id;
+      const expiraEm = new Date(pend.expiraEm).getTime();
+
+      const consultar = async () => {
+        if (!ativo) return;
+        if (Date.now() >= expiraEm) { setAutoStatus('expirado'); return; } // para de consultar
+        const pago = await consultarPixPago(pend.id);
+        if (!ativo) return;
+        if (pago) { ativo = false; pendenciaId = null; aoPagar(); return; }
+        timer = setTimeout(consultar, INTERVALO_CONSULTA_PIX_MS);
+      };
+      timer = setTimeout(consultar, INTERVALO_CONSULTA_PIX_MS);
+    })();
+
+    return () => {
+      ativo = false;
+      if (timer) clearTimeout(timer);
+      if (pendenciaId) cancelarPixPendente(pendenciaId); // fechou sem pagar: libera a pendência
+      setAutoStatus('off');
+    };
+  }, [isOpen, autoCompanyId, autoSaleId, valorCentavos]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -158,6 +221,14 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
             </button>
           </div>
         </div>
+
+        {autoStatus !== 'off' && (
+          <p className="mt-3 text-center text-[11px] font-semibold text-slate-400">
+            {autoStatus === 'aguardando'
+              ? 'Aguardando o PIX — a confirmação é automática assim que o pagamento chegar.'
+              : 'Confirmação automática encerrada (30 min). Se já pagou, confirme manualmente.'}
+          </p>
+        )}
 
         {/* Rodapé */}
         <div className="mt-4 border-t border-white/10 pt-2.5 flex items-center justify-center gap-3">

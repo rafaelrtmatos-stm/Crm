@@ -23,6 +23,7 @@
     { "source": "/api/whatsapp-edit-message", "destination": "/api/whatsapp-message-actions?rota=editar" },
     { "source": "/api/whatsapp-delete-message", "destination": "/api/whatsapp-message-actions?rota=apagar" },
     { "source": "/api/whatsapp-reaction", "destination": "/api/whatsapp-message-actions?rota=reagir" },
+    { "source": "/api/pix-email-check", "destination": "/api/ai?rota=pix-email-check" },
     { "source": "/api/ai/assist", "destination": "/api/ai?rota=assist" },
     { "source": "/api/ai/suggest-reply", "destination": "/api/ai?rota=suggest-reply" },
     { "source": "/(.*)", "destination": "/index.html" }
