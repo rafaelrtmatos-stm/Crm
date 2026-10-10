@@ -27714,6 +27714,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
      {isPixQrModalOpen && pixConfig && (() => {
        const amountToCharge = pixQrAmount > 0 ? pixQrAmount : remainingValue;
+       // O servidor só dá a baixa sozinho quando a nota não foi alterada nesta tela (total, pagamentos anteriores e
+       // lançamentos iguais ao da nota salva); senão o navegador precisa gravar as mudanças junto com o pagamento.
+       const baixaPeloServidor = !!settlingOrder && !editingFullOrder && paymentEntries.length === 0
+         && Math.abs(paymentModalTotal - Number(settlingOrder.total || 0)) < 0.01
+         && Math.abs(alreadyPaidForSettle - Number(settlingOrder.downPayment || 0)) < 0.01;
        const pixPayload = buildPixPayload({
          key: pixConfig.key,
          keyType: pixConfig.keyType,
@@ -27731,7 +27736,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            beneficiaryName={pixConfig.beneficiaryName}
            bank={pixConfig.bank || undefined}
            onAutoPaid={(valorPago) => { avisoPixAutoRef.current = valorPago; handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
-           autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: settlingOrder?.id || editingFullOrder?.id || null }}
+           autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: baixaPeloServidor ? settlingOrder!.id : null }}
          />
        );
      })()}

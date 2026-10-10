@@ -28,15 +28,33 @@ export async function registrarPixPendente(params: {
   valorCentavos: number;
 }): Promise<PixPendente | null> {
   try {
-    const { data, error } = await supabase
-      .from('pix_pendentes')
-      .insert({ company_id: params.companyId, sale_id: params.saleId ?? null, valor_centavos: params.valorCentavos })
-      .select('id, expira_em')
-      .single();
-    if (error || !data) return null;
-    return { id: data.id as string, expiraEm: data.expira_em as string };
+    const base = { company_id: params.companyId, sale_id: params.saleId ?? null, valor_centavos: params.valorCentavos };
+    // criado_por permite ao servidor avisar o cliente por WhatsApp; se a coluna ainda não existe, registra sem ela.
+    let res = await supabase.from('pix_pendentes').insert({ ...base, criado_por: idUsuarioLogado() || null }).select('id, expira_em').single();
+    if (res.error) res = await supabase.from('pix_pendentes').insert(base).select('id, expira_em').single();
+    if (res.error || !res.data) return null;
+    return { id: res.data.id as string, expiraEm: res.data.expira_em as string };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Trava de baixa compartilhada com o servidor: devolve true se ESTE navegador deve dar a baixa, false se o servidor
+ * já a deu (nesse caso o navegador só atualiza a tela). Em qualquer falha devolve true (comportamento antigo).
+ */
+export async function reivindicarBaixaPix(id: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('pix_pendentes')
+      .update({ baixa_em: new Date().toISOString() })
+      .eq('id', id)
+      .is('baixa_em', null)
+      .select('id');
+    if (error) return true;
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    return true;
   }
 }
 

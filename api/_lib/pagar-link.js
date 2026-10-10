@@ -56,7 +56,7 @@ async function carregarPendencia(id) {
 /** Soma o PIX recebido na nota (down_payment/received_value/payments/status), com trava otimista. */
 async function aplicarBaixaNaNota(link, valor) {
   for (let tentativa = 0; tentativa < 3; tentativa++) {
-    const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,payments,status,customer_name&limit=1`);
+    const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,payments,status,customer_name,customer_phone&limit=1`);
     if (!g.ok || !Array.isArray(g.corpo) || !g.corpo[0]) throw new Error('nota não encontrada para a baixa');
     const venda = g.corpo[0];
     if (venda.status === 'canceled') return { restante: null };
@@ -76,7 +76,7 @@ async function aplicarBaixaNaNota(link, valor) {
         updated_at: new Date().toISOString(),
       }),
     });
-    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim(), itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
+    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim(), telefone: venda.customer_phone || null, itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
     // Alguém alterou a nota entre a leitura e a gravação: relê e tenta de novo.
   }
   throw new Error('não foi possível atualizar a nota (conflito)');
@@ -112,7 +112,8 @@ function montarMensagemPagamento({ nome, valor, resumo, itens, total, pagamentos
 
 async function avisarCliente(link, valor, restante, resultado) {
   try {
-    if (!APP_BASE_URL || !link.cliente_phone || !link.criado_por) return;
+    const telefone = link.cliente_phone || resultado?.telefone;
+    if (!APP_BASE_URL || !telefone || !link.criado_por) return;
     // Nome completo: vem da própria nota (o link guarda só o nome abreviado, que é o que a página pública mostra).
     let nomeCompleto = resultado?.clienteNome || '';
     if (!nomeCompleto) {
@@ -134,7 +135,7 @@ async function avisarCliente(link, valor, restante, resultado) {
     await fetch(`${APP_BASE_URL}/api/whatsapp-send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-user-id': String(link.criado_por) },
-      body: JSON.stringify({ phone: link.cliente_phone, text: texto, senderName: 'Sistema' }),
+      body: JSON.stringify({ phone: telefone, text: texto, senderName: 'Sistema' }),
     });
   } catch (err) {
     console.warn('[pagar-link] aviso por WhatsApp falhou:', err?.message || err);
@@ -266,6 +267,78 @@ async function conferirLinksAbertos({ saleId = null, prazoMs = PRAZO_CONFERENCIA
   }
 }
 
+let conferindoCardAgora = false;
+
+function resumoDosItens(itens) {
+  const nomes = (Array.isArray(itens) ? itens : []).filter((i) => i && i.name).map((i) => String(i.name));
+  return nomes.length ? [...new Set(nomes)].join(', ') : 'Pedido';
+}
+
+/** Dá a baixa de um PIX do card (nota existente) uma única vez. `baixa_em` é a trava compartilhada com o navegador. */
+async function darBaixaCard(pend) {
+  const agora = new Date().toISOString();
+  const claim = await rest(`pix_pendentes?id=eq.${pend.id}&baixa_em=is.null`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ baixa_em: agora }),
+  });
+  if (!claim.ok) throw new Error(`falha ao reivindicar baixa (${claim.status})`);
+  if (!Array.isArray(claim.corpo) || claim.corpo.length === 0) return false; // navegador ou outra chamada já deu a baixa
+  const valor = round2(pend.valor_centavos / 100);
+  let resultado;
+  try {
+    resultado = await aplicarBaixaNaNota({ sale_id: pend.sale_id }, valor);
+  } catch (err) {
+    await rest(`pix_pendentes?id=eq.${pend.id}`, { method: 'PATCH', body: JSON.stringify({ baixa_em: null }) }).catch(() => {});
+    throw err;
+  }
+  if (resultado.restante == null) {
+    console.warn(`[pix-card] PIX de ${fmtBRL(valor)} recebido em nota cancelada (pendência ${pend.id}); sem baixa nem aviso.`);
+    return true;
+  }
+  const ctx = { company_id: pend.company_id, id: null, sale_id: pend.sale_id, cliente_nome: resultado.clienteNome, criado_por: pend.criado_por, resumo: resumoDosItens(resultado.itens) };
+  await registrarNotificacaoPagamento(ctx, pend, valor, resultado);
+  waitUntil(avisarCliente(ctx, valor, resultado.restante, resultado));
+  return true;
+}
+
+/** Confere PIX abertos pelo card (notas existentes) SEM depender do navegador aberto. */
+async function conferirPendenciasCard({ prazoMs = PRAZO_CONFERENCIA_MS } = {}) {
+  const inicio = Date.now();
+  const vazio = { verificados: 0, pagos: 0, completo: true };
+  if (conferindoCardAgora) return { ...vazio, completo: false };
+  conferindoCardAgora = true;
+  try {
+    const agoraIso = encodeURIComponent(new Date().toISOString());
+    const r = await rest(`pix_pendentes?sale_id=not.is.null&sale_id=not.like.link:*&baixa_em=is.null&or=(status.eq.pago,and(status.eq.pendente,expira_em.gt.${agoraIso}))&select=*&order=criado_em.asc&limit=30`);
+    if (!r.ok || !Array.isArray(r.corpo)) throw new Error(`falha ao listar pendências do card (${r.status})`);
+    const resultado = { ...vazio };
+    for (const pend of r.corpo) {
+      if (pend.status !== 'pago') {
+        if (Date.now() - inicio > prazoMs) { resultado.completo = false; break; }
+        const ultima = ultimaChecagem.get(pend.id) || 0;
+        if (Date.now() - ultima < INTERVALO_MINIMO_MS) { resultado.completo = false; continue; }
+        ultimaChecagem.set(pend.id, Date.now());
+        resultado.verificados++;
+        let confirmou = false;
+        try { confirmou = await verificarPendencia(pend.id); } catch (err) { console.error('[pix-card] conferência falhou:', err?.message || err); resultado.completo = false; }
+        if (!confirmou) continue;
+      }
+      const atual = await carregarPendencia(pend.id);
+      if (!atual || atual.baixa_em) continue;
+      try {
+        if (await darBaixaCard(atual)) resultado.pagos++;
+      } catch (err) {
+        console.error('[pix-card] baixa falhou:', err?.message || err);
+        resultado.completo = false;
+      }
+    }
+    return resultado;
+  } finally {
+    conferindoCardAgora = false;
+  }
+}
+
 /**
  * POST /api/ai?rota=pix-aviso — "campainha" chamada pelo Google Apps Script quando chega e-mail novo do Nubank.
  * Não recebe nem confia em nenhum conteúdo do e-mail: só dispara a conferência normal (que lê o Gmail e
@@ -281,7 +354,8 @@ export async function handlePixAviso(req, res) {
   if (recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) { res.status(401).json({ ok: false, resolvido: false }); return; }
   try {
     const r = await conferirLinksAbertos();
-    res.status(200).json({ ok: true, resolvido: r.completo, pagos: r.pagos });
+    const c = await conferirPendenciasCard();
+    res.status(200).json({ ok: true, resolvido: r.completo && c.completo, pagos: r.pagos + c.pagos });
   } catch (err) {
     console.error('[pix-aviso]', err?.message || err);
     res.status(200).json({ ok: false, resolvido: false });

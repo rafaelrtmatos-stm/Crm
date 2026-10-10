@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clipboard, Copy, DollarSign, KeyRound, Landmark, User, X } from 'lucide-react';
 import { PixQrImage } from './PixQrImage';
 import { showAlert } from '../lib/notify';
-import { cancelarPixPendente, consultarPixPago, INTERVALO_CONSULTA_PIX_MS, registrarPixPendente } from '../lib/pixPendentes';
+import { cancelarPixPendente, consultarPixPago, INTERVALO_CONSULTA_PIX_MS, registrarPixPendente, reivindicarBaixaPix } from '../lib/pixPendentes';
 
 // Card "Pagamento via PIX": QR Code à esquerda, dados (valor, beneficiário, banco, chave) à direita,
 // botões "Copiar chave" / "Copia e cola" e "Fechar". Usado no PDV e na tela de Vendas.
@@ -77,6 +77,8 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   const [pagoAuto, setPagoAuto] = useState(false);
   const pagoAutoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const concluidoRef = useRef(false);
+  // true quando o SERVIDOR já deu a baixa desta nota (navegador não repete a baixa nem o aviso).
+  const servidorDeuBaixaRef = useRef(false);
   const TEMPO_CONFIRMADO_MS = 1800;
 
   const limparTimerPago = () => {
@@ -87,6 +89,11 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
     if (concluidoRef.current) return; // já finalizado (timer, Fechar ou botão manual): nunca duplica
     concluidoRef.current = true;
     limparTimerPago();
+    if (servidorDeuBaixaRef.current) {
+      showAlert('PIX recebido: a nota já foi atualizada automaticamente.');
+      onCloseRef.current();
+      return;
+    }
     const auto = onAutoPaidRef.current;
     const manual = onConfirmRef.current;
     if (auto || manual) {
@@ -119,7 +126,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   fecharRef.current = fechar;
 
   useEffect(() => {
-    if (!isOpen) { limparTimerPago(); setPagoAuto(false); concluidoRef.current = false; }
+    if (!isOpen) { limparTimerPago(); setPagoAuto(false); concluidoRef.current = false; servidorDeuBaixaRef.current = false; }
   }, [isOpen]);
   useEffect(() => () => limparTimerPago(), []);
 
@@ -163,7 +170,13 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
         let pago = false;
         try { pago = await consultarPixPago(pend.id); } finally { emVoo = false; }
         if (!ativo) return;
-        if (pago) { ativo = false; pendenciaId = null; aoPagar(); return; }
+        if (pago) {
+          ativo = false; pendenciaId = null;
+          // Nota existente: o servidor pode ter dado a baixa antes (celular em segundo plano). Só um dos dois baixa.
+          if (autoSaleId) servidorDeuBaixaRef.current = !(await reivindicarBaixaPix(pend.id));
+          aoPagar();
+          return;
+        }
         timer = setTimeout(consultar, INTERVALO_CONSULTA_PIX_MS);
       };
       retomar = () => { void consultar(); };
