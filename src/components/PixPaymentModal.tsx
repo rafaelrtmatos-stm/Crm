@@ -46,7 +46,7 @@ export interface PixPaymentModalProps {
    * Se ausente, usa o onConfirm. O pai deve fazer o mesmo que o clique manual de quitar/finalizar
    * (som, tela de venda finalizada) — o card fecha logo depois.
    */
-  onAutoPaid?: () => void;
+  onAutoPaid?: (valorPago: number) => void;
   /**
    * Confirmação automática por e-mail do Nubank. Enquanto o card estiver aberto, registra uma pendência
    * e consulta o servidor a cada ~8 s; ao detectar o pagamento, aciona o onConfirm e fecha o card.
@@ -66,6 +66,8 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   const onCloseRef = useRef(onClose);
   const confirmDisabledRef = useRef(confirmDisabled);
   const onAutoPaidRef = useRef(onAutoPaid);
+  const amountRef = useRef(amount);
+  amountRef.current = amount;
   onConfirmRef.current = onConfirm;
   onCloseRef.current = onClose;
   confirmDisabledRef.current = confirmDisabled;
@@ -85,9 +87,10 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
     if (concluidoRef.current) return; // já finalizado (timer, Fechar ou botão manual): nunca duplica
     concluidoRef.current = true;
     limparTimerPago();
-    const acao = onAutoPaidRef.current || onConfirmRef.current;
-    if (acao) {
-      if (!confirmDisabledRef.current) acao(); // mesma ação do botão manual (ex.: handleFinalizeSale)
+    const auto = onAutoPaidRef.current;
+    const manual = onConfirmRef.current;
+    if (auto || manual) {
+      if (!confirmDisabledRef.current) { if (auto) auto(amountRef.current); else manual?.(); } // mesma ação do botão manual (ex.: handleFinalizeSale)
     } else {
       showAlert('PIX recebido: pagamento confirmado automaticamente.');
     }
@@ -216,20 +219,30 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
                 <h2 className="whitespace-nowrap text-[17px] sm:text-[19px] font-black uppercase tracking-tight text-white">
                   Pagamento via <span className="text-[#2de3a0]">PIX</span>
                 </h2>
-                <p className="text-xs font-medium text-slate-400">Escaneie o QR Code para pagar</p>
+                <p className={'text-xs font-medium ' + (pagoAuto ? 'text-[#2de3a0]' : 'text-slate-400')}>
+                  {pagoAuto ? 'Pagamento recebido!' : 'Escaneie o QR Code para pagar'}
+                </p>
               </div>
             </div>
             <div className="rounded-3xl bg-white/[0.04] p-4 sm:p-5 shadow-[0_0_40px_rgba(45,227,160,0.06)]">
-              <div className="rounded-2xl bg-white p-2.5 w-[220px] h-[220px] sm:w-[250px] sm:h-[250px]">
-                <PixQrImage payload={payload} className="block h-full w-full object-contain" />
-              </div>
+              {pagoAuto ? (
+                <div className="rounded-2xl border border-emerald-400/60 bg-emerald-500/15 w-[220px] h-[220px] sm:w-[250px] sm:h-[250px] flex flex-col items-center justify-center gap-2 animate-in zoom-in-95 fade-in duration-200">
+                  <CheckCircle2 size={104} strokeWidth={1.8} className="text-[#2de3a0]" />
+                  <span className="text-[18px] font-black uppercase tracking-wide text-[#2de3a0]">PIX confirmado</span>
+                  <span className="text-[22px] font-black text-white">R$ {amount.toFixed(2).replace('.', ',')}</span>
+                </div>
+              ) : (
+                <div className="rounded-2xl bg-white p-2.5 w-[220px] h-[220px] sm:w-[250px] sm:h-[250px]">
+                  <PixQrImage payload={payload} className="block h-full w-full object-contain" />
+                </div>
+              )}
             </div>
           </div>
 
           <div className="hidden sm:block bg-white/10" />
 
           {/* Direita: dados + botões */}
-          <div className="flex flex-col gap-2 sm:pt-8">
+          <div className={'flex flex-col gap-2 sm:pt-8 transition-opacity ' + (pagoAuto ? 'opacity-40 pointer-events-none' : '')}>
             {linhas.map((l) => (
               <div
                 key={l.label}

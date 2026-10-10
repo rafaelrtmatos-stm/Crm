@@ -32,6 +32,7 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
 const ComissoesApp = lazyWithRetry(() => import('./comissoes/ComissoesApp'));
 const ContractSignaturePublicPage = lazyWithRetry(() => import('./components/ContractSignaturePublicPage'));
 const ContractValidationPage = lazyWithRetry(() => import('./components/ContractValidationPage'));
+const PagamentoPublicPage = lazyWithRetry(() => import('./components/PagamentoPublicPage'));
 
 // Decide qual "site" mostrar com base na URL, ANTES de qualquer hook do App/ComissoesApp
 // ser chamado — evita violar as regras de hooks do React (early return dentro do proprio
@@ -43,6 +44,8 @@ export default function AppRoot() {
   const isAssinaturaRoute = /^\/assinar\/[a-zA-Z0-9-]+$/.test(path);
   // Tela publica de validacao de assinatura (codigo ou upload de PDF) -- ver ContractValidationPage.tsx
   const isValidacaoRoute = path === '/validar';
+  // Tela publica do link de pagamento PIX enviado ao cliente (/pagar/:token) -- ver PagamentoPublicPage.tsx
+  const isPagamentoRoute = /^\/pagar\/[0-9a-fA-F]{32}$/.test(path);
 
   // O CRM principal trava html/body/#root (overflow hidden + position fixed) pra se
   // comportar como app nativo, sem arrastar a pagina. A tela de Comissoes e a tela publica
@@ -52,14 +55,22 @@ export default function AppRoot() {
   // (que tem overflow-y-auto proprio) rola, e o resto da tela (checkbox, verificacao de
   // CPF/CNPJ, codigo, botao de assinar) fica inacessivel se nao couber na tela do celular.
   useEffect(() => {
-    document.documentElement.classList.toggle('scrollable-route', isComissoesRoute || isAssinaturaRoute || isValidacaoRoute);
+    document.documentElement.classList.toggle('scrollable-route', isComissoesRoute || isAssinaturaRoute || isValidacaoRoute || isPagamentoRoute);
     return () => document.documentElement.classList.remove('scrollable-route');
-  }, [isComissoesRoute, isAssinaturaRoute, isValidacaoRoute]);
+  }, [isComissoesRoute, isAssinaturaRoute, isValidacaoRoute, isPagamentoRoute]);
 
   if (isAssinaturaRoute) {
     return (
       <Suspense fallback={<div className="min-h-screen bg-black" />}>
         <ContractSignaturePublicPage />
+      </Suspense>
+    );
+  }
+
+  if (isPagamentoRoute) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-black" />}>
+        <PagamentoPublicPage />
       </Suspense>
     );
   }

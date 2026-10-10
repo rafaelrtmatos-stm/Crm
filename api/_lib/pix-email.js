@@ -187,7 +187,7 @@ async function buscarEmailsElegiveis(p) {
 
 // ---------- Fluxo principal ----------
 
-async function verificarPendencia(id) {
+export async function verificarPendencia(id) {
   const agora = new Date();
   await expirarVencidas(agora);
 
