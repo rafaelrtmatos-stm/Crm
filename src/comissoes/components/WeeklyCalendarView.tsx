@@ -15,6 +15,8 @@ interface WeeklyCalendarViewProps {
   onDeleteService: (id: string) => void;
   onDeleteServices?: (ids: string[]) => void | Promise<void>;
   onOpenAddModalWithDate: (dateISO: string) => void;
+  canAdd?: boolean;
+  canEdit?: boolean;
   onBatchUpdateServices?: (services: ServiceItem[]) => Promise<void> | void;
   weeklyGoal?: number;
   // Vai direto pra Lixeira (aba Serviços) já aberta — antes só dava pra acessar a Lixeira
@@ -34,7 +36,7 @@ const WEEKDAYS = [
 const noteKey = (s: ServiceItem) => s.origemNotaId || `service:${s.id}`;
 
 export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
-  services, onEditService, onDeleteService, onDeleteServices, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash
+  services, onEditService, onDeleteService, onDeleteServices, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash, canAdd = true, canEdit = true
 }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'columns' | 'table'>('grid');
@@ -212,7 +214,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
           <span className="font-mono font-black text-xs text-[var(--text-main)] whitespace-nowrap">
             {formatCurrency(group.total)}
           </span>
-          {group.items.length === 1 ? (
+          {!canEdit ? null : group.items.length === 1 ? (
             <button
               type="button"
               onClick={(e) => {
@@ -254,7 +256,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   </p>
                 </div>
                 <span className="font-mono font-black text-xs">{formatCurrency(service.productionValue)}</span>
-                <button
+                {canEdit && <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -264,8 +266,8 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   title="Editar serviço"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button
+                </button>}
+                {canEdit && <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -275,7 +277,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   title="Excluir serviço"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                </button>}
               </div>
             ))}
 
@@ -334,12 +336,12 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
           <span className="text-xs font-mono font-black text-[var(--accent-red)]">{formatCurrency(comm)}</span>
         </div>
         <div className="p-2">
-          <button
+          {canAdd && <button
             onClick={() => onOpenAddModalWithDate(day.dateISO)}
             className="w-full py-1.5 rounded-xl border border-dashed border-[var(--border-color)] text-[11px] font-bold text-[var(--text-muted)] hover:text-[var(--accent-red)]"
           >
             <Plus className="w-3.5 h-3.5 inline mr-1" />Lançar no Dia
-          </button>
+          </button>}
         </div>
       </div>
     );

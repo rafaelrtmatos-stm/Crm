@@ -20,6 +20,8 @@ interface HeaderProps {
   userSettings: UserSettings;
   onOpenAddModal: () => void;
   onOpenSettings: () => void;
+  hideAddService?: boolean;
+  hideSettings?: boolean;
   onLogout?: () => void;
 }
 
@@ -29,6 +31,8 @@ export const Header: React.FC<HeaderProps> = ({
   userSettings,
   onOpenAddModal,
   onOpenSettings,
+  hideAddService = false,
+  hideSettings = false,
   onLogout,
 }) => {
   // Format current date in Portuguese
@@ -71,18 +75,20 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Actions: Add Service Button & Settings */}
           <div className="flex items-center gap-1.5 lg:gap-3 shrink-0">
-            <div className="hidden lg:block">
-              <AddServiceButton onClick={onOpenAddModal} />
-            </div>
+            {!hideAddService && (
+              <div className="hidden lg:block">
+                <AddServiceButton onClick={onOpenAddModal} />
+              </div>
+            )}
 
-            <button
+            {!hideSettings && <button
               id="btn-abrir-configuracoes"
               onClick={onOpenSettings}
               className="p-2 lg:p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:border-[var(--accent-red)] transition-all cursor-pointer shrink-0"
               title="Configurações e Aparência"
             >
               <Settings className="w-4 h-4 lg:w-5 lg:h-5" />
-            </button>
+            </button>}
 
             {onLogout && (
               <button

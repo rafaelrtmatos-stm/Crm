@@ -29,6 +29,7 @@ import {
   batchSaveServicesToSupabase,
 } from './utils/supabaseStorage';
 import { supabase } from '../supabase';
+import { useApp } from '../AppContext';
 import { showConfirm } from '../lib/notify';
 import { ColaboradorLogin } from './ColaboradorLogin';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
@@ -70,7 +71,14 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   // So o admin (veio de "Ver Painel" no painel de Comissoes do CRM, com presetColaborador
   // preenchido) pode criar/editar/excluir desconto -- o colaborador (login proprio, seja
   // aqui no menu embutido ou em /comissoes) so enxerga, nunca escreve.
-  const isAdmin = !!presetColaborador;
+  // Agora o modo de edição vale só para admin de verdade (presetColaborador E user.isAdmin).
+  const { user } = useApp();
+  const isAdmin = !!presetColaborador && !!user?.isAdmin;
+  // Não-admin vendo o painel de um funcionário (preset): somente leitura. A única escrita permitida
+  // é o funcionário de comissão (fixo + comissão) adicionar serviço.
+  const readOnlyView = !!presetColaborador && !isAdmin;
+  // Para não-admin, só no painel do PRÓPRIO funcionário (conta anexada) e se ele for de comissão.
+  const podeAdicionarServico = !readOnlyView || (colaborador?.modalidadeRemuneracao === 'fixo_comissao' && !!user?.colaboradorId && colaborador?.id === user.colaboradorId);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceItem | null>(null);
@@ -207,7 +215,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   };
 
   const handleSaveSettings = async (newSettings: UserSettings) => {
-    if (!colaborador) return;
+    if (!colaborador || readOnlyView) return;
     setUserSettings(newSettings);
     const ok = await saveColaboradorSettings(colaborador.id, newSettings);
     showToast(ok ? 'Configurações salvas com sucesso!' : 'Não foi possível salvar.');
@@ -216,6 +224,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   const handleSaveService = async (savedItem: ServiceItem) => {
     if (!colaborador) return;
     const exists = services.some((s) => s.id === savedItem.id);
+    if (readOnlyView && (exists || !podeAdicionarServico)) { showToast('Sem permissão para editar serviços.'); return; }
     const saved = await saveServiceToSupabase(colaborador.id, savedItem, !exists);
     if (!saved) { showToast('Não foi possível salvar o serviço.'); return; }
     setServices((prev) => (exists ? prev.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...prev]));
@@ -224,7 +233,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   };
 
   const handleBatchUpdateServices = async (updatedItems: ServiceItem[]) => {
-    if (!colaborador || updatedItems.length === 0) return;
+    if (!colaborador || updatedItems.length === 0 || readOnlyView) return;
     try {
       const savedList = await batchSaveServicesToSupabase(colaborador.id, updatedItems);
       if (savedList.length > 0) {
@@ -240,7 +249,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
 
   // Exclusão otimista em lote: some na hora (0ms) da lista e da agenda em tempo real
   const handleDeleteServices = async (ids: string[]) => {
-    if (!ids || ids.length === 0) return;
+    if (!ids || ids.length === 0 || readOnlyView) return;
     const itemsToDelete = services.filter((s) => ids.includes(s.id));
     if (itemsToDelete.length === 0) return;
 
@@ -312,6 +321,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   };
 
   const handleEditService = (service: ServiceItem) => {
+    if (readOnlyView) return;
     setEditingService(service);
     setModalHeaderOverride(undefined);
     setIsAddModalOpen(true);
@@ -321,6 +331,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   // - "livre": abre o modal de lançamento manual (comportamento atual)
   // - "somente_nota": vai direto pra aba Serviços (lista de notas pra puxar itens)
   const handleOpenAddModal = (dateISO?: string) => {
+    if (!podeAdicionarServico) return;
     if (colaborador?.modoLancamentoComissao === 'somente_nota') {
       setActiveTab('servicos');
       showToast('Selecione uma nota para adicionar os itens de serviço.');
@@ -336,7 +347,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   // "Serviços") direto na tabela dele — o valor de cada item já vem revisado/editado
   // de lá. Quando é só 1 item, some direto sem precisar abrir mais nada.
   const handleAddItemsFromNota = async (items: NotaSelecionadoItem[], nota: NotaDetalhe, dataSelecionada: string): Promise<boolean> => {
-    if (!colaborador || items.length === 0) return false;
+    if (!colaborador || items.length === 0 || !podeAdicionarServico) return false;
     const dataAgendada = dataSelecionada || getTodayISO();
     const commissionPercent = userSettings.defaultCommissionRate;
 
@@ -420,6 +431,8 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
         userSettings={userSettings}
         onOpenAddModal={() => handleOpenAddModal()}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        hideAddService={!podeAdicionarServico}
+        hideSettings={readOnlyView}
         onLogout={presetColaborador ? undefined : handleLogout}
       />
 
@@ -444,6 +457,8 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 descontos={descontos}
                 colaboradorId={colaborador?.id}
                 onlyPullFromNote={colaborador?.modoLancamentoComissao === 'somente_nota'}
+                canAdd={podeAdicionarServico}
+                canEdit={!readOnlyView}
               />
             )}
             {activeTab === 'weekly' && (
@@ -456,6 +471,8 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onBatchUpdateServices={handleBatchUpdateServices}
                 weeklyGoal={userSettings.weeklyGoal}
                 onGoToTrash={() => setActiveTab('servicos')}
+                canAdd={podeAdicionarServico}
+                canEdit={!readOnlyView}
               />
             )}
             {activeTab === 'table' && (
@@ -466,12 +483,13 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 onDeleteService={handleDeleteService}
                 onOpenAddModal={() => handleOpenAddModal()}
                 highlightServiceId={highlightServiceId}
+                canEdit={!readOnlyView}
               />
             )}
             {activeTab === 'reports' && (
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} onGoToServiceInTable={handleGoToServiceInTable} />
             )}
-            {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
+            {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={podeAdicionarServico ? handleAddItemsFromNota : undefined} colaboradorId={colaborador.id} readOnly={readOnlyView} />}
             {activeTab === 'descontos' && (
               <DescontosView
                 colaboradorId={colaborador.id}

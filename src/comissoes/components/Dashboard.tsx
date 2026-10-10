@@ -45,6 +45,9 @@ interface DashboardProps {
   // usuário clica num item da lista "Serviços no Período" (em vez de abrir editar direto).
   onGoToServiceInTable?: (serviceId: string) => void;
   onEditService: (service: ServiceItem) => void;
+  // Somente leitura para não-admin: esconde adicionar/editar serviço (padrão: liberado).
+  canAdd?: boolean;
+  canEdit?: boolean;
   weeklyGoal: number;
   descontos?: Desconto[];
   // ID do colaborador -- usado pra buscar o caixa/pagamentos e calcular o total estimado
@@ -180,6 +183,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onGoToDescontos,
   onGoToServiceInTable,
   onEditService,
+  canAdd = true,
+  canEdit = true,
   weeklyGoal,
   descontos = [],
   colaboradorId,
@@ -537,7 +542,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div className="relative z-10 flex items-center gap-3">
-          <AddServiceButton onClick={onOpenAddModal} size="large" />
+          {canAdd && <AddServiceButton onClick={onOpenAddModal} size="large" />}
         </div>
       </div>
 
@@ -861,12 +866,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       {formatCurrency(item.commissionValue)}
                     </td>
                     <td className="py-3 px-3 text-center">
-                      <button
+                      {canEdit && <button
                         onClick={(e) => { e.stopPropagation(); onEditService(item); }}
                         className="px-2.5 py-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-[10px] font-bold text-[var(--text-muted)] hover:text-white cursor-pointer"
                       >
                         Editar
-                      </button>
+                      </button>}
                     </td>
                   </tr>
                 ))}

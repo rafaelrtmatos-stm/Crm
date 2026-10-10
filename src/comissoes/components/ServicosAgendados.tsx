@@ -39,6 +39,8 @@ interface NotaAgendada {
 interface ServicosAgendadosProps {
   onAddItemsToTable?: (items: NotaSelecionadoItem[], nota: NotaDetalhe, data: string) => Promise<boolean>;
   colaboradorId?: string;
+  // Somente leitura (não-admin): sem excluir/restaurar notas e serviços.
+  readOnly?: boolean;
 }
 
 const dateKey = (raw: string | null | undefined) => {
@@ -91,7 +93,8 @@ const calcFatorDesconto = (nota: NotaAgendada): number => {
 
 export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   onAddItemsToTable,
-  colaboradorId
+  colaboradorId,
+  readOnly = false
 }) => {
   const [notas, setNotas] = useState<NotaAgendada[]>([]);
   const [loading, setLoading] = useState(true);
@@ -525,6 +528,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   // Tira um serviço já lançado a partir de um item da nota (o colaborador se enganou ao
   // adicionar). O item volta a ficar "Disponível" pra ser lançado de novo, se for o caso.
   const handleRemoverItem = async (notaId: string, idx: number) => {
+    if (readOnly) return;
     if (!(await showConfirm(
       'Tirar esse serviço da nota? Ele some da sua planilha de comissões e o item volta a ficar disponível.'
     ))) return;
@@ -557,7 +561,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
   const handleExcluirNota = async (e: React.MouseEvent, vendaId: string) => {
     e.stopPropagation();
-    if (!colaboradorId) return;
+    if (!colaboradorId || readOnly) return;
     if (!(await showConfirm(
       'Excluir essa nota da sua lista de Serviços? Ela some só pra você — continua normal no PDV/Financeiro.'
     ))) return;
@@ -586,7 +590,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   };
 
   const handleExcluirSelecionadas = async () => {
-    if (!colaboradorId || !selecionadas.size) return;
+    if (!colaboradorId || readOnly || !selecionadas.size) return;
     const ids = Array.from(selecionadas);
 
     if (!(await showConfirm(
@@ -609,7 +613,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   };
 
   const handleRestaurarNota = async (vendaId: string) => {
-    if (!colaboradorId) return;
+    if (!colaboradorId || readOnly) return;
 
     setDispensadas(prev => {
       const next = new Set(prev);
@@ -628,6 +632,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
   // Restaura um serviço excluído da Planilha de volta pra tabela do colaborador.
   const handleRestaurarServico = async (id: string) => {
+    if (readOnly) return;
     const ok = await restoreServiceFromSupabase(id);
     if (!ok) return;
     setServicosExcluidos(prev => prev.filter(s => s.id !== id));
@@ -775,7 +780,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             </button>
           )}
 
-          {colaboradorId && !modoSelecao && (
+          {colaboradorId && !readOnly && !modoSelecao && (
             <button
               onClick={e => handleExcluirNota(e, nota.id)}
               className="p-2 rounded-lg text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
@@ -836,7 +841,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     }`}>
                       {added ? 'Já adicionado' : isSelected ? 'Selecionado' : 'Disponível'}
                     </span>
-                    {added && colaboradorId && (
+                    {added && colaboradorId && !readOnly && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleRemoverItem(nota.id, idx); }}
                         title="Tirar este serviço da nota"
@@ -886,7 +891,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
           ({lixeiraAberta ? notasNaLixeira.length + servicosExcluidos.length : notasVisiveis.length})
         </span>
 
-        {colaboradorId && (
+        {colaboradorId && !readOnly && (
           <div className="ml-auto flex items-center gap-2">
             {!lixeiraAberta && (
               <button

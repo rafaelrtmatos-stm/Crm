@@ -26,6 +26,7 @@ interface ServiceTableProps {
   onEditService: (service: ServiceItem) => void;
   onDeleteService: (id: string) => void;
   onOpenAddModal: () => void;
+  canEdit?: boolean;
   // Id de um serviço específico pra rolar até a linha dele e destacar -- usado quando
   // se chega nessa aba a partir de um clique num item da lista "Serviços no Período"
   // do Dashboard (ver Dashboard.tsx / onGoToServiceInTable).
@@ -39,6 +40,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
   onDeleteService,
   onOpenAddModal,
   highlightServiceId,
+  canEdit = true,
 }) => {
   const [filters, setFilters] = useState<FilterOptions>({
     dateRange: 'all',
@@ -406,21 +408,21 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
 
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
-                        <button
+                        {canEdit && <button
                           onClick={() => onEditService(item)}
                           className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-card-sec)] transition-colors cursor-pointer"
                           title="Editar Serviço"
                         >
                           <Edit2 className="w-4 h-4" />
-                        </button>
+                        </button>}
 
-                        <button
+                        {canEdit && <button
                           onClick={() => onDeleteService(item.id)}
                           className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
                           title="Excluir Serviço"
                         >
                           <Trash2 className="w-4 h-4" />
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -513,19 +515,19 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-1">
-                <button
+                {canEdit && <button
                   onClick={() => onEditService(item)}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs font-bold text-[var(--text-muted)] hover:text-white"
                 >
                   <Edit2 className="w-3.5 h-3.5" /> Editar
-                </button>
+                </button>}
 
-                <button
+                {canEdit && <button
                   onClick={() => onDeleteService(item.id)}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-500/20 bg-red-950/20 text-xs font-bold text-red-400"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Excluir
-                </button>
+                </button>}
               </div>
             </div>
           ))

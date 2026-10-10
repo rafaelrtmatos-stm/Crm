@@ -205,12 +205,16 @@ function getAvatarGradient(name: string): string {
 
 export default function ComissoesAdminPanel() {
   const { user } = useApp();
+  // Só admin gerencia funcionários (criar/editar/excluir/ativar/vincular conta). Não-admin só visualiza.
+  const isAdmin = !!user?.isAdmin;
   // Sincroniza com tema claro/escuro do CRM
   useSyncWithCrmTheme();
 
   const [colaboradores, setColaboradores] = useState<ColaboradorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ColaboradorRow | null>(null);
+  // Visão da aba: 'funcionarios' (cards/tabela de hoje) ou 'usuarios' (lista dos funcionários que este usuário pode ver).
+  const [visao, setVisao] = useState<'funcionarios' | 'usuarios'>('funcionarios');
 
   // Mapa de estatísticas da semana para cada colaborador (id -> stats)
   const [weeklyStatsMap, setWeeklyStatsMap] = useState<Record<string, ColaboradorWeeklyStats>>({});
@@ -663,6 +667,7 @@ export default function ComissoesAdminPanel() {
   }, [colaboradores, weeklyStatsMap, searchQuery, statusFilter, modoFilter, sortBy]);
 
   const openNewForm = () => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     setEditingId(null);
     setForm({ ...emptyForm });
     setShowPasswordInModal(false);
@@ -670,6 +675,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const openEditForm = (c: ColaboradorRow) => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     // Carrega eventual valor salvo localmente como fallback resiliente
     let localExtra: any = null;
     if (typeof window !== 'undefined' && c.id) {
@@ -774,6 +780,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const openLinkModal = (c: ColaboradorRow) => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     const linked = usuariosContas.find((u) => u.colaborador_id === c.id);
     setSelectedUsuarioForLink(linked?.id || '');
     setLinkCreateNew(false);
@@ -782,6 +789,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const handleSaveLink = async () => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     if (!linkingColaborador) return;
     setSavingLink(true);
     try {
@@ -892,6 +900,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const handleCopyAccess = (c: ColaboradorRow) => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     const text = `Acesso ao Sistema de Comissões:\nColaborador: ${c.nome}\nSenha: ${c.senha}`;
     navigator.clipboard?.writeText(text);
     setCopiedId(c.id);
@@ -900,6 +909,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const handleSave = async () => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     if (!form.nome.trim()) {
       showAlert('Preencha o nome do colaborador.');
       return;
@@ -1087,6 +1097,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const handleToggleAtivo = async (c: ColaboradorRow) => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     const novoStatus = !c.ativo;
     const { error } = await supabase.from('colaboradores').update({ ativo: novoStatus }).eq('id', c.id);
     if (error) {
@@ -1097,6 +1108,7 @@ export default function ComissoesAdminPanel() {
   };
 
   const handleDelete = async (c: ColaboradorRow) => {
+    if (!isAdmin) { showAlert('Apenas administradores podem realizar esta ação.'); return; }
     const confirmed = await showConfirm(
       `Deseja realmente excluir ${c.nome}?\n\nEsta ação excluirá permanentemente o colaborador e seu histórico de lançamentos no sistema.`
     );
@@ -1137,14 +1149,14 @@ export default function ComissoesAdminPanel() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            {isAdmin && <button
               onClick={() => openEditForm(selected)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-black uppercase tracking-wider border border-amber-500/40 shadow-sm transition-all cursor-pointer active:scale-95"
               title="Editar configurações e dados do colaborador"
             >
               <Edit3 className="w-4 h-4 text-amber-400" />
               <span>Editar Dados</span>
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -1160,6 +1172,62 @@ export default function ComissoesAdminPanel() {
     <div className="comissoes-app min-h-full pb-12 bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300 font-sans">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 space-y-6">
         
+        {/* SELETOR DE VISÃO: Funcionários | Usuários */}
+        <div className="flex items-center gap-2">
+          {([['funcionarios', 'Funcionários'], ['usuarios', 'Usuários']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setVisao(id)}
+              className={`h-10 px-5 rounded-2xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                visao === id
+                  ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-white/20 shadow-md shadow-red-600/20'
+                  : 'bg-[var(--bg-card-sec)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-main)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* VISÃO "USUÁRIOS": funcionários que este usuário pode ver (admin vê todos). Somente leitura. */}
+        {visao === 'usuarios' && (
+          <div className="bg-[var(--bg-card)] rounded-3xl border border-[var(--border-color)] shadow-md overflow-hidden">
+            {loading ? (
+              <div className="p-6 text-xs text-[var(--text-muted)]">Carregando...</div>
+            ) : colaboradores.length === 0 ? (
+              <div className="p-6 text-xs text-[var(--text-muted)]">Nenhum funcionário liberado para esta conta.</div>
+            ) : (
+              <ul className="divide-y divide-[var(--border-color)]">
+                {colaboradores.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+                    <div className="min-w-0">
+                      <span className="font-bold text-sm text-[var(--text-main)] block truncate">{c.nome}</span>
+                      <span className="text-xs text-[var(--text-muted)] truncate block">{c.cargo || 'Cargo não especificado'}</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${
+                        c.ativo
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                      }`}>
+                        {c.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
+                      <button
+                        onClick={() => setSelected(c)}
+                        className="flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-red-600/20 transition-all cursor-pointer active:scale-95"
+                      >
+                        <span>Ver painel</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div className={visao === 'usuarios' ? 'hidden' : 'space-y-6'}>
         {/* ========================================================= */}
         {/* 1. CABEÇALHO & AÇÕES PRINCIPAIS */}
         {/* ========================================================= */}
@@ -1254,13 +1322,13 @@ export default function ComissoesAdminPanel() {
               <span className="hidden sm:inline">Atualizar</span>
             </button>
 
-            <button
+            {isAdmin && <button
               onClick={openNewForm}
               className="flex items-center justify-center gap-2 h-11 px-5 rounded-2xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-red-600/30 border border-white/20 transition-all cursor-pointer active:scale-95"
             >
               <Plus className="w-4 h-4 stroke-[3]" />
               <span>Novo Funcionário</span>
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -1562,7 +1630,7 @@ export default function ComissoesAdminPanel() {
                 Limpar Filtros
               </button>
             ) : (
-              <button
+              isAdmin && <button
                 onClick={openNewForm}
                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-red-600/30 hover:opacity-90 transition-all"
               >
@@ -1628,12 +1696,13 @@ export default function ComissoesAdminPanel() {
                       {/* Status Badge */}
                       <button
                         onClick={() => handleToggleAtivo(c)}
+                        disabled={!isAdmin}
                         className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border transition-all shrink-0 cursor-pointer ${
                           c.ativo
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
                             : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
                         }`}
-                        title={c.ativo ? 'Clique para desativar' : 'Clique para ativar'}
+                        title={isAdmin ? (c.ativo ? 'Clique para desativar' : 'Clique para ativar') : undefined}
                       >
                         {c.ativo ? 'Ativo' : 'Inativo'}
                       </button>
@@ -1799,39 +1868,39 @@ export default function ComissoesAdminPanel() {
                   {/* Rodapé de Ações */}
                   <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
-                      <button
+                      {isAdmin && <button
                         onClick={() => openEditForm(c)}
                         className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                         title="Editar funcionário"
                       >
                         <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                         <span>Editar</span>
-                      </button>
+                      </button>}
 
-                      <button
+                      {isAdmin && <button
                         onClick={() => openLinkModal(c)}
                         className="flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                         title="Anexar / Gerenciar conta de acesso"
                       >
                         <Link2 className="w-3.5 h-3.5 text-purple-400" />
                         <span>Conta</span>
-                      </button>
+                      </button>}
 
-                      <button
+                      {isAdmin && <button
                         onClick={() => handleCopyAccess(c)}
                         className="h-8 w-8 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all cursor-pointer border border-[var(--border-color)] flex items-center justify-center shrink-0"
                         title="Copiar dados de acesso (login e senha)"
                       >
                         {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
+                      </button>}
 
-                      <button
+                      {isAdmin && <button
                         onClick={() => handleDelete(c)}
                         className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer flex items-center justify-center shrink-0"
                         title="Excluir funcionário"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      </button>}
                     </div>
 
                     <button
@@ -1932,6 +2001,7 @@ export default function ComissoesAdminPanel() {
                         <td className="py-3.5 px-4 whitespace-nowrap">
                           <button
                             onClick={() => handleToggleAtivo(c)}
+                            disabled={!isAdmin}
                             className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border transition-all cursor-pointer ${
                               c.ativo
                                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
@@ -2012,40 +2082,40 @@ export default function ComissoesAdminPanel() {
 
                         <td className="py-3.5 px-5 text-right whitespace-nowrap min-w-[250px]">
                           <div className="flex items-center justify-end gap-2">
-                            <button
+                            {isAdmin && <button
                               onClick={() => openEditForm(c)}
                               className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                               title="Editar funcionário"
                             >
                               <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                               <span>Editar</span>
-                            </button>
+                            </button>}
 
-                            <button
+                            {isAdmin && <button
                               onClick={() => openLinkModal(c)}
                               className="h-8 px-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 transition-all flex items-center gap-1.5 text-xs font-black uppercase tracking-wider shrink-0 cursor-pointer shadow-sm active:scale-95"
                               title="Anexar ou trocar conta de login do sistema"
                             >
                               <Link2 className="w-3.5 h-3.5 text-purple-400" />
                               <span>Conta</span>
-                            </button>
+                            </button>}
 
-                            <button
+                            {isAdmin && <button
                               onClick={() => handleCopyAccess(c)}
                               className="h-8 px-2.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] transition-all flex items-center gap-1 text-[11px] font-bold shrink-0"
                               title="Copiar dados de acesso"
                             >
                               {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                               <span className="hidden lg:inline">Acesso</span>
-                            </button>
+                            </button>}
 
-                            <button
+                            {isAdmin && <button
                               onClick={() => handleDelete(c)}
                               className="h-8 w-8 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-all shrink-0"
                               title="Excluir"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            </button>}
 
                             <button
                               onClick={() => setSelected(c)}
@@ -2067,7 +2137,7 @@ export default function ComissoesAdminPanel() {
         {/* ========================================================= */}
         {/* 5. MODAL DE CRIAÇÃO / EDIÇÃO DO FUNCIONÁRIO */}
         {/* ========================================================= */}
-        {showModal && (
+        {isAdmin && showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
             <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               
@@ -2690,7 +2760,7 @@ export default function ComissoesAdminPanel() {
         {/* ========================================================= */}
         {/* 6. MODAL DEDICADO PARA ANEXAR / GERENCIAR CONTA DE USUÁRIO */}
         {/* ========================================================= */}
-        {linkingColaborador && (
+        {isAdmin && linkingColaborador && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
             <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               {/* Header */}
@@ -2852,6 +2922,7 @@ export default function ComissoesAdminPanel() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
