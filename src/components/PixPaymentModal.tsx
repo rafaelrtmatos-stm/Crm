@@ -53,10 +53,17 @@ export interface PixPaymentModalProps {
    * Sem isso, o card funciona só com a baixa manual. `saleId` é nulo quando a venda ainda não existe (PDV).
    */
   autoConfirm?: { companyId: string; saleId?: string | null };
+  /**
+   * Quando true, a gravação (onAutoPaid) acontece NA HORA em que o PIX é detectado — não depois do aviso verde.
+   * O card continua mostrando "PIX confirmado ✓" por um instante e só então fecha (sem gravar de novo).
+   * Usado na tela de Vendas: só a linha do PIX é gravada e a tela de pagamento continua aberta para o resto.
+   * Sem isso (PDV), o comportamento é o de sempre: aviso verde, grava e fecha.
+   */
+  salvarAoDetectar?: boolean;
 }
 
 export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
-  isOpen, onClose, payload, pixKey, amount, beneficiaryName, bank, confirmLabel, onConfirm, confirmDisabled, onAutoPaid, autoConfirm,
+  isOpen, onClose, payload, pixKey, amount, beneficiaryName, bank, confirmLabel, onConfirm, confirmDisabled, onAutoPaid, autoConfirm, salvarAoDetectar,
 }) => {
   const [copiado, setCopiado] = useState<'key' | 'payload' | null>(null);
   const [autoStatus, setAutoStatus] = useState<'off' | 'aguardando' | 'expirado'>('off');
@@ -66,6 +73,8 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   const onCloseRef = useRef(onClose);
   const confirmDisabledRef = useRef(confirmDisabled);
   const onAutoPaidRef = useRef(onAutoPaid);
+  const salvarAoDetectarRef = useRef(salvarAoDetectar);
+  salvarAoDetectarRef.current = salvarAoDetectar;
   const amountRef = useRef(amount);
   amountRef.current = amount;
   onConfirmRef.current = onConfirm;
@@ -128,7 +137,8 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   const valorCentavos = Math.round(amount * 100);
 
   useEffect(() => {
-    if (!isOpen || !autoCompanyId || !(valorCentavos > 0)) return;
+    // concluidoRef: PIX já detectado e gravado — se o pai mudar (ex.: a nota passou a existir), não abre nova pendência.
+    if (!isOpen || !autoCompanyId || !(valorCentavos > 0) || concluidoRef.current) return;
     let ativo = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pendenciaId: string | null = null;
@@ -142,9 +152,19 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
     window.addEventListener('focus', aoVoltar);
 
     const aoPagar = () => {
+      // Modo "salvar ao detectar": grava agora (uma única vez) e deixa o timer só fechar o card.
+      if (salvarAoDetectarRef.current && !concluidoRef.current) {
+        concluidoRef.current = true;
+        const auto = onAutoPaidRef.current;
+        if (auto) { if (!confirmDisabledRef.current) auto(amountRef.current); }
+        else showAlert('PIX recebido: pagamento confirmado automaticamente.');
+      }
       setPagoAuto(true);
       limparTimerPago();
-      pagoAutoTimerRef.current = setTimeout(() => concluirPagamentoAutoRef.current(), TEMPO_CONFIRMADO_MS);
+      pagoAutoTimerRef.current = setTimeout(() => {
+        if (salvarAoDetectarRef.current) onCloseRef.current(); // já gravado: só fecha o card
+        else concluirPagamentoAutoRef.current();
+      }, TEMPO_CONFIRMADO_MS);
     };
 
     (async () => {

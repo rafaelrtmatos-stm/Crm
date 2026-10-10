@@ -15396,6 +15396,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const [newPaymentInput, setNewPaymentInput] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('');
   const [pixQrAmount, setPixQrAmount] = useState<number>(0);
+  // Índice da linha de PIX (em paymentEntries) que abriu o card do QR: é essa linha que a confirmação automática grava.
+  const [pixQrEntryIdx, setPixQrEntryIdx] = useState<number>(-1);
   const paymentEntriesTotal = paymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
 
   const resetPaymentEntries = () => {
@@ -19941,9 +19943,24 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       .reduce((acc, ev) => acc + ev.value, 0);
   }, [allSalesHistory]);
 
-  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false, ignorarCampoPendente: boolean = false) => {
+  // Linha de PIX que o e-mail confirmou: a da lista que abriu o card (ou outra de PIX com o mesmo valor).
+  // Se por algum motivo não estiver na lista, monta uma, para o dinheiro recebido nunca ficar sem registro.
+  const entradaPixConfirmada = (valorPago: number): PaymentEntry => {
+    const mesmoValor = (e?: PaymentEntry) => !!e && e.method === 'pix' && Math.abs(e.value - valorPago) < 0.01;
+    const porIndice = paymentEntries[pixQrEntryIdx];
+    if (mesmoValor(porIndice)) return porIndice;
+    const porValor = paymentEntries.find(e => mesmoValor(e));
+    return porValor || { method: 'pix', value: Number(valorPago.toFixed(2)), date: new Date().toISOString() };
+  };
+
+  // somentePix: confirmação automática do PIX na tela de Vendas. Grava SÓ essa entrada (o resto da lista — dinheiro,
+  // crédito — continua pendente até o botão de salvar). Se sobrar saldo, a tela de pagamento permanece aberta,
+  // agora ligada à nota que acabou de ser gravada (próximo salvar atualiza a mesma nota, nunca cria outra).
+  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false, ignorarCampoPendente: boolean = false, somentePix?: PaymentEntry) => {
     if (isFinalizingSale) return;
     setIsFinalizingSale(true);
+    const restantesSemPix: PaymentEntry[] = somentePix ? paymentEntries.filter(e => e !== somentePix) : [];
+    const creditoAplicadoAntes = saleCreditApplied;
     try {
       // Protecao de UX: se o usuario digitou um valor no campo de pagamento mas esqueceu de
       // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar —
@@ -19951,8 +19968,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // digitado no campo e nunca foi confirmado na lista.
       // ignorarCampoPendente: usado pela confirmação automática do PIX — o campo de valor volta preenchido com o
       // restante e NÃO pode virar um pagamento extra (senão a entrada de 50 viraria 100).
-      const pendingEntry = (forceZeroPayment || ignorarCampoPendente) ? null : buildPaymentEntryFromInput();
-      const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
+      const pendingEntry = (forceZeroPayment || ignorarCampoPendente || somentePix) ? null : buildPaymentEntryFromInput();
+      const effectivePaymentEntries = somentePix ? [somentePix] : (pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries);
       const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
       if (pendingEntry) {
         setPaymentEntries(effectivePaymentEntries);
@@ -20018,8 +20035,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           avisarPixAutomatico(updatedOrder, updatedOrder.customerPhone, novoSaldo);
           setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
           setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
-          setIsSuccessModalOpen(true);
-          setIsPaymentModalOpen(false);
+          const manterTelaPix = !!somentePix && novoSaldo > 0;
+          if (!manterTelaPix) {
+            setIsSuccessModalOpen(true);
+            setIsPaymentModalOpen(false);
+          }
 
           // Salva referências locais antes de resetar o formulário
           const currentCart = [...cart];
@@ -20041,6 +20061,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           setSaleDiscountInput('');
           setSaleCreditApplied(0);
           setEditingCreatedAt('');
+          if (manterTelaPix) {
+            // Só o PIX foi gravado: a nota (já com os itens editados) vira "nota existente" e a tela segue aberta para o resto.
+            openSettlePayment(updatedOrder);
+            setSaleCreditApplied(creditoAplicadoAntes);
+            setPaymentEntries(restantesSemPix);
+          }
 
           // Processamento assíncrono em segundo plano (estoque, orçamentos e comissões)
           (async () => {
@@ -20157,6 +20183,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           avisarPixAutomatico(updatedOrder, updatedOrder.customerPhone, novoSaldo);
           setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
           setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
+          if (somentePix && novoSaldo > 0) {
+            // Só o PIX foi gravado e ainda há saldo: mantém a tela de pagamento aberta na mesma nota.
+            setSettlingOrder(updatedOrder);
+            setEditingPaymentsList(pagamentosFinais);
+            setPaymentEntries(restantesSemPix);
+            return;
+          }
           setIsSuccessModalOpen(true);
           setIsPaymentModalOpen(false);
           setSettlingOrder(null);
@@ -20177,7 +20210,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
 
       // 3. Nova Venda / Lançar Entrada
-      const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
+      const finalDownPayment = forceZeroPayment ? 0 : somentePix ? Number(somentePix.value.toFixed(2)) : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
+      const metodoPagamentoSalvo = somentePix ? 'pix' : paymentMethod;
       const currentRemaining = Math.max(0, total - finalDownPayment);
       const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
       const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;
@@ -20193,7 +20227,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         discountValue: saleDiscountValue || undefined,
         downPayment: finalDownPayment,
         receivedValue: finalDownPayment,
-        paymentMethod,
+        paymentMethod: metodoPagamentoSalvo,
         payments: paymentsToSave,
         pendingPaymentMethod: currentRemaining > 0 ? (pendingPaymentMethod || undefined) : undefined,
         status: isPartialSale ? 'pending' : 'completed',
@@ -20250,8 +20284,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         if (isPartialSale) {
           addPendingOrder(novaVendaMapeada);
         }
-        setIsSuccessModalOpen(true);
-        setIsPaymentModalOpen(false);
+        const manterTelaPix = !!somentePix && currentRemaining > 0;
+        if (!manterTelaPix) {
+          setIsSuccessModalOpen(true);
+          setIsPaymentModalOpen(false);
+        }
 
         // Salva dados locais antes de resetar o formulário
         const currentCart = [...cart];
@@ -20272,6 +20309,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setSaleDiscountInput(''); 
         setSaleCreditApplied(0);
         resetPaymentEntries();
+        if (manterTelaPix) {
+          // Só o PIX foi gravado: a nota recém-criada vira "nota existente" e a tela segue aberta para dinheiro/crédito.
+          openSettlePayment(novaVendaMapeada);
+          setSaleCreditApplied(creditoAplicadoAntes);
+          setPaymentEntries(restantesSemPix);
+        }
 
         // Processa tarefas secundárias em segundo plano assíncrono (baixas de estoque, insumos, crédito e OS)
         // para que a tela de venda responda INSTANTANEAMENTE sem travar o PDV
@@ -24638,7 +24681,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                        </div>
                                        {p.method === 'pix' && (
                                          <button
-                                           onClick={() => { setPixQrAmount(p.value); setIsPixQrModalOpen(true); }}
+                                           onClick={() => { setPixQrAmount(p.value); setPixQrEntryIdx(idx); setIsPixQrModalOpen(true); }}
                                            title="Ver QR Code PIX"
                                            className="p-1 text-primary-300 hover:text-primary-200 hover:bg-primary-500/10 rounded transition-colors cursor-pointer"
                                          >
@@ -27730,7 +27773,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            amount={amountToCharge}
            beneficiaryName={pixConfig.beneficiaryName}
            bank={pixConfig.bank || undefined}
-           onAutoPaid={(valorPago) => { avisoPixAutoRef.current = valorPago; handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
+           salvarAoDetectar
+           onAutoPaid={(valorPago) => { avisoPixAutoRef.current = valorPago; handleFinalize(false, false, true, entradaPixConfirmada(valorPago)); }} // grava SÓ a linha do PIX (dinheiro/crédito só ao salvar); se sobrar saldo a tela de pagamento continua aberta
            autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: settlingOrder?.id || editingFullOrder?.id || null }}
          />
        );
