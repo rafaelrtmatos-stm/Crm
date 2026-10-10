@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clipboard, Copy } from 'lucide-react';
+import { CheckCircle2, Copy } from 'lucide-react';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
 import { PixQrImage } from './PixQrImage';
@@ -57,7 +57,7 @@ export default function PagamentoPublicPage() {
   const [iniciando, setIniciando] = useState(false);
   const [pago, setPago] = useState(false);
   const [expirou, setExpirou] = useState(false);
-  const [copiado, setCopiado] = useState<'key' | 'payload' | null>(null);
+  const [copiado, setCopiado] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inicioRef = useRef(0);
 
@@ -126,20 +126,23 @@ export default function PagamentoPublicPage() {
     };
   }, [pendenteId, pago, consultar]);
 
-  const copiar = async (valor: string, tipo: 'key' | 'payload') => {
+  const copiar = async (valor: string) => {
     try {
       await navigator.clipboard.writeText(valor);
-      setCopiado(tipo);
-      setTimeout(() => setCopiado(null), 1600);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1600);
     } catch {
       window.prompt('Copie o código:', valor);
     }
   };
 
   const moldura = (filhos: React.ReactNode) => (
-    <div className="min-h-screen bg-[#070d18] text-white flex items-start sm:items-center justify-center p-4">
-      <div className="w-full max-w-xs rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-5 space-y-4">
-        {filhos}
+    <div className="min-h-screen bg-[#070d18] text-white flex items-start sm:items-center justify-center p-3 sm:p-4">
+      {/* Mesmo padrão do modal PIX do sistema: card compacto (w-fit), largura guiada pelo QR Code. */}
+      <div className="w-fit max-w-full rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-4 sm:p-5">
+        <div className="w-[240px] max-w-full space-y-3">
+          {filhos}
+        </div>
       </div>
     </div>
   );
@@ -216,26 +219,18 @@ export default function PagamentoPublicPage() {
       </div>
 
       <div className="flex justify-center">
-        <div className="rounded-2xl bg-white p-2.5 w-[240px] h-[240px]">
+        <div className="rounded-2xl bg-white p-2 w-[200px] h-[200px]">
           <PixQrImage payload={payload} className="block h-full w-full object-contain" />
         </div>
       </div>
 
       <button
         type="button"
-        onClick={() => copiar(payload, 'payload')}
+        onClick={() => copiar(payload)}
         className="h-11 w-full rounded-xl border border-red-500/80 bg-[#3a1424]/70 text-red-300 text-[13px] font-black uppercase tracking-wider flex items-center justify-center gap-2.5 active:scale-[.99] transition-all cursor-pointer"
       >
         <Copy size={18} strokeWidth={1.8} />
-        {copiado === 'payload' ? 'PIX copiado!' : 'Copia e cola'}
-      </button>
-      <button
-        type="button"
-        onClick={() => copiar(link.pix.key, 'key')}
-        className="h-10 w-full rounded-xl border border-white/15 bg-white/5 text-white/80 text-[12px] font-black uppercase tracking-wider flex items-center justify-center gap-2.5 active:scale-[.99] transition-all cursor-pointer"
-      >
-        <Clipboard size={16} strokeWidth={1.8} />
-        {copiado === 'key' ? 'Chave copiada!' : 'Copiar chave PIX'}
+        {copiado ? 'PIX copiado!' : 'Copia e cola'}
       </button>
       <p className="text-[11px] text-slate-400 text-center">Beneficiário: {link.pix.beneficiaryName}{link.pix.bank ? ` · ${link.pix.bank}` : ''}</p>
 
