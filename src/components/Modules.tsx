@@ -10412,7 +10412,7 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       const { data, error } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('last_message_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
       if (error || !data) { if (error) console.warn('[CRM] Falha ao recarregar leads (mantendo a lista atual):', error); return; }
       if (!ativo || minha !== ultimaBuscaLeads) return;
-      setLeads(data.map(mapLeadRow));
+      setLeads(data.filter((r: any) => r.status !== 'EXCLUIDO').map(mapLeadRow)); // lead excluído não volta pro funil na recarga
     };
     // O webhook atualiza um lead a cada mensagem (inclusive de grupos): sem agrupar, cada evento
     // recarregava TODOS os leads. Agrupa rajadas de eventos numa unica recarga.
@@ -10822,7 +10822,9 @@ export const CRMModule = ({ currentCompany, user }: { currentCompany: Company | 
       }
     }
     // Preserva o histórico de mensagens para o Administrador: arquiva o lead em vez de excluir de vez
-    await supabase.from('leads').update({ archived: true, updated_at: new Date().toISOString() }).eq('id', lead.id);
+    // status 'EXCLUIDO' distingue o lead apagado dos concluídos/arquivados (que também usam archived=true e continuam
+    // no funil). Se o contato voltar a mandar mensagem, o fluxo de retorno (App.tsx) reativa o lead como ENTRADA.
+    await supabase.from('leads').update({ archived: true, status: 'EXCLUIDO', updated_at: new Date().toISOString() }).eq('id', lead.id);
   };
 
   const handleDeleteLead = async (lead: Lead) => {
@@ -13406,7 +13408,7 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     if (!currentCompany) return;
     const loadLeads = async () => {
       const { data } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').order('last_message_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
-      const fetchedLeads = (data || []).map(mapLeadRow);
+      const fetchedLeads = (data || []).filter((r: any) => r.status !== 'EXCLUIDO').map(mapLeadRow);
       setLeads(fetchedLeads);
 
       // Carrega status real de entrega e visualização das mensagens recentes
@@ -18958,6 +18960,33 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (activeTab !== 'historico' || !currentCompany) return;
     void verificarPagamentosLinks().then(r => { if (r.pagos > 0) loadSalesHistory(); });
   }, [activeTab, currentCompany]);
+
+  // "Visualizar Recibo" aberto: se o cliente pagar o link de pagamento enquanto o recibo está na tela, a baixa é dada
+  // pelo servidor e chega aqui pelo realtime de `vendas` (allSalesHistory). Toca o som e atualiza o saldo mostrado.
+  useEffect(() => {
+    if (!viewingReceiptSale) return;
+    const atual = allSalesHistory.find(s => s.id === viewingReceiptSale.id);
+    if (!atual) return;
+    const pagoDe = (s: SaleOrder) => s.downPayment ?? s.receivedValue ?? (s.status === 'completed' ? s.total : 0);
+    if (pagoDe(atual) > pagoDe(viewingReceiptSale) + 0.004) {
+      try {
+        const audio = new Audio('/sounds/sale-complete.mp3');
+        audio.play().catch(() => {});
+      } catch (e) {}
+      setViewingReceiptSale(atual);
+    }
+  }, [allSalesHistory, viewingReceiptSale?.id]);
+
+  // Enquanto o recibo está aberto, confere o link de pagamento dessa nota a cada 30 s (segunda chance caso o aviso do
+  // Gmail não tenha tocado). O servidor só lê o Gmail se houver pendência aberta e limita a frequência por nota.
+  useEffect(() => {
+    if (!viewingReceiptSale) return;
+    const notaId = viewingReceiptSale.id;
+    const t = setInterval(() => {
+      void verificarPagamentosLinks(notaId).then(r => { if (r.pagos > 0) loadSalesHistory(); });
+    }, 30000);
+    return () => clearInterval(t);
+  }, [viewingReceiptSale?.id]);
 
   // Botão "Verificar pagamentos": uma nota (saleId) ou todas as notas abertas com link ativo.
   const handleVerificarPagamentos = async (saleId?: string) => {
