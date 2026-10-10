@@ -421,7 +421,7 @@ export default function ComissoesApp() {
               <ReportsView services={services} userSettings={userSettings} stats={summaryStats} onGoToServiceInTable={handleGoToServiceInTable} />
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
-            {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} />}
+            {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
             {activeTab === 'salario' && <MeuSalarioView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
             {activeTab === 'descontos' && (
               <DescontosView
