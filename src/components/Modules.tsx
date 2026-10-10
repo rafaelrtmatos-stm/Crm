@@ -18070,13 +18070,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const handleOpenChatFromReceipt = async (sale: SaleOrder) => {
-    const rawPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim();
-    const clean = rawPhone.replace(/\D/g, '');
-    if (clean.length >= 8) {
-      await executeSendReceipt(sale, rawPhone, sale.customerName || selectedCustomer?.name || 'Cliente');
-    } else {
-      openSendReceiptModal(sale);
-    }
+    // Sempre abre o modal (enviar para um número ou para um grupo), mesmo com telefone cadastrado:
+    // o telefone do cliente já vem preenchido, mas dá pra trocar o número ou escolher um grupo.
+    openSendReceiptModal(sale);
   };
 
   const matchesOrderStatusFilter = (sale: SaleOrder, filter: OrderStatusFilterId): boolean => {
