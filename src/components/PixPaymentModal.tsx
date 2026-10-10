@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clipboard, Copy, DollarSign, KeyRound, Landmark, User, X } from 'lucide-react';
+import { CheckCircle2, Clipboard, Copy, DollarSign, KeyRound, Landmark, User, X } from 'lucide-react';
 import { PixQrImage } from './PixQrImage';
 import { showAlert } from '../lib/notify';
 import { cancelarPixPendente, consultarPixPago, INTERVALO_CONSULTA_PIX_MS, registrarPixPendente } from '../lib/pixPendentes';
@@ -42,6 +42,12 @@ export interface PixPaymentModalProps {
   onConfirm?: () => void;
   confirmDisabled?: boolean;
   /**
+   * Ação executada SÓ quando o PIX é detectado automaticamente (depois do aviso "PIX confirmado ✓").
+   * Se ausente, usa o onConfirm. O pai deve fazer o mesmo que o clique manual de quitar/finalizar
+   * (som, tela de venda finalizada) — o card fecha logo depois.
+   */
+  onAutoPaid?: () => void;
+  /**
    * Confirmação automática por e-mail do Nubank. Enquanto o card estiver aberto, registra uma pendência
    * e consulta o servidor a cada ~8 s; ao detectar o pagamento, aciona o onConfirm e fecha o card.
    * Sem isso, o card funciona só com a baixa manual. `saleId` é nulo quando a venda ainda não existe (PDV).
@@ -50,7 +56,7 @@ export interface PixPaymentModalProps {
 }
 
 export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
-  isOpen, onClose, payload, pixKey, amount, beneficiaryName, bank, confirmLabel, onConfirm, confirmDisabled, autoConfirm,
+  isOpen, onClose, payload, pixKey, amount, beneficiaryName, bank, confirmLabel, onConfirm, confirmDisabled, onAutoPaid, autoConfirm,
 }) => {
   const [copiado, setCopiado] = useState<'key' | 'payload' | null>(null);
   const [autoStatus, setAutoStatus] = useState<'off' | 'aguardando' | 'expirado'>('off');
@@ -59,9 +65,60 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   const onConfirmRef = useRef(onConfirm);
   const onCloseRef = useRef(onClose);
   const confirmDisabledRef = useRef(confirmDisabled);
+  const onAutoPaidRef = useRef(onAutoPaid);
   onConfirmRef.current = onConfirm;
   onCloseRef.current = onClose;
   confirmDisabledRef.current = confirmDisabled;
+  onAutoPaidRef.current = onAutoPaid;
+
+  // PIX detectado: mostra "PIX confirmado ✓" por um instante e só então finaliza (uma única vez).
+  const [pagoAuto, setPagoAuto] = useState(false);
+  const pagoAutoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const concluidoRef = useRef(false);
+  const TEMPO_CONFIRMADO_MS = 1800;
+
+  const limparTimerPago = () => {
+    if (pagoAutoTimerRef.current) { clearTimeout(pagoAutoTimerRef.current); pagoAutoTimerRef.current = null; }
+  };
+
+  const concluirPagamentoAuto = () => {
+    if (concluidoRef.current) return; // já finalizado (timer, Fechar ou botão manual): nunca duplica
+    concluidoRef.current = true;
+    limparTimerPago();
+    const acao = onAutoPaidRef.current || onConfirmRef.current;
+    if (acao) {
+      if (!confirmDisabledRef.current) acao(); // mesma ação do botão manual (ex.: handleFinalizeSale)
+    } else {
+      showAlert('PIX recebido: pagamento confirmado automaticamente.');
+    }
+    onCloseRef.current();
+  };
+  const concluirPagamentoAutoRef = useRef(concluirPagamentoAuto);
+  concluirPagamentoAutoRef.current = concluirPagamentoAuto;
+
+  // Botão manual "Confirmar pagamento": se o aviso automático estiver em andamento, cancela o timer
+  // e marca como concluído pra não finalizar a venda duas vezes.
+  const confirmarManual = () => {
+    if (pagoAuto) {
+      if (concluidoRef.current) return;
+      concluidoRef.current = true;
+      limparTimerPago();
+    }
+    onConfirm?.();
+  };
+
+  // Fechar durante o aviso de PIX confirmado não perde o pagamento: finaliza e fecha.
+  const fechar = () => {
+    if (pagoAuto && !concluidoRef.current) concluirPagamentoAuto();
+    else onClose();
+  };
+  const fecharRef = useRef(fechar);
+  fecharRef.current = fechar;
+
+  useEffect(() => {
+    if (!isOpen) { limparTimerPago(); setPagoAuto(false); concluidoRef.current = false; }
+  }, [isOpen]);
+  useEffect(() => () => limparTimerPago(), []);
 
   const autoCompanyId = autoConfirm?.companyId;
   const autoSaleId = autoConfirm?.saleId ?? null;
@@ -75,13 +132,9 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
     setAutoStatus('aguardando');
 
     const aoPagar = () => {
-      const confirmar = onConfirmRef.current;
-      if (confirmar) {
-        if (!confirmDisabledRef.current) confirmar(); // mesma ação do botão "Confirmar Pagamento"
-      } else {
-        showAlert('PIX recebido: pagamento confirmado automaticamente.');
-      }
-      onCloseRef.current();
+      setPagoAuto(true);
+      limparTimerPago();
+      pagoAutoTimerRef.current = setTimeout(() => concluirPagamentoAutoRef.current(), TEMPO_CONFIRMADO_MS);
     };
 
     (async () => {
@@ -112,10 +165,10 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') fecharRef.current(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -138,7 +191,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md" onClick={onClose} />
+      <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md" onClick={fechar} />
 
       <div
         role="dialog"
@@ -147,7 +200,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={fechar}
           aria-label="Fechar"
           className="absolute top-2.5 right-3 p-1 text-white/50 hover:text-white transition-colors cursor-pointer bg-transparent border-0"
         >
@@ -222,7 +275,19 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
           </div>
         </div>
 
-        {autoStatus !== 'off' && (
+        {pagoAuto && (
+          <div
+            role="status"
+            className="mt-3 flex items-center justify-center gap-2.5 rounded-xl border border-emerald-400/60 bg-emerald-500/20 px-4 py-2.5 text-[#2de3a0] animate-in zoom-in-95 fade-in duration-200"
+          >
+            <CheckCircle2 size={24} strokeWidth={2.4} />
+            <span className="text-[14px] font-black uppercase tracking-wide">
+              PIX confirmado ✓ · R$ {amount.toFixed(2).replace('.', ',')}
+            </span>
+          </div>
+        )}
+
+        {!pagoAuto && autoStatus !== 'off' && (
           <p className="mt-3 text-center text-[11px] font-semibold text-slate-400">
             {autoStatus === 'aguardando'
               ? 'Aguardando o PIX — a confirmação é automática assim que o pagamento chegar.'
@@ -234,7 +299,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
         <div className="mt-4 border-t border-white/10 pt-2.5 flex items-center justify-center gap-3">
           <button
             type="button"
-            onClick={onClose}
+            onClick={fechar}
             className="px-5 h-8 text-[12px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors cursor-pointer bg-transparent border-0"
           >
             Fechar
@@ -242,7 +307,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
           {onConfirm && (
             <button
               type="button"
-              onClick={onConfirm}
+              onClick={confirmarManual}
               disabled={confirmDisabled}
               className="px-5 h-8 rounded-xl bg-primary-500 hover:bg-primary-400 text-slate-900 text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer border-0 disabled:opacity-50 disabled:cursor-not-allowed"
             >

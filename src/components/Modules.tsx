@@ -19916,7 +19916,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       .reduce((acc, ev) => acc + ev.value, 0);
   }, [allSalesHistory]);
 
-  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false) => {
+  const handleFinalize = async (isPending: boolean = false, forceZeroPayment: boolean = false, ignorarCampoPendente: boolean = false) => {
     if (isFinalizingSale) return;
     setIsFinalizingSale(true);
     try {
@@ -19924,7 +19924,9 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // clicar em "+ Adicionar", inclui esse valor automaticamente na lista antes de processar —
       // evita registrar/quitar um pagamento de R$ 0,00 por engano so porque o valor ficou
       // digitado no campo e nunca foi confirmado na lista.
-      const pendingEntry = forceZeroPayment ? null : buildPaymentEntryFromInput();
+      // ignorarCampoPendente: usado pela confirmação automática do PIX — o campo de valor volta preenchido com o
+      // restante e NÃO pode virar um pagamento extra (senão a entrada de 50 viraria 100).
+      const pendingEntry = (forceZeroPayment || ignorarCampoPendente) ? null : buildPaymentEntryFromInput();
       const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
       const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
       if (pendingEntry) {
@@ -27637,6 +27639,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            amount={amountToCharge}
            beneficiaryName={pixConfig.beneficiaryName}
            bank={pixConfig.bank || undefined}
+           onAutoPaid={() => { handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
            autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: settlingOrder?.id || editingFullOrder?.id || null }}
          />
        );

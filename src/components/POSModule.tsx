@@ -2074,13 +2074,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       )}
 
       {/* Payment & Checkout Modal */}
-      {isPaymentModalOpen && paymentMethod === 'pix' && pixConfig && (
+      {isPaymentModalOpen && paymentMethod === 'pix' && pixConfig && (() => {
+        // Entrada parcial (ex.: 50 de uma nota de 100): o QR e a confirmação automática valem o valor da entrada
+        const valorPixCobrado = downPayment !== '' && Number(downPayment) > 0 && Number(downPayment) < total ? Number(downPayment) : total;
+        return (
         <PixPaymentModal
           isOpen
           onClose={() => setIsPaymentModalOpen(false)}
-          payload={buildPixPayload({ key: pixConfig.key, keyType: pixConfig.keyType, beneficiaryName: pixConfig.beneficiaryName, city: pixConfig.city, amount: Number(total.toFixed(2)) })}
+          payload={buildPixPayload({ key: pixConfig.key, keyType: pixConfig.keyType, beneficiaryName: pixConfig.beneficiaryName, city: pixConfig.city, amount: Number(valorPixCobrado.toFixed(2)) })}
           pixKey={pixConfig.key}
-          amount={total}
+          amount={valorPixCobrado}
           beneficiaryName={pixConfig.beneficiaryName}
           bank={pixConfig.bank || undefined}
           confirmLabel={isSavingSale ? 'Processando...' : 'Confirmar Pagamento'}
@@ -2088,7 +2091,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           onConfirm={() => { if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }}
           autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: null }}
         />
-      )}
+        );
+      })()}
       <Modal isOpen={isPaymentModalOpen && !(paymentMethod === 'pix' && pixConfig)} onClose={() => setIsPaymentModalOpen(false)}
         title={paymentMethod === 'pix' ? 'PAGAMENTO VIA PIX' : 'Finalizar Cobrança'} size="sm"
         className="w-full max-w-[calc(100vw-24px)] sm:max-w-md mx-auto rounded-[22px] p-3 sm:p-4">
