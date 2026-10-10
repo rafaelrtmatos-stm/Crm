@@ -354,9 +354,26 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', className
     xl: "max-w-6xl",
   };
 
+  // Largura mínima por tamanho (telas pequenas usam só o mínimo base, para não passar da tela)
+  const minWidths: Record<string, string> = {
+    compact: "min-w-[260px]",
+    xs: "min-w-[280px]",
+    sm: "min-w-[280px]",
+    md: "min-w-[320px]",
+    lg: "min-w-[280px] sm:min-w-[560px]",
+    xl: "min-w-[280px] md:min-w-[720px]",
+  };
+
   // Se className já especificar max-w, não aplica o sizes[size] padrão para não haver conflito de largura
   const hasCustomMaxWidth = className && (className.includes('max-w-') || className.includes('max-w-['));
   const sizeClass = hasCustomMaxWidth ? '' : (sizes[size] || sizes.md);
+
+  // Regra global: o popup ocupa só a largura do conteúdo + borda de segurança (padding).
+  // Por isso 'w-full' e 'p-*' vindos de className são descartados; o max-w (teto) continua valendo.
+  const classeSemLarguraNemBorda = String(className || '')
+    .split(/\s+/)
+    .filter(t => t && !/^(?:[a-z0-9-]+:)*(?:w-full|w-auto|w-fit|p-\S+)$/.test(t))
+    .join(' ');
 
   return (
     <AnimatePresence>
@@ -374,12 +391,13 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', className
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
             className={cn(
-              "relative w-full max-h-[98vh] h-auto bg-[#1a2333]/95 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-[32px] shadow-2xl flex flex-col p-3 sm:p-5 md:p-6 transition-all duration-300 overflow-hidden my-auto",
+              "relative w-fit max-w-full max-h-[98vh] h-auto bg-[#1a2333]/95 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-[32px] shadow-2xl flex flex-col p-4 sm:p-6 transition-all duration-300 overflow-hidden my-auto",
+              minWidths[size] || minWidths.md,
               sizeClass,
-              className
+              classeSemLarguraNemBorda
             )}
           >
-          <div className="flex items-center justify-between mb-2 sm:mb-4 shrink-0 border-b border-white/5 pb-2 sm:pb-3">
+          <div className="flex items-center justify-between gap-4 mb-3 sm:mb-4 shrink-0 border-b border-white/5 pb-2 sm:pb-3">
             <h3 className="text-sm sm:text-lg md:text-xl font-black text-white tracking-tight truncate uppercase">{title}</h3>
             <button onClick={onClose} className="p-1 sm:p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg sm:rounded-xl transition-all cursor-pointer">
               <X size={18} />

@@ -132,7 +132,14 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
     let ativo = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pendenciaId: string | null = null;
+    let retomar: (() => void) | null = null;
     setAutoStatus('aguardando');
+
+    // Ao voltar para a aba (ou a janela ganhar foco) o navegador pode ter pausado o timer:
+    // consulta na hora, em vez de esperar o próximo ciclo.
+    const aoVoltar = () => { if (document.visibilityState === 'visible') retomar?.(); };
+    document.addEventListener('visibilitychange', aoVoltar);
+    window.addEventListener('focus', aoVoltar);
 
     const aoPagar = () => {
       setPagoAuto(true);
@@ -147,19 +154,26 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
       pendenciaId = pend.id;
       const expiraEm = new Date(pend.expiraEm).getTime();
 
+      let emVoo = false; // nunca duas consultas ao mesmo tempo (timer + volta de aba)
       const consultar = async () => {
-        if (!ativo) return;
+        if (!ativo || emVoo) return;
+        if (timer) { clearTimeout(timer); timer = undefined; }
         if (Date.now() >= expiraEm) { setAutoStatus('expirado'); return; } // para de consultar
-        const pago = await consultarPixPago(pend.id);
+        emVoo = true;
+        let pago = false;
+        try { pago = await consultarPixPago(pend.id); } finally { emVoo = false; }
         if (!ativo) return;
         if (pago) { ativo = false; pendenciaId = null; aoPagar(); return; }
         timer = setTimeout(consultar, INTERVALO_CONSULTA_PIX_MS);
       };
+      retomar = () => { void consultar(); };
       timer = setTimeout(consultar, INTERVALO_CONSULTA_PIX_MS);
     })();
 
     return () => {
       ativo = false;
+      document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('focus', aoVoltar);
       if (timer) clearTimeout(timer);
       if (pendenciaId) cancelarPixPendente(pendenciaId); // fechou sem pagar: libera a pendência
       setAutoStatus('off');
@@ -210,7 +224,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
           <X size={22} strokeWidth={1.6} />
         </button>
 
-        <div className="grid grid-cols-1 sm:grid-cols-[auto_1px_auto] gap-4 sm:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-[auto_1px_auto] gap-4">
           {/* Esquerda: título + QR Code */}
           <div className="flex flex-col items-center gap-3">
             <div className="flex items-center gap-2.5">
@@ -224,7 +238,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
                 </p>
               </div>
             </div>
-            <div className="rounded-3xl bg-white/[0.04] p-4 sm:p-5 shadow-[0_0_40px_rgba(45,227,160,0.06)]">
+            <div className="rounded-3xl bg-white/[0.04] p-3 shadow-[0_0_40px_rgba(45,227,160,0.06)]">
               {pagoAuto ? (
                 <div className="rounded-2xl border border-emerald-400/60 bg-emerald-500/15 w-[220px] h-[220px] sm:w-[250px] sm:h-[250px] flex flex-col items-center justify-center gap-2 animate-in zoom-in-95 fade-in duration-200">
                   <CheckCircle2 size={104} strokeWidth={1.8} className="text-[#2de3a0]" />
@@ -259,8 +273,8 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
                 <span className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 shrink-0">{l.label}</span>
                 <span
                   className={
-                    'ml-auto pl-4 text-right font-extrabold whitespace-nowrap ' +
-                    (l.destaque ? 'text-[22px] text-[#2de3a0]' : 'text-[15px] text-white') +
+                    'ml-auto pl-2 text-right font-extrabold whitespace-nowrap ' +
+                    (l.destaque ? 'text-[22px] text-[#2de3a0]' : 'text-[13px] text-white') +
                     (l.mono ? ' tabular-nums tracking-wide' : '')
                   }
                 >

@@ -42,7 +42,7 @@ export const Modal = ({
     onClick={onClose}
   >
     <div
-      className={`w-full ${maxWidth} bg-slate-900/95 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 p-6 space-y-4 text-white`}
+      className={`w-fit min-w-[280px] max-w-full ${maxWidth} bg-slate-900/95 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 p-6 space-y-4 text-white`}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-between pb-3 border-b border-white/10">

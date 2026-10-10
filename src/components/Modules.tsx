@@ -272,6 +272,7 @@ import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comi
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
 import { enviarAvisoPagamentoPix } from '../lib/cobrancaPix';
+import { verificarPagamentosLinks } from '../lib/verificarPagamentosLinks';
 import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { PixPaymentModal } from './PixPaymentModal';
 import { PixQrImage } from './PixQrImage';
@@ -15467,6 +15468,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const avisoPixAutoRef = useRef<number | null>(null);
   // Nota salva com saldo: abre o "Cobrar saldo via PIX" (mensagem com QR ou link de pagamento)
   const [cobrancaOrder, setCobrancaOrder] = useState<SaleOrder | null>(null);
+  const [verificandoLinks, setVerificandoLinks] = useState(false);
   const avisarPixAutomatico = (order: SaleOrder, telefone: string | undefined, restante: number) => {
     const valor = avisoPixAutoRef.current;
     if (valor == null) return;
@@ -19003,6 +19005,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     };
   }, [currentCompany]);
 
+  // Links de pagamento PIX: a baixa normal vem do aviso do Gmail (servidor). Ao abrir o Histórico & Abertas o CRM
+  // ainda pede uma conferência dos links ativos como rede de segurança; a lista atualiza sozinha pelo realtime.
+  useEffect(() => {
+    if (activeTab !== 'historico' || !currentCompany) return;
+    void verificarPagamentosLinks().then(r => { if (r.pagos > 0) loadSalesHistory(); });
+  }, [activeTab, currentCompany]);
+
+  // Botão "Verificar pagamentos": uma nota (saleId) ou todas as notas abertas com link ativo.
+  const handleVerificarPagamentos = async (saleId?: string) => {
+    if (verificandoLinks) return;
+    setVerificandoLinks(true);
+    try {
+      const r = await verificarPagamentosLinks(saleId, true);
+      if (!r.ok) showAlert('Não foi possível verificar agora. Tente de novo em instantes.');
+      else if (r.pagos > 0) { showAlert(`${r.pagos} pagamento(s) confirmado(s) e baixado(s) na nota!`); loadSalesHistory(); }
+      else showAlert(r.recente ? 'A verificação foi feita há poucos segundos. Aguarde um instante e tente de novo.' : 'Nenhum pagamento novo encontrado nos links abertos.');
+    } finally {
+      setVerificandoLinks(false);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
@@ -21051,6 +21074,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   <Upload size={13} className={cn(isImportingVendas && "animate-pulse")} />
                 </button>
                 <button
+                  disabled={verificandoLinks}
+                  title="Verificar pagamentos dos links PIX"
+                  onClick={() => handleVerificarPagamentos()}
+                  className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={cn(verificandoLinks && "animate-spin")} />
+                  <span>Verificar pagamentos</span>
+                </button>
+                <button
                   title="Exportar Planilha"
                   onClick={() => exportVendasXlsx(filteredSalesHistory)}
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all"
@@ -21921,6 +21953,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               >
                                 <Eye size={12} />
                               </button>
+                              {pixConfig && isPartial && sale.status !== 'canceled' && (
+                                <button
+                                  onClick={() => setCobrancaOrder(sale)}
+                                  title="Cobrar saldo via PIX (reenviar link ou QR)"
+                                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-primary-500/20 text-white/60 hover:text-primary-300 flex items-center justify-center transition-colors cursor-pointer"
+                                >
+                                  <QrCode size={12} />
+                                </button>
+                              )}
                               {canManageHistory && (
                                 <button
                                   onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
@@ -22115,6 +22156,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             >
                               <Eye size={12} />
                             </button>
+                            {pixConfig && isPartial && sale.status !== 'canceled' && (
+                              <button
+                                onClick={() => setCobrancaOrder(sale)}
+                                title="Cobrar saldo via PIX (reenviar link ou QR)"
+                                className="w-7 h-7 rounded-lg bg-white/5 hover:bg-primary-500/20 text-white/70 hover:text-primary-300 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <QrCode size={12} />
+                              </button>
+                            )}
                             {canManageHistory && (
                               <button
                                 onClick={() => handleStartFullEdit(sale)}
@@ -22341,6 +22391,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               >
                                 <CheckCircle2 size={12} className="shrink-0" />
                                 <span>Quitar</span>
+                              </Button>
+                            )}
+                            {pixConfig && isPartial && sale.status !== 'canceled' && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-300 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0 whitespace-nowrap"
+                                onClick={() => setCobrancaOrder(sale)}
+                                title="Cobrar saldo via PIX (reenviar link ou QR)"
+                              >
+                                <QrCode size={12} className="shrink-0" />
+                                <span>Cobrar PIX</span>
                               </Button>
                             )}
                             <Button
@@ -25228,6 +25290,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             </Button>
           )}
 
+          {lastFinalizedOrder?.status === 'pending' && pixConfig && (
+            <Button
+              variant="secondary"
+              icon={RefreshCw}
+              disabled={verificandoLinks}
+              className="w-full h-10 gap-2 text-[9.5px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all shrink-0 disabled:opacity-50"
+              onClick={() => handleVerificarPagamentos(lastFinalizedOrder.id)}
+            >
+              Verificar pagamentos
+            </Button>
+          )}
+
           <div className="grid grid-cols-5 gap-1.5 sm:gap-3 shrink-0">
              <Button 
                variant="secondary" 
@@ -27980,6 +28054,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
                  >
                    Quitar
+                 </Button>
+               )}
+               {isPending && pixConfig && sale.status !== 'canceled' && (
+                 <Button
+                   variant="secondary"
+                   size="sm"
+                   icon={QrCode}
+                   className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 border-primary-500/30"
+                   onClick={() => setCobrancaOrder(sale)}
+                   title="Reenviar link de pagamento ou QR do saldo via PIX"
+                 >
+                   Cobrar PIX
                  </Button>
                )}
                <Button

@@ -10,6 +10,7 @@ import {
   enviarCobrancaPix,
   enviarLinkPagamento,
   fmtBRL,
+  fmtValidade,
   opcoesPadrao,
   telefoneParaEnvio,
 } from '../lib/cobrancaPix';
@@ -37,6 +38,15 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   const [outroValor, setOutroValor] = useState<string>('');
   const [telefone, setTelefone] = useState<string>(telefoneInicial || order.customerPhone || '');
   const [enviando, setEnviando] = useState(false);
+  // Validade do link (modo link): atalhos em horas (padrão 72 h) ou data/hora exata.
+  const [prazo, setPrazo] = useState<'24' | '48' | '72' | 'custom'>('72');
+  const [prazoCustom, setPrazoCustom] = useState<string>(''); // valor do <input type="datetime-local">
+
+  const venceCustom = prazoCustom ? new Date(prazoCustom) : null;
+  const venceCustomValido = !!venceCustom && !Number.isNaN(venceCustom.getTime()) && venceCustom.getTime() > Date.now() + 5 * 60 * 1000;
+  const venceEm: Date | null = prazo === 'custom'
+    ? (venceCustomValido ? venceCustom : null)
+    : new Date(Date.now() + Number(prazo) * 60 * 60 * 1000);
 
   const valorOutroCent = (() => {
     const n = Number(String(outroValor).replace(',', '.'));
@@ -59,6 +69,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     if (restante <= 0) { showAlert('Esta nota não tem saldo a cobrar.'); return false; }
     if (!telefoneParaEnvio(telefone)) { showAlert('Informe um WhatsApp válido (com DDD).'); return false; }
     if (opcoesParaEnviar.length === 0) { showAlert('Escolha um valor válido (não pode passar do saldo da nota).'); return false; }
+    if (modo === 'link' && !venceEm) { showAlert('Escolha uma data e hora de validade futura para o link.'); return false; }
     return true;
   };
 
@@ -92,6 +103,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     restanteCentavos: Math.round(restante * 100),
     opcoes: opcoesParaEnviar,
     pix,
+    expiraEmData: venceEm ?? undefined,
   });
 
   const enviarLink = async () => {
@@ -100,7 +112,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     try {
       const link = await gerarLink();
       if (!link.ok || !link.url) { showAlert(`Não foi possível criar o link: ${link.erro || 'erro desconhecido'}`); return; }
-      const r = await enviarLinkPagamento({ phone: telefone, customerName: order.customerName, itens: order.items, opcoes: opcoesParaEnviar, url: link.url });
+      const r = await enviarLinkPagamento({ phone: telefone, customerName: order.customerName, itens: order.items, opcoes: opcoesParaEnviar, url: link.url, expiraEm: link.expiraEm });
       if (!r.ok) { showAlert(`Link criado, mas o envio falhou: ${r.erro || 'erro no envio'}`); return; }
       showAlert('Link de pagamento enviado no WhatsApp do cliente!');
       onClose();
@@ -111,6 +123,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
 
   const copiarLink = async () => {
     if (enviando || opcoesParaEnviar.length === 0) { if (!enviando) showAlert('Escolha ao menos uma opção de valor.'); return; }
+    if (!venceEm) { showAlert('Escolha uma data e hora de validade futura para o link.'); return; }
     setEnviando(true);
     try {
       const link = await gerarLink();
@@ -178,6 +191,24 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
             />
           )}
         </div>
+
+        {modo === 'link' && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase text-white/50 block">Validade do link</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {(['24', '48', '72'] as const).map(h => (
+                <button key={h} type="button" className={chip(prazo === h)} onClick={() => setPrazo(h)}>{h} h</button>
+              ))}
+              <button type="button" className={chip(prazo === 'custom')} onClick={() => setPrazo('custom')}>Data/hora</button>
+            </div>
+            {prazo === 'custom' && (
+              <Input type="datetime-local" value={prazoCustom} onChange={e => setPrazoCustom(e.target.value)} />
+            )}
+            <span className="text-[10px] font-semibold text-white/50 block">
+              {venceEm ? `Válido até ${fmtValidade(venceEm)} — aparece para o cliente na mensagem e na página.` : 'Escolha uma data e hora futuras.'}
+            </span>
+          </div>
+        )}
 
         <div>
           <label className="text-[10px] font-bold uppercase text-white/50 block mb-1">WhatsApp do cliente</label>

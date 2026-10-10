@@ -3,6 +3,7 @@ import { CheckCircle2, Clipboard, Copy } from 'lucide-react';
 import { supabase } from '../supabase';
 import { buildPixPayload } from '../lib/pix';
 import { PixQrImage } from './PixQrImage';
+import { fmtValidade } from '../lib/cobrancaPix';
 
 // Página pública do link de pagamento (rota /pagar/:token — ver AppRoot.tsx).
 // O cliente vê o resumo da nota, escolhe o valor (ex.: entrada de 50% ou total), paga por QR Code ou
@@ -21,6 +22,9 @@ interface LinkPublico {
 }
 
 const INTERVALO_MS = 8000;
+// Depois de 10 min a confirmação já é feita pelo servidor (aviso do Gmail); a tela só acompanha, mais devagar.
+const INTERVALO_LENTO_MS = 30000;
+const FASE_RAPIDA_MS = 10 * 60 * 1000;
 const fmt = (centavos: number) => `R$ ${(centavos / 100).toFixed(2).replace('.', ',')}`;
 
 function tokenDaUrl(): string | null {
@@ -55,6 +59,7 @@ export default function PagamentoPublicPage() {
   const [expirou, setExpirou] = useState(false);
   const [copiado, setCopiado] = useState<'key' | 'payload' | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inicioRef = useRef(0);
 
   useEffect(() => {
     if (!token) { setErro('Link inválido.'); setCarregando(false); return; }
@@ -83,6 +88,7 @@ export default function PagamentoPublicPage() {
     const r = await chamarApi({ acao: 'registrar', token, opcaoId: o.id });
     setIniciando(false);
     if (!r.ok || !r.dados?.pendenteId) { setErro(r.dados?.erro || 'Não foi possível iniciar o pagamento agora. Tente de novo.'); return; }
+    inicioRef.current = Date.now();
     setOpcao(o);
     setPendenteId(r.dados.pendenteId);
     setExpiraEm(new Date(r.dados.expiraEm).getTime());
@@ -96,18 +102,28 @@ export default function PagamentoPublicPage() {
     setExpirou(false);
   };
 
+  const proximoIntervalo = () => (Date.now() - inicioRef.current < FASE_RAPIDA_MS ? INTERVALO_MS : INTERVALO_LENTO_MS);
+
   const consultar = useCallback(async () => {
     if (!token || !pendenteId) return;
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     if (Date.now() >= expiraEm) { setExpirou(true); return; }
+    // Aba escondida: não gasta requisição; a consulta volta sozinha quando a aba reaparecer.
+    if (document.visibilityState === 'hidden') { timerRef.current = setTimeout(consultar, proximoIntervalo()); return; }
     const r = await chamarApi({ acao: 'checar', token, pendenteId });
     if (r.dados?.pago) { setPago(true); return; }
-    timerRef.current = setTimeout(consultar, INTERVALO_MS);
+    timerRef.current = setTimeout(consultar, proximoIntervalo());
   }, [token, pendenteId, expiraEm]);
 
   useEffect(() => {
     if (!pendenteId || pago) return;
     timerRef.current = setTimeout(consultar, INTERVALO_MS);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    const aoVoltar = () => { if (document.visibilityState === 'visible') void consultar(); };
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => {
+      document.removeEventListener('visibilitychange', aoVoltar);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, [pendenteId, pago, consultar]);
 
   const copiar = async (valor: string, tipo: 'key' | 'payload') => {
@@ -122,7 +138,7 @@ export default function PagamentoPublicPage() {
 
   const moldura = (filhos: React.ReactNode) => (
     <div className="min-h-screen bg-[#070d18] text-white flex items-start sm:items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-5 space-y-4">
+      <div className="w-full max-w-xs rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1a2d] to-[#0a1424] shadow-2xl p-5 space-y-4">
         {filhos}
       </div>
     </div>
@@ -152,6 +168,7 @@ export default function PagamentoPublicPage() {
       </h1>
       {link.cliente_nome && <p className="text-sm text-slate-300">Olá, {link.cliente_nome}!</p>}
       {link.resumo && <p className="text-xs text-slate-400">Referente a: {link.resumo}</p>}
+      {link.expira_em && <p className="text-[11px] font-semibold text-slate-500">Válido até {fmtValidade(link.expira_em)}</p>}
     </div>
   );
 
@@ -224,7 +241,7 @@ export default function PagamentoPublicPage() {
 
       <p className="text-center text-[11px] font-semibold text-slate-400">
         {expirou
-          ? 'O tempo para este PIX acabou (30 min). Se já pagou, aguarde a confirmação; senão, escolha o valor de novo.'
+          ? 'O prazo deste PIX acabou. Se já pagou, aguarde a confirmação; senão, escolha o valor de novo (se o link ainda estiver válido).'
           : 'Aguardando o PIX — esta tela confirma sozinha assim que o pagamento chegar.'}
       </p>
       <button type="button" onClick={trocarValor} className="w-full text-center text-[12px] font-black uppercase tracking-widest text-slate-400 hover:text-white cursor-pointer bg-transparent border-0">
