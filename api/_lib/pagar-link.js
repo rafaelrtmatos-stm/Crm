@@ -85,9 +85,15 @@ async function aplicarBaixaNaNota(link, valor) {
 async function avisarCliente(link, valor, restante) {
   try {
     if (!APP_BASE_URL || !link.cliente_phone || !link.criado_por) return;
+    // Nome completo: vem da própria nota (o link guarda só o nome abreviado, que é o que a página pública mostra).
+    let nomeCompleto = '';
+    try {
+      const n = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=customer_name&limit=1`);
+      if (n.ok && Array.isArray(n.corpo) && n.corpo[0]?.customer_name) nomeCompleto = String(n.corpo[0].customer_name).trim();
+    } catch { /* usa o nome do link */ }
     const linhas = [
       '✅ *Pagamento PIX confirmado*',
-      `Cliente: ${link.cliente_nome || 'Cliente'}`,
+      `Cliente: ${nomeCompleto || link.cliente_nome || 'Cliente'}`,
       `Valor: ${fmtBRL(valor)}`,
       `Referente a: ${link.resumo || 'Pedido'}`,
       `Nota #${String(link.sale_id).slice(-6).toUpperCase()}`,

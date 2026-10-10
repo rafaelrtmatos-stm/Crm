@@ -109,7 +109,7 @@ export async function enviarAvisoPagamentoPix(p: {
   if (!phone) return false;
   const linhas = [
     '✅ *Pagamento PIX confirmado*',
-    `Cliente: ${abreviarNome(p.customerName)}`,
+    `Cliente: ${String(p.customerName || '').trim() || 'Cliente'}`,
     `Valor: ${fmtBRL(p.valor)}`,
     `Referente a: ${resumirItens(p.itens)}`,
   ];
