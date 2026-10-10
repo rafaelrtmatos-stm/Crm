@@ -21953,6 +21953,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               >
                                 <Eye size={12} />
                               </button>
+                              {pixConfig && isPartial && sale.status !== 'canceled' && (
+                                <button
+                                  onClick={() => setCobrancaOrder(sale)}
+                                  title="Cobrar saldo via PIX (reenviar link ou QR)"
+                                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-primary-500/20 text-white/60 hover:text-primary-300 flex items-center justify-center transition-colors cursor-pointer"
+                                >
+                                  <QrCode size={12} />
+                                </button>
+                              )}
                               {canManageHistory && (
                                 <button
                                   onClick={async () => { if (!(await showConfirm('Editar este pedido?'))) return; handleStartFullEdit(sale); }}
@@ -22147,6 +22156,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                             >
                               <Eye size={12} />
                             </button>
+                            {pixConfig && isPartial && sale.status !== 'canceled' && (
+                              <button
+                                onClick={() => setCobrancaOrder(sale)}
+                                title="Cobrar saldo via PIX (reenviar link ou QR)"
+                                className="w-7 h-7 rounded-lg bg-white/5 hover:bg-primary-500/20 text-white/70 hover:text-primary-300 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <QrCode size={12} />
+                              </button>
+                            )}
                             {canManageHistory && (
                               <button
                                 onClick={() => handleStartFullEdit(sale)}
@@ -22373,6 +22391,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               >
                                 <CheckCircle2 size={12} className="shrink-0" />
                                 <span>Quitar</span>
+                              </Button>
+                            )}
+                            {pixConfig && isPartial && sale.status !== 'canceled' && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="text-[9px] font-black uppercase tracking-wider px-3 h-8 border-primary-500/20 bg-primary-500/10 hover:bg-primary-500/20 text-primary-300 flex items-center justify-center gap-1.5 cursor-pointer rounded-lg transition-colors shrink-0 whitespace-nowrap"
+                                onClick={() => setCobrancaOrder(sale)}
+                                title="Cobrar saldo via PIX (reenviar link ou QR)"
+                              >
+                                <QrCode size={12} className="shrink-0" />
+                                <span>Cobrar PIX</span>
                               </Button>
                             )}
                             <Button
@@ -28024,6 +28054,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
                  >
                    Quitar
+                 </Button>
+               )}
+               {isPending && pixConfig && sale.status !== 'canceled' && (
+                 <Button
+                   variant="secondary"
+                   size="sm"
+                   icon={QrCode}
+                   className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 border-primary-500/30"
+                   onClick={() => setCobrancaOrder(sale)}
+                   title="Reenviar link de pagamento ou QR do saldo via PIX"
+                 >
+                   Cobrar PIX
                  </Button>
                )}
                <Button
