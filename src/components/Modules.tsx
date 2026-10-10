@@ -267,6 +267,7 @@ import { collection, query, where, onSnapshot, orderBy, Timestamp, addDoc, doc, 
 import { db } from '../firebase';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm, showPrompt, showSelect } from '../lib/notify';
+import { textoComLinks } from '../lib/linkify';
 import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
@@ -8553,7 +8554,7 @@ export const ChatPanel = ({
                                        className="px-1.5 pb-1 whitespace-pre-wrap break-words cursor-pointer hover:text-primary-600 transition-colors"
                                        title="Clique para visualizar a imagem ampliada"
                                      >
-                                       {m.text}
+                                       {textoComLinks(m.text)}
                                      </p>
                                    )}
                                 </div>
@@ -8561,7 +8562,7 @@ export const ChatPanel = ({
                                 <div className="space-y-1.5 min-w-[200px]">
                                    <video src={m.mediaUrl} controls preload="metadata" className="max-w-full max-h-64 rounded-xl bg-black" />
                                    {m.text && m.text !== '🎥 Vídeo' && (
-                                     <p className="px-1.5 pb-1 whitespace-pre-wrap break-words">{m.text}</p>
+                                     <p className="px-1.5 pb-1 whitespace-pre-wrap break-words">{textoComLinks(m.text)}</p>
                                    )}
                                 </div>
                               ) : isDocument ? (
@@ -8594,7 +8595,7 @@ export const ChatPanel = ({
                                   hasError={!!audiosComErro[m.id]}
                                   initialDuration={m.mediaDuration}
                                 />
-                              ) : <span className="whitespace-pre-wrap break-words select-text">{m.text}</span>}
+                              ) : <span className="whitespace-pre-wrap break-words select-text">{textoComLinks(m.text)}</span>}
                               {/* Distintivo de Reações (Badge estilo WhatsApp) */}
                               {!isApagada && Array.isArray(m.reactions) && m.reactions.length > 0 && (() => {
                                 const emojisUnicos = Array.from(new Set(m.reactions.map((r: any) => r.emoji))).filter(Boolean);
