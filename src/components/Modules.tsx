@@ -271,6 +271,8 @@ import { SEM_CRM_MESSAGES } from '../lib/flags';
 import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
+import { enviarAvisoPagamentoPix } from '../lib/cobrancaPix';
+import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { PixPaymentModal } from './PixPaymentModal';
 import { PixQrImage } from './PixQrImage';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
@@ -15461,6 +15463,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
   const [isVerifying, setIsVerifying] = useState(false);
   const [isFinalizingSale, setIsFinalizingSale] = useState(false);
+  // Valor do PIX detectado automaticamente: quando preenchido, a nota salva dispara o aviso de pagamento ao cliente (uma vez)
+  const avisoPixAutoRef = useRef<number | null>(null);
+  // Nota salva com saldo: abre o "Cobrar saldo via PIX" (mensagem com QR ou link de pagamento)
+  const [cobrancaOrder, setCobrancaOrder] = useState<SaleOrder | null>(null);
+  const avisarPixAutomatico = (order: SaleOrder, telefone: string | undefined, restante: number) => {
+    const valor = avisoPixAutoRef.current;
+    if (valor == null) return;
+    avisoPixAutoRef.current = null;
+    enviarAvisoPagamentoPix({ phone: telefone, customerName: order.customerName, valor, itens: order.items, orderId: order.id, restante }).catch(() => {});
+  };
   const salesHistoryDebounceRef = React.useRef<any>(null);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
@@ -19990,6 +20002,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             updatedAt: new Date().toISOString(),
           };
           setLastFinalizedOrder(updatedOrder);
+          avisarPixAutomatico(updatedOrder, updatedOrder.customerPhone, novoSaldo);
           setAllSalesHistory(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
           setSalesToday(prev => prev.map(s => s.id === editingFullOrder.id ? updatedOrder : s));
           setIsSuccessModalOpen(true);
@@ -20128,6 +20141,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
             updatedAt: new Date().toISOString() 
           };
           setLastFinalizedOrder(updatedOrder);
+          avisarPixAutomatico(updatedOrder, updatedOrder.customerPhone, novoSaldo);
           setAllSalesHistory(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
           setSalesToday(prev => prev.map(s => s.id === settlingOrder.id ? updatedOrder : s));
           setIsSuccessModalOpen(true);
@@ -20219,6 +20233,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
           }
         }
         setLastFinalizedOrder(novaVendaMapeada);
+        avisarPixAutomatico(novaVendaMapeada, selectedCustomer?.phone || novaVendaMapeada.customerPhone, currentRemaining);
         if (isPartialSale) {
           addPendingOrder(novaVendaMapeada);
         }
@@ -20348,6 +20363,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         showAlert(`Erro ao salvar venda: ${err?.message || 'erro desconhecido'}`);
       }
     } finally {
+      avisoPixAutoRef.current = null;
       setIsFinalizingSale(false);
     }
   };
@@ -25201,6 +25217,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
              })()}
           </div>
 
+          {lastFinalizedOrder?.status === 'pending' && pixConfig && (
+            <Button
+              variant="secondary"
+              icon={QrCode}
+              className="w-full h-10 gap-2 text-[9.5px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all shrink-0"
+              onClick={() => setCobrancaOrder(lastFinalizedOrder)}
+            >
+              Cobrar saldo via PIX (mensagem ou link)
+            </Button>
+          )}
+
           <div className="grid grid-cols-5 gap-1.5 sm:gap-3 shrink-0">
              <Button 
                variant="secondary" 
@@ -27639,11 +27666,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            amount={amountToCharge}
            beneficiaryName={pixConfig.beneficiaryName}
            bank={pixConfig.bank || undefined}
-           onAutoPaid={() => { handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
+           onAutoPaid={(valorPago) => { avisoPixAutoRef.current = valorPago; handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
            autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: settlingOrder?.id || editingFullOrder?.id || null }}
          />
        );
      })()}
+
+     {cobrancaOrder && pixConfig && (
+       <EnviarCobrancaModal
+         order={cobrancaOrder}
+         telefoneInicial={selectedCustomer?.phone || cobrancaOrder.customerPhone}
+         pix={pixConfig}
+         companyId={currentCompany?.id || 'rafa-arts'}
+         onClose={() => setCobrancaOrder(null)}
+       />
+     )}
 
      {isBulkDeleteConfirmOpen && (
        <Modal

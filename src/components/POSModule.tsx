@@ -49,7 +49,9 @@ import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orca
 import { downloadCanvasAsPdf, downloadCanvasAsPng } from '../lib/receipt';
 import { PixQrImage } from './PixQrImage';
 import { buildPixPayload } from '../lib/pix';
+import { enviarAvisoPagamentoPix } from '../lib/cobrancaPix';
 import { PixPaymentModal } from './PixPaymentModal';
+import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue, isNetworkError } from '../lib/offlineSync';
 import type { VendaOfflinePayload } from '../lib/offlineSync';
 
@@ -314,6 +316,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [downPayment, setDownPayment] = useState<number | ''>('');
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string>('pix');
   const [isSavingSale, setIsSavingSale] = useState(false);
+  // Valor do PIX detectado automaticamente: quando preenchido, a venda salva dispara o aviso de pagamento ao cliente (uma vez)
+  const avisoPixAutoRef = useRef<number | null>(null);
+  // Nota salva com saldo: abre o "Cobrar saldo via PIX" (mensagem com QR ou link de pagamento)
+  const [cobrancaOrder, setCobrancaOrder] = useState<SaleOrder | null>(null);
   const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: any; beneficiaryName: string; city: string; bank?: string } | null>(null);
 
   useEffect(() => {
@@ -1136,6 +1142,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       if (addPendingOrder && isPending) {
         addPendingOrder(finalizedOrder);
       }
+      if (avisoPixAutoRef.current != null) {
+        const valorPixAuto = avisoPixAutoRef.current;
+        avisoPixAutoRef.current = null;
+        enviarAvisoPagamentoPix({
+          phone: finalizedOrder.customerPhone,
+          customerName: finalizedOrder.customerName,
+          valor: valorPixAuto,
+          itens: finalizedOrder.items,
+          orderId: finalizedOrder.id,
+          restante: Math.max(0, total - finalDownPayment),
+        }).catch(() => {});
+      }
 
       // Optimistically update local history immediately
       setAllSalesHistory(prev => [finalizedOrder, ...prev]);
@@ -1151,6 +1169,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       console.error('Erro ao finalizar venda:', err);
       showAlert(`Erro ao salvar venda: ${err?.message || 'erro desconhecido'}`);
     } finally {
+      avisoPixAutoRef.current = null;
       setIsSavingSale(false);
     }
   };
@@ -2089,6 +2108,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           confirmLabel={isSavingSale ? 'Processando...' : 'Confirmar Pagamento'}
           confirmDisabled={isSavingSale}
           onConfirm={() => { if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }}
+          onAutoPaid={(valorPago) => { avisoPixAutoRef.current = valorPago; if (downPayment === '') setDownPayment(Number(total.toFixed(2))); setPaymentMethod('pix'); handleFinalizeSale(); }}
           autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: null }}
         />
         );
@@ -2381,6 +2401,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               <Receipt size={14} />
               <span>Ver Comprovante</span>
             </Button>
+            {lastFinalizedOrder && !lastFinalizedOrder._pendingSync && lastFinalizedOrder.status === 'pending' && pixConfig && (
+              <Button variant="outline" onClick={() => setCobrancaOrder(lastFinalizedOrder)} className="gap-1.5">
+                <QrCode size={14} />
+                <span>Cobrar saldo PIX</span>
+              </Button>
+            )}
             {lastFinalizedOrder && !lastFinalizedOrder._pendingSync && (
               <Button
                 variant="secondary"
@@ -2400,6 +2426,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
           </div>
         </div>
       </Modal>
+
+      {cobrancaOrder && pixConfig && (
+        <EnviarCobrancaModal
+          order={cobrancaOrder}
+          telefoneInicial={cobrancaOrder.customerPhone}
+          pix={pixConfig}
+          companyId={currentCompany?.id || 'rafa-arts'}
+          onClose={() => setCobrancaOrder(null)}
+        />
+      )}
 
       {/* Receipt Modal */}
       <Modal isOpen={isReceiptModalOpen} onClose={() => setIsReceiptModalOpen(false)} title="Comprovante de Venda" size="sm" className="max-w-md mx-auto rounded-2xl p-3 sm:p-4">

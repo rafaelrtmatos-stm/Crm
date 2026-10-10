@@ -17,6 +17,9 @@
 //   body: { id: "<id em pix_pendentes>" }
 //   resposta: { pago: true | false }
 //
+// POST /api/ai?rota=pagar-link   (PÚBLICA, sem x-user-id) — link de pagamento PIX, lógica em _lib/pagar-link.js
+//   body: { acao: "registrar", token, opcaoId } -> { pendenteId, expiraEm }  |  { acao: "checar", token, pendenteId } -> { pago }
+//
 // POST /api/ai/suggest-reply  (chega aqui como ?rota=suggest-reply)
 //   headers: x-user-id: <id do usuário logado>
 //   body: { clientMessage: "...", history: [{ direction: "incoming"|"outgoing", text: "..." }], clientName?: "..." }
@@ -359,6 +362,12 @@ export default async function handler(req, res) {
     // Carregamento dinâmico: imapflow/mailparser só entram na memória nessa rota, sem pesar as de IA.
     const { handlePixEmailCheck } = await import('./_lib/pix-email.js');
     await handlePixEmailCheck(req, res);
+    return;
+  }
+  if (rota === 'pagar-link') {
+    // Rota PÚBLICA do link de pagamento PIX (/pagar/:token) — lógica em _lib/pagar-link.js
+    const { handlePagarLink } = await import('./_lib/pagar-link.js');
+    await handlePagarLink(req, res);
     return;
   }
   if (rota === 'suggest-reply') {
