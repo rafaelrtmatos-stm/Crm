@@ -41,18 +41,26 @@ export async function registrarPixPendente(params: {
 }
 
 /** Pergunta ao servidor se o PIX dessa pendência já chegou. Só recebe { pago } — nunca o e-mail. */
+export const TIMEOUT_CONSULTA_PIX_MS = 15000;
+
 export async function consultarPixPago(id: string): Promise<boolean> {
+  // Timeout: uma requisição pendurada nunca pode travar o laço de consultas do card.
+  const controle = new AbortController();
+  const corte = setTimeout(() => controle.abort(), TIMEOUT_CONSULTA_PIX_MS);
   try {
     const r = await fetch('/api/pix-email-check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-user-id': idUsuarioLogado() },
       body: JSON.stringify({ id }),
+      signal: controle.signal,
     });
     if (!r.ok) return false;
     const j = await r.json();
     return j?.pago === true;
   } catch {
     return false;
+  } finally {
+    clearTimeout(corte);
   }
 }
 

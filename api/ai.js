@@ -20,6 +20,11 @@
 // POST /api/ai?rota=pagar-link   (PÚBLICA, sem x-user-id) — link de pagamento PIX, lógica em _lib/pagar-link.js
 //   body: { acao: "registrar", token, opcaoId } -> { pendenteId, expiraEm }  |  { acao: "checar", token, pendenteId } -> { pago }
 //
+// POST /api/ai?rota=pix-aviso   (campainha do Google Apps Script, header x-pix-secret) — _lib/pagar-link.js
+//   resposta: { ok, resolvido }
+// POST /api/ai?rota=verificar-notas   (CRM, header x-user-id) — _lib/pagar-link.js
+//   body: { saleId?: "<id da nota>" }  resposta: { ok, pagos, baixadas: [sale_id] }
+//
 // POST /api/ai/suggest-reply  (chega aqui como ?rota=suggest-reply)
 //   headers: x-user-id: <id do usuário logado>
 //   body: { clientMessage: "...", history: [{ direction: "incoming"|"outgoing", text: "..." }], clientName?: "..." }
@@ -368,6 +373,18 @@ export default async function handler(req, res) {
     // Rota PÚBLICA do link de pagamento PIX (/pagar/:token) — lógica em _lib/pagar-link.js
     const { handlePagarLink } = await import('./_lib/pagar-link.js');
     await handlePagarLink(req, res);
+    return;
+  }
+  if (rota === 'pix-aviso') {
+    // "Campainha" do Google Apps Script quando chega e-mail novo do Nubank (segredo x-pix-secret) — _lib/pagar-link.js
+    const { handlePixAviso } = await import('./_lib/pagar-link.js');
+    await handlePixAviso(req, res);
+    return;
+  }
+  if (rota === 'verificar-notas') {
+    // Conferência de links ativos pedida pelo CRM (x-user-id) — _lib/pagar-link.js
+    const { handleVerificarNotas } = await import('./_lib/pagar-link.js');
+    await handleVerificarNotas(req, res);
     return;
   }
   if (rota === 'suggest-reply') {

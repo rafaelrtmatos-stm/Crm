@@ -25,6 +25,17 @@ export interface OpcaoCobranca {
 
 export const fmtBRL = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
 
+/** ISO -> "dd/mm às hh:mm" no horário de Brasília (o mesmo texto no WhatsApp e na página do cliente). */
+export function fmtValidade(iso: string | number | Date): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const p = (t: string) => partes.find(x => x.type === t)?.value || '';
+  return `${p('day')}/${p('month')} às ${p('hour')}:${p('minute')}`;
+}
+
 /** "Maria Aparecida da Silva" -> "Maria S." */
 export function abreviarNome(nome?: string | null): string {
   const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
@@ -181,11 +192,16 @@ export async function criarLinkPagamento(p: {
   restanteCentavos: number;
   opcoes: OpcaoCobranca[];
   pix: PixConfigLite;
-  diasValidade?: number;
-}): Promise<{ ok: boolean; url?: string; erro?: string }> {
+  /** Validade em horas a partir de agora (padrão 72 h). Ignorada se `expiraEmData` for informada. */
+  validadeHoras?: number;
+  /** Data/hora exata em que o link vence. */
+  expiraEmData?: Date;
+}): Promise<{ ok: boolean; url?: string; expiraEm?: string; erro?: string }> {
   if (p.opcoes.length === 0) return { ok: false, erro: 'Escolha ao menos uma opção de valor.' };
   const token = tokenAleatorio();
-  const expiraEm = new Date(Date.now() + (p.diasValidade ?? 3) * 24 * 60 * 60 * 1000).toISOString();
+  const venceEm = p.expiraEmData ?? new Date(Date.now() + (p.validadeHoras ?? 72) * 60 * 60 * 1000);
+  if (Number.isNaN(venceEm.getTime()) || venceEm.getTime() <= Date.now()) return { ok: false, erro: 'A validade do link precisa ser uma data futura.' };
+  const expiraEm = venceEm.toISOString();
   const { error } = await supabase.from('pagamento_links').insert({
     token,
     company_id: p.companyId,
@@ -201,7 +217,7 @@ export async function criarLinkPagamento(p: {
     criado_por: idUsuarioLogado() || null,
   });
   if (error) return { ok: false, erro: error.message };
-  return { ok: true, url: `${PUBLIC_SIGN_BASE_URL}/pagar/${token}` };
+  return { ok: true, url: `${PUBLIC_SIGN_BASE_URL}/pagar/${token}`, expiraEm };
 }
 
 /** Manda o link de pagamento na conversa do cliente. */
@@ -211,10 +227,13 @@ export async function enviarLinkPagamento(p: {
   itens?: Array<{ name?: string; quantity?: number }>;
   opcoes: OpcaoCobranca[];
   url: string;
+  /** ISO do vencimento do link — vira "Válido até dd/mm às hh:mm" na mensagem. */
+  expiraEm?: string;
 }): Promise<{ ok: boolean; erro?: string }> {
   const phone = telefoneParaEnvio(p.phone);
   if (!phone) return { ok: false, erro: 'Telefone inválido.' };
   const opcoesTxt = p.opcoes.map(o => `• ${o.label}: ${fmtBRL(o.valor_centavos / 100)}`).join('\n');
+  const validade = p.expiraEm ? fmtValidade(p.expiraEm) : '';
   const texto = [
     '💳 *Link de pagamento*',
     `Olá, ${abreviarNome(p.customerName)}! Segue o link para pagar sua nota referente a: ${resumirItens(p.itens)}`,
@@ -222,6 +241,7 @@ export async function enviarLinkPagamento(p: {
     'Você escolhe a opção na página:',
     opcoesTxt,
     '',
+    ...(validade ? [`⏳ Válido até ${validade}`] : []),
     `👉 ${p.url}`,
   ].join('\n');
   return postarWhatsApp({ phone, text: texto, senderName: 'Sistema' });

@@ -95,6 +95,10 @@ async function pendenciaUnicaAberta(p, agora) {
     `pix_pendentes?status=eq.pendente&valor_centavos=eq.${p.valor_centavos}&expira_em=gt.${iso(agora)}&select=id`
   );
   if (!r.ok || !Array.isArray(r.corpo)) throw new Error(`falha ao contar pendências (${r.status})`);
+  if (r.corpo.length > 1) {
+    // Regra de casamento inalterada: ambíguo -> sem baixa automática (fica o botão manual). Só registra no log.
+    console.warn(`[pix-email] ambíguo: ${r.corpo.length} pendências abertas com o mesmo valor (${p.valor_centavos} centavos); sem baixa automática.`);
+  }
   return r.corpo.length === 1 && r.corpo[0].id === p.id;
 }
 

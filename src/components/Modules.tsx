@@ -272,6 +272,7 @@ import { confirmarRetiradaProducao, retirarServicosPuxadosDaNota } from '../comi
 import { FINANCEIRO_TABS, ALL_FINANCEIRO_TAB_IDS } from '../lib/financeiroTabs';
 import { buildPixPayload } from '../lib/pix';
 import { enviarAvisoPagamentoPix } from '../lib/cobrancaPix';
+import { verificarPagamentosLinks } from '../lib/verificarPagamentosLinks';
 import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { PixPaymentModal } from './PixPaymentModal';
 import { PixQrImage } from './PixQrImage';
@@ -15467,6 +15468,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const avisoPixAutoRef = useRef<number | null>(null);
   // Nota salva com saldo: abre o "Cobrar saldo via PIX" (mensagem com QR ou link de pagamento)
   const [cobrancaOrder, setCobrancaOrder] = useState<SaleOrder | null>(null);
+  const [verificandoLinks, setVerificandoLinks] = useState(false);
   const avisarPixAutomatico = (order: SaleOrder, telefone: string | undefined, restante: number) => {
     const valor = avisoPixAutoRef.current;
     if (valor == null) return;
@@ -19003,6 +19005,27 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     };
   }, [currentCompany]);
 
+  // Links de pagamento PIX: a baixa normal vem do aviso do Gmail (servidor). Ao abrir o Histórico & Abertas o CRM
+  // ainda pede uma conferência dos links ativos como rede de segurança; a lista atualiza sozinha pelo realtime.
+  useEffect(() => {
+    if (activeTab !== 'historico' || !currentCompany) return;
+    void verificarPagamentosLinks().then(r => { if (r.pagos > 0) loadSalesHistory(); });
+  }, [activeTab, currentCompany]);
+
+  // Botão "Verificar pagamentos": uma nota (saleId) ou todas as notas abertas com link ativo.
+  const handleVerificarPagamentos = async (saleId?: string) => {
+    if (verificandoLinks) return;
+    setVerificandoLinks(true);
+    try {
+      const r = await verificarPagamentosLinks(saleId, true);
+      if (!r.ok) showAlert('Não foi possível verificar agora. Tente de novo em instantes.');
+      else if (r.pagos > 0) { showAlert(`${r.pagos} pagamento(s) confirmado(s) e baixado(s) na nota!`); loadSalesHistory(); }
+      else showAlert(r.recente ? 'A verificação foi feita há poucos segundos. Aguarde um instante e tente de novo.' : 'Nenhum pagamento novo encontrado nos links abertos.');
+    } finally {
+      setVerificandoLinks(false);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('configuracoes').select('*').eq('company_id', 'rafa-arts').maybeSingle();
@@ -21049,6 +21072,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                   className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
                 >
                   <Upload size={13} className={cn(isImportingVendas && "animate-pulse")} />
+                </button>
+                <button
+                  disabled={verificandoLinks}
+                  title="Verificar pagamentos dos links PIX"
+                  onClick={() => handleVerificarPagamentos()}
+                  className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-primary-400 hover:border-primary-500/20 transition-all disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={cn(verificandoLinks && "animate-spin")} />
+                  <span>Verificar pagamentos</span>
                 </button>
                 <button
                   title="Exportar Planilha"
@@ -25225,6 +25257,18 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
               onClick={() => setCobrancaOrder(lastFinalizedOrder)}
             >
               Cobrar saldo via PIX (mensagem ou link)
+            </Button>
+          )}
+
+          {lastFinalizedOrder?.status === 'pending' && pixConfig && (
+            <Button
+              variant="secondary"
+              icon={RefreshCw}
+              disabled={verificandoLinks}
+              className="w-full h-10 gap-2 text-[9.5px] uppercase font-black tracking-wide border-white/5 bg-white/5 hover:bg-primary-500/20 hover:text-primary-300 transition-all shrink-0 disabled:opacity-50"
+              onClick={() => handleVerificarPagamentos(lastFinalizedOrder.id)}
+            >
+              Verificar pagamentos
             </Button>
           )}
 
