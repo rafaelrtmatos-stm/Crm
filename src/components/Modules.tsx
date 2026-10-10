@@ -4615,71 +4615,17 @@ export const ChatPanel = ({
     loadScheduledMessages();
     const ch = supabase
       .channel(`sched-msg-${conversation?.id || 'all'}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_scheduled_messages' }, loadScheduledMessages)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_scheduled_messages' }, (payload: any) => {
+        loadScheduledMessages();
+        // O envio agora é feito pelo servidor; se falhar numa conversa aberta, avisa quem está olhando
+        const nova = payload?.new;
+        if (nova?.status === 'failed' && conversation?.id && nova.lead_id === conversation.id) {
+          showAlert(`Falha ao enviar a mensagem agendada: ${nova.error_message || 'erro desconhecido'}`);
+        }
+      })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [conversation?.id, loadScheduledMessages]);
-
-  // Worker em segundo plano que dispara mensagens cujo horário chegou
-  useEffect(() => {
-    const checkScheduled = async () => {
-      const nowIso = new Date().toISOString();
-      try {
-        const { data: dueMessages } = await supabase
-          .from('crm_scheduled_messages')
-          .select('*')
-          .eq('status', 'scheduled')
-          .lte('scheduled_for', nowIso)
-          .limit(3);
-
-        if (dueMessages && dueMessages.length > 0) {
-          for (const msg of dueMessages) {
-            try {
-              const resp = await fetch('/api/whatsapp-send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-                body: JSON.stringify({
-                  phone: msg.phone,
-                  text: msg.text,
-                  senderName: msg.created_by || user?.name || 'Sistema',
-                  leadId: msg.lead_id || null,
-                }),
-              });
-              if (resp.ok) {
-                await supabase.from('crm_scheduled_messages').update({
-                  status: 'sent',
-                  sent_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                }).eq('id', msg.id);
-                loadScheduledMessages();
-              } else {
-                const errJson = await resp.json().catch(() => ({}));
-                await supabase.from('crm_scheduled_messages').update({
-                  status: 'failed',
-                  error_message: errJson.error || 'Falha no envio',
-                  updated_at: new Date().toISOString(),
-                }).eq('id', msg.id);
-                setReenvioPendente(msg.text);
-                loadScheduledMessages();
-              }
-            } catch (err: any) {
-              await supabase.from('crm_scheduled_messages').update({
-                status: 'failed',
-                error_message: err?.message || 'Erro de conexão',
-                updated_at: new Date().toISOString(),
-              }).eq('id', msg.id);
-              setReenvioPendente(msg.text);
-              loadScheduledMessages();
-            }
-          }
-        }
-      } catch (e) {}
-    };
-
-    const interval = setInterval(checkScheduled, 20000);
-    checkScheduled();
-    return () => clearInterval(interval);
-  }, [user?.id, user?.name, loadScheduledMessages]);
 
   const handleScheduleMessage = async () => {
     if (!newMessage.trim() || !conversation?.phone) {

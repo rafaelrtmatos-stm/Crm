@@ -22,7 +22,33 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './whatsapp-config.js';
 // Firebase, nao na tabela `usuarios` do Supabase, entao precisa ser aceito à parte).
 const MASTER_ADMIN_ID = 'admin-rafael';
 
+// Chamadas internas do envio agendado (api/_lib/enviar-agendadas.js, disparado pelo pg_cron) nao tem
+// usuario logado: elas mandam o header x-cron-secret, conferido no banco via RPC (o segredo fica na
+// tabela cron_secrets, sem acesso direto pela chave anon). Nunca registrar o segredo em log.
+async function segredoCronValido(segredo) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/validar_segredo_cron`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_nome: 'enviar_agendadas', p_valor: segredo }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch (err) {
+    console.error('Falha ao validar segredo do cron:', err?.message || err);
+    return false;
+  }
+}
+
 export async function usuarioAutorizado(req) {
+  const cronSecret = (req.headers['x-cron-secret'] || '').toString().trim();
+  if (cronSecret) return segredoCronValido(cronSecret);
+
   const userId = (req.headers['x-user-id'] || req.body?.userId || '').toString().trim();
   if (userId === MASTER_ADMIN_ID || userId === 'admin' || userId.startsWith('admin-')) return true;
   if (!userId) {

@@ -25,6 +25,10 @@
 // POST /api/ai?rota=verificar-notas   (CRM, header x-user-id) — _lib/pagar-link.js
 //   body: { saleId?: "<id da nota>" }  resposta: { ok, pagos, baixadas: [sale_id] }
 //
+// POST /api/ai?rota=enviar-agendadas   (pg_cron do Supabase a cada minuto, header x-cron-secret) — _lib/enviar-agendadas.js
+//   Reserva (com trava) as mensagens de crm_scheduled_messages já vencidas e envia cada uma via /api/whatsapp-send.
+//   resposta: { ok, enviadas, falhas, devolvidas }
+//
 // POST /api/ai/suggest-reply  (chega aqui como ?rota=suggest-reply)
 //   headers: x-user-id: <id do usuário logado>
 //   body: { clientMessage: "...", history: [{ direction: "incoming"|"outgoing", text: "..." }], clientName?: "..." }
@@ -385,6 +389,12 @@ export default async function handler(req, res) {
     // Conferência de links ativos pedida pelo CRM (x-user-id) — _lib/pagar-link.js
     const { handleVerificarNotas } = await import('./_lib/pagar-link.js');
     await handleVerificarNotas(req, res);
+    return;
+  }
+  if (rota === 'enviar-agendadas') {
+    // Envio das mensagens agendadas feito pelo servidor (chamado pelo pg_cron, header x-cron-secret) — _lib/enviar-agendadas.js
+    const { handleEnviarAgendadas } = await import('./_lib/enviar-agendadas.js');
+    await handleEnviarAgendadas(req, res);
     return;
   }
   if (rota === 'suggest-reply') {
