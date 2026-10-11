@@ -7,7 +7,8 @@ import type { AppUser } from '../types';
 // supabase/create_crm_payment_notifications.sql). O servidor grava UMA linha por pagamento confirmado, depois de dar a
 // baixa na nota. Aqui o CRM:
 //   * toca o som de dinheiro UMA vez e mostra o aviso clicável (que abre a nota do pedido);
-//   * guarda tudo no histórico do sino de pagamentos (visualizada = sai do contador, mas continua na lista);
+//   * lista os não visualizados no sino de mensagens (abrir a nota ou "Ok" = visualizada = sai do sino); o histórico completo
+//     de pagamentos fica na aba "Entradas de Caixa" do Histórico de Pedidos;
 //   * avisa o PDV (evento `rpro-pagamento-link-recebido`) para fechar o modal de pagamento daquela nota.
 // NÃO usa crm_notifications nem leads.waiting_since: por isso NUNCA entra no lembrete de 5 em 5 minutos das mensagens.
 

@@ -1490,6 +1490,14 @@ ___________________________________________
 ${CONTRATADA_NOME} — CONTRATADA`;
 }
 
+// Semana de trabalho: SABADO a SEXTA (mesma regra da aba Funcionarios). offset 0 = semana atual, -1 = anterior, +1 = proxima.
+export function getSemanaSabSex(offset = 0): { start: Date; end: Date } {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 1) % 7) + offset * 7, 0, 0, 0, 0);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999);
+  return { start, end };
+}
+
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab, setIsMessagePopupOpen }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void, setIsMessagePopupOpen?: (open: boolean) => void }) => {
   const { setPendingReceivablesFilter, setPendingQuitadasFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
@@ -1538,6 +1546,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
   const [selectedWidget, setSelectedWidget] = useState<DashboardWidget | null>(null);
   const [period, setPeriod] = useState('7 dias');
+  // Navegacao de semana (sabado a sexta): 0 = atual, -1 = anterior, +1 = proxima
+  const [semanaOffset, setSemanaOffset] = useState(0);
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
@@ -1611,6 +1621,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     };
   }, []);
 
+  // Semana (sabado a sexta) cuja folha da equipe entra no lucro: so muda quando o periodo e "Semana" e o usuario navegou
+  // para outra semana. Na semana atual continua a regra de sempre (no sabado mostra o ciclo encerrado na sexta).
+  const semanaFolhaOffset = (period === '7 dias' || period === 'Semana') ? semanaOffset : 0;
   const [totalEstimadoFuncionarios, setTotalEstimadoFuncionarios] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('rpro_equipe_total_estimado');
@@ -1627,7 +1640,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         // No sábado, o Dashboard mostra o ciclo encerrado na sexta-feira.
         // De domingo a sexta, mostra o ciclo atual em apuração.
         const isSaturday = new Date().getDay() === 6;
-        const { start, end } = getWorkWeekBounds(isSaturday ? -1 : 0);
+        const { start, end } = semanaFolhaOffset !== 0
+          ? getWorkWeekBounds(semanaFolhaOffset)
+          : getWorkWeekBounds(isSaturday ? -1 : 0);
         const descBounds = getDescontosValesBounds(start, end);
 
         const [colabsRes, servicosRes, descontosRes, pagamentosRes, caixasRes, vendasRes] = await Promise.all([
@@ -1753,12 +1768,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
         if (mounted) {
           setTotalEstimadoFuncionarios(totalEquipe);
-          localStorage.setItem('rpro_equipe_total_estimado', String(totalEquipe));
+          // O cache offline guarda so a semana atual; semanas navegadas nao sobrescrevem
+          if (semanaFolhaOffset === 0) localStorage.setItem('rpro_equipe_total_estimado', String(totalEquipe));
         }
       } catch (err) {
         // Mantém o último cache somente como fallback de indisponibilidade.
         console.warn('Dashboard: falha ao revalidar total de funcionários:', err);
-        if (mounted) {
+        if (mounted && semanaFolhaOffset === 0) {
           const cached = localStorage.getItem('rpro_equipe_total_estimado');
           if (cached) setTotalEstimadoFuncionarios(Number(cached) || 0);
         }
@@ -1788,7 +1804,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       window.removeEventListener('rpro-colab-stats-updated', handleColabUpdate);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [semanaFolhaOffset]);
 
   const { setCurrentCompany, setPrefilledCustomer } = React.useContext(AppContext)!;
   const [settleModalOrder, setSettleModalOrder] = useState<SaleOrder | null>(null);
@@ -1925,10 +1941,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       return { start, end };
     }
     if (period === 'Semana' || period === '7 dias') {
-      const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
-      const start = new Date(now); start.setDate(now.getDate() - dayOfWeek); start.setHours(0, 0, 0, 0);
-      const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
-      return { start, end };
+      return getSemanaSabSex(semanaOffset); // sabado a sexta, com navegacao por semana
     }
     if (period === '30 dias') {
       const start = new Date(now); start.setDate(now.getDate() - 30); start.setHours(0, 0, 0, 0);
@@ -1959,14 +1972,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         return orderDate.toDateString() === yesterday.toDateString();
       }
       if (period === 'Semana' || period === '7 dias') {
-        // Semana comeca no domingo
-        const dayOfWeek = now.getDay(); // 0=domingo, 1=segunda, ..., 6=sabado
-        const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - dayOfWeek);
-        startOfWeek.setHours(0, 0, 0, 0);
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6); // domingo + 6 dias = sabado
-        endOfWeek.setHours(23, 59, 59, 999);
+        // Semana de sabado a sexta, com navegacao por semana
+        const { start: startOfWeek, end: endOfWeek } = getSemanaSabSex(semanaOffset);
         return orderDate >= startOfWeek && orderDate <= endOfWeek;
       }
       if (period === 'Ano' || period === 'Este Ano') {
@@ -2208,7 +2215,49 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     });
 
     return points;
-  }, [filteredOrders, services, realSales, period, customRange]);
+  }, [filteredOrders, services, realSales, period, customRange, semanaOffset]);
+  // Setas para voltar/avancar semana (sabado a sexta) — mesmo comportamento da aba Funcionarios
+  const renderNavegadorSemana = (offset: number, setOffset: (fn: (v: number) => number) => void, resetar: () => void) => {
+  const rangeSemanaNav = getSemanaSabSex(offset);
+  return (
+    <div className="flex items-center gap-0.5 bg-white/5 p-1 rounded-xl border border-white/5">
+      <button
+        type="button"
+        onClick={() => setOffset(v => v - 1)}
+        title="Semana anterior"
+        className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+      >
+        <ChevronLeft size={14} />
+      </button>
+      <span className="px-2 text-[9px] font-black uppercase tracking-wider text-white/70 whitespace-nowrap tabular-nums">
+        {format(rangeSemanaNav.start, 'dd/MM')} a {format(rangeSemanaNav.end, 'dd/MM')}
+        {offset !== 0 && (
+          <span className="text-primary-300"> ({offset < 0 ? `${Math.abs(offset)} sem. atrás` : `+${offset} sem.`})</span>
+        )}
+      </span>
+      <button
+        type="button"
+        onClick={() => setOffset(v => v + 1)}
+        title="Próxima semana"
+        className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+      >
+        <ChevronRight size={14} />
+      </button>
+      {offset !== 0 && (
+        <button
+          type="button"
+          onClick={resetar}
+          title="Voltar para a semana atual"
+          className="px-2 py-0.5 rounded-md bg-primary-500 text-slate-900 text-[9px] font-black uppercase cursor-pointer"
+        >
+          Atual
+        </button>
+      )}
+    </div>
+  );
+  };
+  const navegadorSemana = renderNavegadorSemana(semanaOffset, setSemanaOffset, () => setSemanaOffset(0));
+
   const IconMap: Record<string, any> = {
     TrendingUp, Target, Clock, MessageSquare, ShoppingBag, Users, FileText, BarChart2, PieChartIcon, Trophy, Activity, Timer, CalendarDays, Wrench, Home
   };
@@ -2223,7 +2272,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       end: format(now, 'yyyy-MM-dd')
     };
   });
-  const [analiseActiveTab, setAnaliseActiveTab] = useState<'desempenho' | 'produtos' | 'clientes' | 'extrato'>('desempenho');
+  // Navegacao de semana (sabado a sexta) dentro da Analise Detalhada
+  const [analiseSemanaOffset, setAnaliseSemanaOffset] = useState(0);
+  const [analiseActiveTab, setAnaliseActiveTab] = useState<'desempenho' | 'produtos' | 'clientes' | 'extrato' | 'notas'>('desempenho');
+  // Aba "Notas do Periodo": ordenacao e quais cards estao abertos (mostrando os servicos da nota)
+  const [notasOrdem, setNotasOrdem] = useState<'data' | 'lucro'>('data');
+  const [notasAbertas, setNotasAbertas] = useState<Set<string>>(new Set());
   const [classificacaoProdutos, setClassificacaoProdutos] = useState<'faturamento' | 'quantidade' | 'lucro'>('faturamento');
   const [classificacaoClientes, setClassificacaoClientes] = useState<'faturamento' | 'pedidos' | 'ticket'>('faturamento');
   const [classificacaoVendas, setClassificacaoVendas] = useState<'recente' | 'maior_valor' | 'maior_lucro'>('recente');
@@ -2266,8 +2320,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       inicioPeriodo = startOfDay;
       fimPeriodo = endOfDay;
     } else if (analisePeriodo === 'semana') {
-      inicioPeriodo = startOfWeek;
-      fimPeriodo = endOfDay;
+      // Semana de sabado a sexta, navegavel (semana inteira, mesmo a atual)
+      const sem = getSemanaSabSex(analiseSemanaOffset);
+      inicioPeriodo = sem.start;
+      fimPeriodo = sem.end;
     } else if (analisePeriodo === 'mes') {
       inicioPeriodo = startOfMonth;
       fimPeriodo = endOfDay;
@@ -2281,7 +2337,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       fimPeriodo = isNaN(endParsed.getTime()) ? endOfDay : endParsed;
     }
 
-    const diasNoPeriodo = Math.max(1, Math.round((fimPeriodo.getTime() - inicioPeriodo.getTime()) / 86400000) + 1);
+    const diasNoPeriodo = Math.max(1, Math.ceil((fimPeriodo.getTime() - inicioPeriodo.getTime()) / 86400000));
     const vendasNaoCanceladas = realSales.filter(o => o.status !== 'canceled');
 
     // Faturamento conta pela data de CADA pagamento
@@ -2313,7 +2369,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     const mediaDiariaPeriodo = faturamento / diasNoPeriodo;
     const mediaLucroDiario = lucro / diasNoPeriodo;
 
-    const periodo = { faturamento, lucro, custo, margemLucro, count, ticketMedio, diasNoPeriodo };
+    // Lucro Liquido = Lucro Bruto - despesas fixas proporcionais ao periodo (comissoes ja estao dentro do custo)
+    const despesasFixas = (despesasFixasBaseMensal / 30) * diasNoPeriodo;
+    const lucroLiquido = faturamento - custo - despesasFixas;
+    const margemLiquida = faturamento > 0 ? (lucroLiquido / faturamento) * 100 : 0;
+
+    const periodo = { faturamento, lucro, custo, margemLucro, count, ticketMedio, diasNoPeriodo, despesasFixas, lucroLiquido, margemLiquida };
 
     // --- PRODUTOS NO PERÍODO ---
     const produtosMap: Record<string, { name: string; qty: number; total: number; cost: number }> = {};
@@ -2413,10 +2474,28 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       .map(o => {
         const custoVenda = custoDoPedido(o);
         const lucroVenda = Math.max(0, o.total - custoVenda);
+        // Servicos (itens) da nota, com valor/custo/lucro de cada um. Mesmo fator da nota pendente (so custo proporcional ao pago).
+        const fatorCusto = (o.status === 'pending' && o.total > 0) ? (o.downPayment || 0) / o.total : 1;
+        const itensDetalhe = (o.items || []).map(item => {
+          const qtd = item.quantity || 1;
+          const valor = item.area ? (item.price || 0) * item.area * qtd : (item.price || 0) * qtd;
+          let custoItem = 0;
+          if (isMaterialLonaAdesivo(item.name)) {
+            const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
+            const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : 0;
+            custoItem = (item.area ? unitCost * item.area * qtd : unitCost * qtd) * fatorCusto;
+          }
+          return { nome: item.name, qtd, valor, custo: custoItem, lucro: valor - custoItem };
+        });
+        const custoExtras = somaCustosExtras(o.extraCosts) * fatorCusto;
+        const somaItens = itensDetalhe.reduce((acc, it) => acc + it.valor, 0);
         return {
           ...o,
           custoVenda,
-          lucroVenda
+          lucroVenda,
+          itensDetalhe,
+          custoExtras,
+          ajusteValor: (o.total || 0) - somaItens
         };
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -2502,7 +2581,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       fimPeriodo,
       diasNoPeriodo
     };
-  }, [realSales, inventory, analisePeriodo, analiseCustomRange, comissoesLancadas]);
+  }, [realSales, inventory, analisePeriodo, analiseCustomRange, comissoesLancadas, analiseSemanaOffset, despesasFixasBaseMensal]);
 
   const addWidget = (type: WidgetType) => {
     const newWidget: DashboardWidget = {
@@ -2571,16 +2650,18 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                 {['Hoje', 'Ontem', '7 dias', '30 dias', 'Ano', 'Personalizado'].map(p => (
                   <button 
                     key={p}
-                    onClick={() => setPeriod(p)}
+                    onClick={() => { setPeriod(p); if (p === '7 dias') setSemanaOffset(0); }}
                     className={cn(
                       "px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
                       (period === p || (p === '7 dias' && period === 'Semana')) ? "bg-primary-500 text-slate-900 shadow-lg" : "text-white/40 hover:text-white"
                     )}
                   >
-                    {p}
+                    {p === '7 dias' ? 'Semana' : p}
                   </button>
                 ))}
               </div>
+
+              {(period === '7 dias' || period === 'Semana') && navegadorSemana}
 
               {period === 'Personalizado' && (
                 <div className="flex gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-2">
@@ -2871,16 +2952,18 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       {['Hoje', 'Ontem', '7 dias', '30 dias', 'Ano', 'Personalizado'].map(p => (
                          <button 
                             key={p}
-                            onClick={() => setPeriod(p)}
+                            onClick={() => { setPeriod(p); if (p === '7 dias') setSemanaOffset(0); }}
                             className={cn(
                                "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer",
                                (period === p || (p === '7 dias' && period === 'Semana')) ? "bg-primary-500 text-slate-900 shadow-md font-extrabold" : "text-white/40 hover:text-white"
                             )}
                          >
-                            {p}
+                            {p === '7 dias' ? 'Semana' : p}
                          </button>
                       ))}
                    </div>
+
+                   {(period === '7 dias' || period === 'Semana') && navegadorSemana}
 
                    {/* Toggle Linha / Barras */}
                    <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/5">
@@ -3401,7 +3484,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                    ].map(p => (
                      <button
                        key={p.id}
-                       onClick={() => setAnalisePeriodo(p.id as any)}
+                       onClick={() => { setAnalisePeriodo(p.id as any); if (p.id === 'semana') setAnaliseSemanaOffset(0); }}
                        className={cn(
                          "px-3.5 h-8 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer border transition-all flex items-center gap-1.5",
                          analisePeriodo === p.id 
@@ -3414,6 +3497,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                      </button>
                    ))}
                 </div>
+
+                {analisePeriodo === 'semana' && renderNavegadorSemana(analiseSemanaOffset, setAnaliseSemanaOffset, () => setAnaliseSemanaOffset(0))}
 
                 <div className="text-[10px] font-bold text-white/50 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5 shrink-0">
                    Período: <span className="text-white font-black">{safeFormat(analiseDetalhada.inicioPeriodo, 'dd/MM/yyyy')}</span> até <span className="text-white font-black">{safeFormat(analiseDetalhada.fimPeriodo, 'dd/MM/yyyy')}</span> ({analiseDetalhada.diasNoPeriodo} {analiseDetalhada.diasNoPeriodo === 1 ? 'dia' : 'dias'})
@@ -3499,6 +3584,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                   { id: 'desempenho', label: 'Desempenho Geral', icon: BarChart3 },
                   { id: 'produtos', label: 'Classificação de Produtos', icon: ShoppingBag, count: analiseDetalhada.produtosCalculados.length },
                   { id: 'clientes', label: 'Classificação de Clientes', icon: Users, count: analiseDetalhada.clientesCalculados.length },
+                  { id: 'notas', label: 'Notas do Período', icon: ClipboardList, count: analiseDetalhada.vendasDoPeriodo.length },
                   { id: 'extrato', label: 'Extrato & Histórico', icon: FileText, count: analiseDetalhada.extratoRecebimentos.length },
                 ].map(tab => {
                   const Icon = tab.icon;
@@ -3533,16 +3619,21 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
              {analiseActiveTab === 'desempenho' && (
                 <div className="space-y-4 animate-in fade-in duration-200">
                    {/* KPI Cards */}
-                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
                       <div className="p-3 bg-primary-500/10 rounded-xl border border-primary-500/20">
                          <p className="text-[8px] font-black uppercase text-primary-300 tracking-widest mb-1">Faturamento Total</p>
                          <p className="text-base font-black text-white">R$ {analiseDetalhada.periodo.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                          <p className="text-[8px] text-white/40 mt-0.5 font-bold">{analiseDetalhada.periodo.count} pedidos</p>
                       </div>
                       <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                         <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro Líquido</p>
+                         <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro Bruto</p>
                          <p className="text-base font-black text-emerald-400">R$ {analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Margem: {analiseDetalhada.periodo.margemLucro.toFixed(1)}%</p>
+                         <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Antes das despesas • Margem: {analiseDetalhada.periodo.margemLucro.toFixed(1)}%</p>
+                      </div>
+                      <div className={cn("p-3 rounded-xl border", analiseDetalhada.periodo.lucroLiquido >= 0 ? "bg-teal-500/10 border-teal-500/20" : "bg-rose-500/10 border-rose-500/30")}>
+                         <p className={cn("text-[8px] font-black uppercase tracking-widest mb-1", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>Lucro Líquido</p>
+                         <p className={cn("text-base font-black", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>R$ {analiseDetalhada.periodo.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                         <p className="text-[8px] text-white/50 mt-0.5 font-bold">Após despesas fixas (R$ {analiseDetalhada.periodo.despesasFixas.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}) • Margem: {analiseDetalhada.periodo.margemLiquida.toFixed(1)}%</p>
                       </div>
                       <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
                          <p className="text-[8px] font-black uppercase text-rose-400 tracking-widest mb-1">Custos & Insumos</p>
@@ -3945,6 +4036,128 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
              )}
 
              {/* CONTEÚDO DA ABA 4: EXTRATO & HISTÓRICO DE VENDAS */}
+             {/* CONTEÚDO DA ABA: NOTAS DO PERÍODO (mini cards; seta abre os serviços da nota) */}
+             {analiseActiveTab === 'notas' && (() => {
+                const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const lista = [...analiseDetalhada.vendasDoPeriodo].sort((a, b) =>
+                  notasOrdem === 'lucro'
+                    ? (b.lucroVenda || 0) - (a.lucroVenda || 0)
+                    : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                );
+                const totalNotas = lista.reduce((acc, n) => acc + (n.total || 0), 0);
+                const totalLucro = lista.reduce((acc, n) => acc + (n.lucroVenda || 0), 0);
+                const alternar = (id: string) => setNotasAbertas(prev => {
+                  const novo = new Set(prev);
+                  if (novo.has(id)) novo.delete(id); else novo.add(id);
+                  return novo;
+                });
+                return (
+                  <div className="space-y-3 animate-in fade-in duration-200">
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-white/[0.03] border border-white/10 rounded-2xl p-3">
+                      <div className="flex items-center gap-4 flex-wrap">
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-white/40">Notas</p>
+                          <p className="text-sm font-black text-white">{lista.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-white/40">Valor das notas</p>
+                          <p className="text-sm font-black text-white">R$ {fmt(totalNotas)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-400/70">Lucro das notas</p>
+                          <p className="text-sm font-black text-emerald-400">R$ {fmt(totalLucro)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[8px] font-black uppercase text-white/40 mr-1">Ordenar por</span>
+                        {([{ id: 'data', label: 'Data' }, { id: 'lucro', label: 'Lucro' }] as const).map(o => (
+                          <button
+                            key={o.id}
+                            onClick={() => setNotasOrdem(o.id)}
+                            className={cn(
+                              "px-3 py-1 rounded-lg text-[9px] font-black uppercase cursor-pointer transition-all border",
+                              notasOrdem === o.id ? "bg-primary-500 text-slate-900 border-primary-400" : "bg-white/5 text-white/50 border-white/5 hover:text-white"
+                            )}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {lista.length === 0 && (
+                      <p className="text-[10px] text-white/30 text-center py-10">Nenhuma nota no período.</p>
+                    )}
+
+                    <div className="space-y-1.5 max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
+                      {lista.map(nota => {
+                        const aberta = notasAbertas.has(nota.id);
+                        return (
+                          <div key={nota.id} className="bg-white/5 border border-white/5 rounded-xl overflow-hidden">
+                            <div className="flex items-center justify-between gap-2 px-3 py-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => alternar(nota.id)}
+                                  title={aberta ? 'Fechar serviços da nota' : 'Ver serviços da nota'}
+                                  className="p-1 rounded-lg text-white/50 hover:text-white hover:bg-white/10 cursor-pointer shrink-0"
+                                >
+                                  {aberta ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </button>
+                                <span className="text-[9px] text-white/40 font-bold shrink-0 tabular-nums">{safeFormat(nota.createdAt, 'dd/MM')}</span>
+                                <span className="text-[10px] font-bold text-white truncate">{(nota.customerName || 'Cliente de Balcão').toUpperCase()}</span>
+                                <span className="text-[8px] text-white/30 font-bold hidden sm:inline shrink-0">#{String(nota.id).slice(-8).toUpperCase()}</span>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="text-right">
+                                  <p className="text-[8px] font-bold text-emerald-400/80">Lucro: R$ {fmt(nota.lucroVenda)}</p>
+                                  <p className="text-xs font-black text-white">R$ {fmt(nota.total || 0)}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => { setPendingReceiptOpenId(nota.id); setActiveTab?.('pos'); setIsRevenueModalOpen(false); }}
+                                  title="Abrir a nota"
+                                  className="p-1 rounded-lg text-white/30 hover:text-primary-300 hover:bg-white/10 cursor-pointer"
+                                >
+                                  <ExternalLink size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {aberta && (
+                              <div className="border-t border-white/5 bg-black/20 px-3 py-2 space-y-1">
+                                {nota.itensDetalhe.length === 0 && <p className="text-[9px] text-white/30">Nota sem itens.</p>}
+                                {nota.itensDetalhe.map((it, idx) => (
+                                  <div key={idx} className="flex items-center justify-between gap-2 text-[10px]">
+                                    <span className="text-white/80 font-bold truncate">{it.qtd}x {it.nome}</span>
+                                    <span className="shrink-0 tabular-nums">
+                                      <span className="text-white font-black">R$ {fmt(it.valor)}</span>
+                                      <span className="text-emerald-400/80 font-bold ml-2">Lucro R$ {fmt(it.lucro)}</span>
+                                    </span>
+                                  </div>
+                                ))}
+                                {nota.custoExtras > 0.009 && (
+                                  <div className="flex items-center justify-between text-[9px] text-rose-300/80 font-bold">
+                                    <span>Custos extras da nota</span>
+                                    <span className="tabular-nums">- R$ {fmt(nota.custoExtras)}</span>
+                                  </div>
+                                )}
+                                {Math.abs(nota.ajusteValor) > 0.009 && (
+                                  <div className="flex items-center justify-between text-[9px] text-white/40 font-bold">
+                                    <span>{nota.ajusteValor < 0 ? 'Desconto / ajuste' : 'Acréscimo / ajuste'}</span>
+                                    <span className="tabular-nums">{nota.ajusteValor < 0 ? '-' : '+'} R$ {fmt(Math.abs(nota.ajusteValor))}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+             })()}
+
              {analiseActiveTab === 'extrato' && (
                 <div className="space-y-4 animate-in fade-in duration-200">
                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -21434,6 +21647,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <p className="text-[11px] font-black text-white truncate">{rec.customerName}</p>
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <span className="text-[9px] font-bold text-white/40 tabular-nums">{safeFormat(rec.date, 'dd/MM/yyyy HH:mm')}</span>
+                                <span className="text-[9px] font-bold text-white/50 shrink-0">Nota #{String(rec.saleId).slice(-8).toUpperCase()}</span>
                                 {methodLabel && <span className="text-[8px] font-black uppercase text-primary-300/70 shrink-0">{methodLabel}</span>}
                               </div>
                             </div>
