@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Bell, BellRing, Check, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
+import { AlertTriangle, BadgeDollarSign, Bell, BellRing, Check, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
 import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
 import { FotoNotificacao } from '../lib/notify';
 import { ehUuid } from '../lib/uuid';
+import { numeroDoPedido, tituloDoPagamento, type PagamentoRecebido } from '../lib/pagamentoRecebido';
 
 // NOTIFICACAO PENDENTE de uma conversa (tabela crm_notifications -- ja existe em producao,
 // espelho em supabase/create_crm_notifications.sql). Desde a migration "formato enxuto" (23/09) e
@@ -400,17 +401,29 @@ export const NotificacoesPendentesBell = ({
   itens,
   onAbrir,
   onResolver,
+  pagamentos = [],
+  onAbrirPagamento,
+  onDispensarPagamento,
+  onMarcarTodosPagamentos,
 }: {
   itens: NotificacaoPendente[];
   onAbrir: (n: NotificacaoPendente) => void;
   onResolver?: (n: NotificacaoPendente) => void;
+  // Pagamentos recebidos POR LINK (so os ainda nao vistos aparecem aqui). Abrir a nota ja tira o item do sino.
+  // Ficam fora de `itens` de proposito: nao entram no lembrete de 5 em 5 minutos das mensagens.
+  pagamentos?: PagamentoRecebido[];
+  onAbrirPagamento?: (p: PagamentoRecebido) => void;
+  onDispensarPagamento?: (p: PagamentoRecebido) => void;
+  onMarcarTodosPagamentos?: () => void;
 }) => {
   const [aberto, setAberto] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const [resolvendoPhones, setResolvendoPhones] = useState<Set<string>>(new Set());
   const [resolvendoTodas, setResolvendoTodas] = useState(false);
   const botaoRef = useRef<HTMLButtonElement>(null);
-  const total = itens.length;
+  const pagamentosPendentes = pagamentos.filter(p => !p.visualizadaEm);
+  // Contador do sino = conversas pendentes + pagamentos por link ainda nao vistos
+  const total = itens.length + pagamentosPendentes.length;
 
   const calcularPosicao = useCallback(() => {
     const btn = botaoRef.current;
@@ -518,6 +531,7 @@ export const NotificacoesPendentesBell = ({
           .ilike('phone', `%${p.slice(-8)}%`);
       }
 
+      onMarcarTodosPagamentos?.();
       setAberto(false);
     } catch (err) {
       console.error('Erro ao resolver todas as notificacoes:', err);
@@ -581,7 +595,39 @@ export const NotificacoesPendentesBell = ({
               {total === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-white/40">Nenhuma notificação pendente.</p>
               ) : (
-                itens.map(n => {
+                <>
+                {pagamentosPendentes.map(p => (
+                  <div
+                    key={`pagamento-${p.id}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => { setAberto(false); onAbrirPagamento?.(p); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { setAberto(false); onAbrirPagamento?.(p); } }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-3 hover:bg-white/5 transition-colors group cursor-pointer"
+                  >
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                      <BadgeDollarSign size={20} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 text-xs font-black text-white break-words group-hover:text-primary-300 transition-colors">{tituloDoPagamento(p)}</p>
+                        <span className="text-[10px] text-white/40 shrink-0 tabular-nums">{formatarHoraNotificacao(p.criadoEm)}</span>
+                      </div>
+                      <p className="text-[11px] text-white/60 truncate mt-0.5">Cliente: {p.clienteNome}</p>
+                      <p className="text-[11px] text-white/60 mt-0.5">Pedido: {numeroDoPedido(p.saleId)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onDispensarPagamento?.(p); }}
+                      title="Tirar do sino sem abrir a nota"
+                      className="shrink-0 p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/30 border border-emerald-500/20 active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check size={13} className="stroke-[3]" />
+                      <span className="hidden sm:inline text-[9.5px] font-bold uppercase tracking-wider">Ok</span>
+                    </button>
+                  </div>
+                ))}
+                {itens.map(n => {
                   const nome = nomeDaNotificacao(n);
                   const hora = formatarHoraNotificacao(n.lastMessageAt);
                   const estaResolvendo = resolvendoPhones.has(n.phone);
@@ -623,7 +669,8 @@ export const NotificacoesPendentesBell = ({
                       </button>
                     </div>
                   );
-                })
+                })}
+                </>
               )}
             </div>
           </div>

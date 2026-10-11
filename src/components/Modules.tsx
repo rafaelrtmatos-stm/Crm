@@ -21647,6 +21647,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               <p className="text-[11px] font-black text-white truncate">{rec.customerName}</p>
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <span className="text-[9px] font-bold text-white/40 tabular-nums">{safeFormat(rec.date, 'dd/MM/yyyy HH:mm')}</span>
+                                <span className="text-[9px] font-bold text-white/50 shrink-0">Nota #{String(rec.saleId).slice(-8).toUpperCase()}</span>
                                 {methodLabel && <span className="text-[8px] font-black uppercase text-primary-300/70 shrink-0">{methodLabel}</span>}
                               </div>
                             </div>

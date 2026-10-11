@@ -106,7 +106,6 @@ import {
 import { AgendaModule } from './components/AgendaModule';
 import { MessagesSidebarPopup, carregarInfoGrupos, grupoEstaSilenciado } from './components/MessagesSidebarPopup';
 import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, marcarNotificacoesResolvidas, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
-import { PagamentosRecebidosBell } from './components/PagamentosRecebidosBell';
 import { usePagamentosRecebidos } from './lib/pagamentoRecebido';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
@@ -462,10 +461,14 @@ const Navbar = () => {
       <div className="flex items-center gap-3">
         {/* Sino: notificacoes pendentes (contador + lista). Clicar num item abre a conversa na
             mensagem que gerou a notificacao -- NAO resolve; so o botao "Marcar como resolvido". */}
-        <NotificacoesPendentesBell itens={notificacoesPendentes} onAbrir={abrirNotificacao} />
-
-        {/* Pagamentos recebidos por link: aviso unico por pagamento (sem lembrete de 5 min), com historico. Clicar abre a nota. */}
-        <PagamentosRecebidosBell itens={pagamentosRecebidos} onAbrir={abrirPagamentoRecebido} onMarcarTodasVistas={() => marcarPagamentosVisualizados()} />
+        <NotificacoesPendentesBell
+          itens={notificacoesPendentes}
+          onAbrir={abrirNotificacao}
+          pagamentos={pagamentosRecebidos}
+          onAbrirPagamento={abrirPagamentoRecebido}
+          onDispensarPagamento={(p) => marcarPagamentosVisualizados([p.id])}
+          onMarcarTodosPagamentos={() => marcarPagamentosVisualizados()}
+        />
 
         {/* Theme Toggle Button */}
         <button
@@ -941,7 +944,7 @@ export default function App() {
   // Notificacoes pendentes do usuario (agrupadas por cliente/grupo, filtradas por permissao)
   const { itens: notificacoesPendentes } = useNotificacoesPendentes(user);
   // Pagamentos recebidos por link de pagamento: som de dinheiro + aviso clicavel UMA vez por pagamento confirmado, historico no
-  // sino de pagamentos e evento para o PDV fechar o modal de pagamento daquela nota. Clicar abre a nota no Historico do PDV.
+  // sino de mensagens e evento para o PDV fechar o modal de pagamento daquela nota. Clicar abre a nota no Historico do PDV.
   const { itens: pagamentosRecebidos, abrirPagamento: abrirPagamentoRecebido, marcarVisualizadas: marcarPagamentosVisualizados } = usePagamentosRecebidos(
     user,
     currentCompany?.id || 'rafa-arts',
