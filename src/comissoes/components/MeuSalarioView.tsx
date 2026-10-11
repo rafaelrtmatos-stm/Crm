@@ -4,8 +4,9 @@ import{supabase}from'../../supabase';
 import{formatCurrency}from'../utils/storage';
 import{calculateDescontosNoPeriodo,getDescontosFromSupabase,calcularSalarioSemanal}from'../utils/supabaseStorage';
 import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStorage';
+import{calcularRemuneracaoSemanal}from'../utils/remuneracaoHelper';
 
-export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number}>=({colaboradorId,nome,salarioBase})=>{
+export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number;modalidade?:any;comissaoPadraoPercentual?:number;metaPercentual?:number;metasValores?:any[];metaValorMinimo?:number;metaValorMaximo?:number}>=({colaboradorId,nome,salarioBase,modalidade='fixo_comissao' as any,comissaoPadraoPercentual=0,metaPercentual=0,metasValores,metaValorMinimo,metaValorMaximo})=>{
  const[caixa,setCaixa]=useState<any>(null),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[pagamentos,setPagamentos]=useState<any[]>([]),[loading,setLoading]=useState(true);
  const hoje=new Date(),ehSabado=hoje.getDay()===6,comissaoOffset=ehSabado?-1:0,comissaoBounds=useMemo(()=>getWorkWeekBounds(comissaoOffset),[comissaoOffset]),bounds=comissaoBounds,descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
  const salarioSemanal=calcularSalarioSemanal(salarioBase);
@@ -18,15 +19,21 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    ]);
    if(ok){setCaixa(c.data||null);setServicos(s.data||[]);setDescontos(d||[]);setPagamentos(p.data||[]);setLoading(false)}
  })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end]);
+ const[receitaLoja,setReceitaLoja]=useState(0);
+ useEffect(()=>{if(modalidade!=='meta')return;let ok=true;supabase.from('vendas').select('total,status,down_payment').gte('created_at',bounds.start).lte('created_at',bounds.end).is('deleted_at',null).then(({data})=>{if(!ok)return;setReceitaLoja((data||[]).filter((v:any)=>{if(v.status==='canceled')return false;const t=Number(v.total)||0,d=Number(v.down_payment)||0;return t>0&&(v.status==='completed'||d>=t)}).reduce((a:number,v:any)=>a+(Number(v.total)||0),0))});return()=>{ok=false}},[modalidade,bounds.start,bounds.end]);
 
  const calc=useMemo(()=>{
    const fechado=caixa?.status==='fechado';
-   const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||salarioSemanal:salarioSemanal;
-   const comissao=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0);
+   const comissaoServicos=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0),producao=servicos.reduce((s,x)=>s+(Number(x.valor_producao)||0),0);
+   const rem=calcularRemuneracaoSemanal({modalidade,salarioBase:salarioSemanal,comissaoPadraoPercentual,metaPercentual,metasValores,metaValorMinimo,metaValorMaximo,faturamentoGeral:receitaLoja},producao,comissaoServicos);
+   const base=modalidade==='meta'?0:fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||rem.salarioBaseEfetivo:rem.salarioBaseEfetivo;
+   const comissao=rem.comissaoEfetiva;
    const desc=fechado&&caixa?.total_descontos!==null&&caixa?.total_descontos!==undefined?Number(caixa.total_descontos)||0:calculateDescontosNoPeriodo(descontos,descBounds.start,descBounds.end);
    const saldoAnterior=Number(caixa?.saldo_anterior)||0;
-   return{base,comissao,desc,saldoAnterior,total:base+comissao-desc+saldoAnterior};
- },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal]);
+   const pago=pagamentos.filter(x=>!caixa?.id||x.caixa_id===caixa.id).reduce((s,x)=>s+(Number(x.valor)||0),0);
+   const previsao=Math.max(0,base+comissao-desc+saldoAnterior);
+   return{base,comissao,desc,saldoAnterior,pago,total:Math.max(0,Number((previsao-pago).toFixed(2)))};
+ },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal,modalidade,comissaoPadraoPercentual,metaPercentual,metasValores,metaValorMinimo,metaValorMaximo,receitaLoja]);
 
  const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
  const cicloLabel=`${bounds.start.split('-').reverse().join('/')} a ${bounds.end.split('-').reverse().join('/')}`;
@@ -49,7 +56,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
        <div className="flex justify-between"><span>Salário</span><b>{formatCurrency(calc.base)}</b></div>
        <div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>
        <div className="flex justify-between"><span>Descontos da semana</span><b className="text-rose-500">-{formatCurrency(calc.desc)}</b></div>
-
+       {calc.pago>0&&<div className="flex justify-between"><span>Já recebido</span><b className="text-rose-500">-{formatCurrency(calc.pago)}</b></div>}
        <div className="pt-3 mt-3 border-t border-[var(--border-color)] flex justify-between text-base"><b>Total a receber {pagamentoLabel}</b><b>{formatCurrency(calc.total)}</b></div>
      </div>
    </div>

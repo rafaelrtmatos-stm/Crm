@@ -48,7 +48,7 @@ import {
 import { Colaborador, ModoLancamentoComissao, ModalidadeRemuneracao, Desconto, calculateDescontosNoPeriodo, mapColaboradorRow, calcularSalarioSemanal } from './utils/supabaseStorage';
 import { MetaValorItem } from './types';
 import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanalStorage';
-import { calcularPrevisaoRecebimento } from './utils/previsaoRecebimento';
+import { calcularPrevisaoRecebimento, calcularAReceber } from './utils/previsaoRecebimento';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
@@ -564,6 +564,7 @@ export default function ComissoesAdminPanel() {
     let totalProducaoSemana = 0;
     let totalDescontosSemana = 0;
     let totalEstimadoEquipe = 0;
+    let totalPendenteEquipe = 0;
     let somaTaxaComissao = 0;
     let ativosComComissao = 0;
 
@@ -585,8 +586,11 @@ export default function ComissoesAdminPanel() {
           totalProducaoSemana += stats.totalProducao;
           totalDescontosSemana += stats.totalDescontos;
           totalEstimadoEquipe += stats.totalEstimado;
+          totalPendenteEquipe += calcularAReceber(stats.totalEstimado, stats.totalPago);
         } else {
-          totalEstimadoEquipe += calcularSalarioSemanal(Number(c.salario_base) || 0);
+          const base = calcularSalarioSemanal(Number(c.salario_base) || 0);
+          totalEstimadoEquipe += base;
+          totalPendenteEquipe += base;
         }
       }
     });
@@ -605,6 +609,7 @@ export default function ComissoesAdminPanel() {
       totalProducaoSemana,
       totalDescontosSemana,
       totalEstimadoEquipe,
+      totalPendenteEquipe,
       metaProgressoGeral,
     };
   }, [colaboradores, weeklyStatsMap]);
@@ -1388,7 +1393,7 @@ export default function ComissoesAdminPanel() {
           <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 sm:p-5 shadow-sm hover:border-[var(--accent-red)]/30 transition-all relative overflow-hidden">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-black uppercase text-[var(--text-muted)] tracking-wider">
-                Comissões da Semana
+                Valor Pendente
               </span>
               <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
@@ -1396,11 +1401,11 @@ export default function ComissoesAdminPanel() {
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl sm:text-2xl font-black text-rose-400 truncate">
-                {formatCurrencyBR(metrics.totalComissaoSemana)}
+                {formatCurrencyBR(metrics.totalPendenteEquipe)}
               </span>
             </div>
             <p className="mt-2 text-[10px] text-[var(--text-muted)] font-medium">
-              Taxa média: {metrics.mediaComissao.toFixed(1)}% aplicada
+              A pagar nesta semana (previsão − já pago)
             </p>
           </div>
 

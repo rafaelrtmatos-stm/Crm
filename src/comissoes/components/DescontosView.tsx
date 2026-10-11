@@ -374,6 +374,13 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
     return lista.sort((a, b) => b.data.localeCompare(a.data));
   }, [filtroHistorico, descontosDoPeriodo, pagamentosDoHistorico]);
 
+  // Abre o formulário de pagamento já preenchido com o valor que falta pagar (saldo a favor do colaborador).
+  const abrirFormPagamento = () => {
+    const falta = Math.max(0, Number((resumoPorPeriodo.saldoFinal || 0).toFixed(2)));
+    setPagamentoForm({ ...emptyPagamentoForm, valor: falta });
+    setShowPagamentoForm(true);
+  };
+
   const handleAddPagamento = async () => {
     if (!caixa) return;
     if (!pagamentoForm.valor || pagamentoForm.valor <= 0) { showAlert('Informe um valor de pagamento maior que zero.'); return; }
@@ -667,7 +674,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
             </span>
             {isAdmin && !showPagamentoForm && caixa && (
               <button
-                onClick={() => setShowPagamentoForm(true)}
+                onClick={abrirFormPagamento}
                 className="flex items-center gap-1 text-[10px] font-black uppercase text-primary-400 hover:text-primary-300"
               >
                 <Plus size={12} /> Registrar Pagamento
@@ -811,7 +818,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
             {isAdmin && !showPagamentoForm && caixa && (
               <button
                 onClick={() => {
-                  setShowPagamentoForm(true);
+                  abrirFormPagamento();
                   setShowForm(false);
                 }}
                 className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wide transition-all shadow-sm cursor-pointer"

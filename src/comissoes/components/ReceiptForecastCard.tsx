@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Wallet, ChevronRight, Calculator, Target, TrendingUp, Award, ShieldCheck } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
 import { MetaValorItem } from '../types';
-import { calcularPrevisaoRecebimento } from '../utils/previsaoRecebimento';
+import { calcularPrevisaoRecebimento, calcularAReceber } from '../utils/previsaoRecebimento';
 
 interface ReceiptForecastCardProps {
   baseSalary: number;
@@ -38,7 +38,9 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   onOpenDescontos,
 }) => {
   // Saldo anterior (dívida < 0, crédito > 0) entra na previsão, igual ao painel da equipe.
-  const forecastTotal = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance });
+  // O que já foi pago na semana é descontado do valor a receber.
+  const forecastBruto = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance });
+  const forecastTotal = calcularAReceber(forecastBruto, totalPaid);
   const isHojeSabado = new Date().getDay() === 6;
 
   // Cálculo detalhado da modalidade META
@@ -260,6 +262,14 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
                 <span className={`font-bold ${previousBalance < 0 ? 'text-rose-300' : 'text-emerald-300'} font-mono text-sm whitespace-nowrap`}>
                   {previousBalance < 0 ? '-' : '+'}{formatCurrency(Math.abs(previousBalance))}
                 </span>
+              </div>
+            )}
+
+            {/* 4.2 Já pago na semana */}
+            {totalPaid > 0 && (
+              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 gap-2">
+                <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Já recebido</span>
+                <span className="font-bold text-rose-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalPaid)}</span>
               </div>
             )}
 

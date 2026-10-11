@@ -422,7 +422,7 @@ export default function ComissoesApp() {
             )}
             {activeTab === 'servicos' && <ServicosAgendados onAddItemsToTable={handleAddItemsFromNota} colaboradorId={colaborador.id} />}
             {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
-            {activeTab === 'salario' && <MeuSalarioView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
+            {activeTab === 'salario' && <MeuSalarioView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} modalidade={userSettings.modalidadeRemuneracao} comissaoPadraoPercentual={userSettings.defaultCommissionRate} metaPercentual={userSettings.metaPercentual} metasValores={userSettings.metasValores} metaValorMinimo={userSettings.metaValorMinimo} metaValorMaximo={userSettings.metaValorMaximo} />}
             {activeTab === 'descontos' && (
               <DescontosView
                 colaboradorId={colaborador.id}

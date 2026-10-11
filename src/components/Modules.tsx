@@ -301,6 +301,7 @@ import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
 import { calculateDescontosNoPeriodo } from '../comissoes/utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
+import { calcularPrevisaoRecebimento } from '../comissoes/utils/previsaoRecebimento';
 import { DashboardMetasCard } from './DashboardMetasCard';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -1732,20 +1733,20 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
           const caixa = caixasByColab[c.id];
           const saldoAnterior = Number(caixa?.saldo_anterior) || 0;
-          const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
           const totalDescontos = calculateDescontosNoPeriodo(
             descontosByColab[c.id] || [],
             descBounds.start,
             descBounds.end
           );
-          const totalPago = pagamentosByColab[c.id] || 0;
 
-          // No sábado, se o ciclo já estiver fechado, o saldo_final é a referência
-          // congelada do acerto. Caso ainda esteja aberto, calcula normalmente até sexta.
-          const cicloFechado = isSaturday && caixa?.status === 'fechado' && caixa?.saldo_final != null;
-          const totalEstimado = cicloFechado
-            ? Math.max(0, Number(caixa.saldo_final) || 0)
-            : Math.max(0, remuneracao.totalBruto - totalDescontos - totalPago - dividaAnterior);
+          // Total estimado da equipe: mesma fórmula do painel admin e do perfil do funcionário.
+          // NÃO desconta pagamentos (o total fica fixo ao pagar). Dívida anterior reduz, crédito soma.
+          const totalEstimado = calcularPrevisaoRecebimento({
+            salarioBase: remuneracao.salarioBaseEfetivo,
+            comissao: remuneracao.comissaoEfetiva,
+            descontos: totalDescontos,
+            saldoAnterior,
+          });
 
           totalEquipe += totalEstimado;
         });

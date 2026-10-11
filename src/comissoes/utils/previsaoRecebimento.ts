@@ -17,3 +17,11 @@ export function calcularPrevisaoRecebimento({ salarioBase, comissao, descontos, 
   const total = salarioBase + comissao - descontos + saldoAnterior;
   return Math.max(0, Number(total.toFixed(2)));
 }
+
+/**
+ * Quanto ainda falta pagar/receber: previsão da semana menos o que já foi pago.
+ * A previsão (total da equipe) NÃO muda ao pagar; só este valor diminui.
+ */
+export function calcularAReceber(previsao: number, totalPago: number): number {
+  return Math.max(0, Number((previsao - totalPago).toFixed(2)));
+}
