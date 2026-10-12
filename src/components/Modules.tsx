@@ -16497,34 +16497,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const openEditOrcamento = (o: Orcamento) => {
     setEditingOrcamento(o);
-    setOrcamentoForm({
-      documentType: o.documentType || 'orcamento',
-      vendaId: o.vendaId,
-      clausulasContratoTexto: o.clausulasContratoTexto || '',
-      clienteId: o.clienteId,
-      customerName: o.customerName || '', cpfCnpj: o.cpfCnpj || '', phone: o.phone || '',
-      address: o.address || '', responsavel: o.responsavel || '', items: [...o.items],
-      desconto: o.desconto, observacoes: o.observacoes || '', prazoProducao: o.prazoProducao || '',
-      prazoDias: o.prazoDias || 5, prazoTipo: o.prazoTipo || 'uteis', prazoGatilho: o.prazoGatilho || 'pagamento_entrada', prazoDataPrevista: o.prazoDataPrevista || '',
-      prazoPagamentoTexto: o.prazoPagamentoTexto || '', condicaoEntregaTexto: o.condicaoEntregaTexto || '',
-      formaPagamentoTexto: o.formaPagamentoTexto || '', multaJurosTexto: o.multaJurosTexto || '',
-      garantiaTexto: o.garantiaTexto || '', politicaCancelamentoTexto: o.politicaCancelamentoTexto || '',
-      entradaPercentual: o.entradaPercentual || 0, entradaValor: o.entradaValor || 0,
-      entradaModo: (o.entradaValor && o.entradaValor > 0 && !o.entradaPercentual) ? 'valor' : 'percentual',
-      formasPagamento: o.formasPagamento ? [...o.formasPagamento] : [],
-      politicaPagamento: o.politicaPagamento || 'entrada_restante_entrega',
-      entradaObrigatoria: o.entradaObrigatoria !== undefined ? o.entradaObrigatoria : true,
-      pagamentoPosteriorAutorizado: !!o.pagamentoPosteriorAutorizado,
-      pagamentoPosteriorData: o.pagamentoPosteriorData || '',
-      pagamentoPosteriorDias: o.pagamentoPosteriorDias || 0,
-      pagamentoPosteriorCondicao: o.pagamentoPosteriorCondicao || '',
-      pagamentoPosteriorResponsavel: o.pagamentoPosteriorResponsavel || '',
-      multaPercentual: o.multaPercentual !== undefined ? o.multaPercentual : 2,
-      jurosModo: o.jurosModo || 'mensal', jurosPercentual: o.jurosPercentual !== undefined ? o.jurosPercentual : 1,
-      diasTolerancia: o.diasTolerancia || 0,
-      validade: o.validade || '',
+    setCart(o.items.map(item => ({ ...item })));
+    setSelectedCustomer({
+      id: o.clienteId || undefined,
+      name: o.customerName || '',
+      phone: o.phone || '',
+      address: o.address || '',
+      cpfCnpj: o.cpfCnpj || '',
     });
-    setOrcamentoModalOpen(true);
+    setSaleDiscountValue(o.desconto || 0);
+    setActiveTab('venda');
   };
 
   const orcamentoItemsTotal = () => orcamentoForm.items.reduce((sum, i) => sum + (i.area ? i.price * i.area * i.quantity : i.price * i.quantity), 0);
@@ -16994,43 +16976,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       openReceiptById(o.vendaId);
       return;
     }
-    if (!(await showConfirm(`Gerar Nota/Recibo a partir do orçamento ${o.numero} para ${o.customerName || 'Cliente'}?`))) return;
-    try {
-      const novaVendaPayload = {
-        company_id: currentCompany?.id || 'rafa-arts',
-        customer_id: o.clienteId || null,
-        customer_name: o.customerName || 'Cliente',
-        customer_phone: o.phone || null,
-        items: o.items || [],
-        total: o.total || 0,
-        subtotal: (o.items || []).reduce((acc, i) => acc + (i.area ? i.price * i.area : i.price) * i.quantity, 0),
-        discount_value: o.desconto || 0,
-        down_payment: 0,
-        received_value: 0,
-        payment_method: o.formaPagamentoTexto || 'A Combinar',
-        payment_status: 'pending',
-        status: 'pending',
-        service_status: (o as any).serviceStatus || 'pedido_recebido',
-        orcamento_id: o.id,
-        observacoes: o.observacoes || null,
-        created_at: new Date().toISOString(),
-      };
-      const { data: insertedVenda, error: vendaError } = await supabase.from('vendas').insert(novaVendaPayload).select().single();
-      if (vendaError) throw vendaError;
-      const vendaId = insertedVenda.id;
-
-      const { error: orcError } = await supabase.from('orcamentos').update({ venda_id: vendaId, status: 'concluido' }).eq('id', o.id);
-      if (orcError) throw orcError;
-
-      await loadOrcamentos();
-      if (typeof loadSalesHistory === 'function') loadSalesHistory();
-
-      showAlert('Nota/Recibo gerado com sucesso!');
-      openReceiptById(vendaId);
-    } catch (err: any) {
-      console.error('Erro ao gerar nota/recibo do orçamento:', err);
-      showAlert(`Não foi possível gerar a nota/recibo: ${err?.message || 'erro desconhecido'}`);
-    }
+    setEditingOrcamento(o);
+    setCart(o.items.map(item => ({ ...item })));
+    setSelectedCustomer({
+      id: o.clienteId || undefined,
+      name: o.customerName || '',
+      phone: o.phone || '',
+      address: o.address || '',
+      cpfCnpj: o.cpfCnpj || '',
+    });
+    setSaleDiscountValue(o.desconto || 0);
+    setActiveTab('venda');
   };
 
   const handleDeleteOrcamento = async (o: Orcamento) => {
