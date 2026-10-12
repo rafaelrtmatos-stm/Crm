@@ -61,7 +61,8 @@ export function extrairNomePagador(texto) {
   };
   const rotulo = t.match(/(?:^|\n)[ \t]*(?:Nome|Quem\s+pagou|Origem|Enviado\s+por|Remetente)[ \t]*:?[ \t]*\r?\n?[ \t]*([^\n]+)/i);
   if (rotulo) { const n = limpar(rotulo[1]); if (n) return n; }
-  const frase = t.match(/transfer[eê]ncia\s+(?:de|enviada\s+por)\s+([^\n]+)/i);
+  // E-mail real do Nubank: "Você recebeu uma transferência de NOME 02580326260 e o valor já está disponível..."
+  const frase = t.match(/transfer[eê]ncia\s+(?:de|enviada\s+por)\s+(.+?)(?=\s*[\d•*·]|\s+e\s+o\s+valor|\r?\n|$)/i);
   if (frase) { const n = limpar(frase[1]); if (n) return n; }
   return null;
 }
