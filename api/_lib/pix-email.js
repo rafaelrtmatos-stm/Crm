@@ -1,9 +1,9 @@
 // Confirmação automática de PIX recebido no Nubank, lendo o e-mail "Você recebeu uma transferência
 // pelo Pix" na caixa do Gmail (o Nubank não tem API nem webhook de Pix).
 //
-// Rota: POST /api/pix-email-check  { id: <id da linha em pix_pendentes> }  ->  { pago: true | false }
+// Rota: POST /api/pix-email-check  { id: <id da linha em pix_pendentes> }  ->  { pago: true | false, pagador: 'NOME' | null }
 // (hospedada em api/ai.js via ?rota=pix-email-check, só pra respeitar o limite de 12 Serverless
-// Functions do plano Hobby — ver vercel.json). NUNCA devolve conteúdo do e-mail: só { pago }.
+// Functions do plano Hobby — ver vercel.json). NUNCA devolve conteúdo do e-mail: só { pago, pagador } (nome em maiúsculas; sem CPF/CNPJ).
 //
 // Regra de casamento (conservadora — na dúvida, NÃO dá baixa e o botão manual continua):
 //  - só casa se existir EXATAMENTE UMA pendência em aberto (status 'pendente', não expirada) com
@@ -42,6 +42,29 @@ export function extrairValorCentavos(texto) {
   const centavos = parseInt(m[2], 10);
   if (!Number.isFinite(reais) || !Number.isFinite(centavos)) return null;
   return reais * 100 + centavos;
+}
+
+/**
+ * Nome de quem pagou, em MAIÚSCULAS ("RAFAEL TAVARES MATOS"), ou null se não achar.
+ * Lê o rótulo "Nome"/"Quem pagou"/"Origem" ou a frase "recebeu ... de NOME". Nunca devolve CPF/CNPJ (mascarado ou não):
+ * o trecho de documento (dígitos, pontos, traços, bullets) é cortado e o nome precisa ter só letras.
+ */
+export function extrairNomePagador(texto) {
+  const t = String(texto || '').replace(/[\u00a0\u200b-\u200f]/g, ' ');
+  const limpar = (bruto) => {
+    let n = String(bruto || '').split(/\r?\n/)[0];
+    n = n.replace(/[•*·]+[\d.\-•*·]*/g, ' ').replace(/\d[\d.\-/]*/g, ' ');
+    n = n.replace(/\s+(?:CPF|CNPJ)\b.*$/i, '').replace(/\s+/g, ' ').trim();
+    if (!/^[\p{L}][\p{L}'. -]{2,79}$/u.test(n)) return null;
+    if (n.split(' ').length < 2) return null;
+    return n.toLocaleUpperCase('pt-BR');
+  };
+  const rotulo = t.match(/(?:^|\n)[ \t]*(?:Nome|Quem\s+pagou|Origem|Enviado\s+por|Remetente)[ \t]*:?[ \t]*\r?\n?[ \t]*([^\n]+)/i);
+  if (rotulo) { const n = limpar(rotulo[1]); if (n) return n; }
+  // E-mail real do Nubank: "Você recebeu uma transferência de NOME 02580326260 e o valor já está disponível..."
+  const frase = t.match(/transfer[eê]ncia\s+(?:de|enviada\s+por)\s+(.+?)(?=\s*[\d•*·]|\s+e\s+o\s+valor|\r?\n|$)/i);
+  if (frase) { const n = limpar(frase[1]); if (n) return n; }
+  return null;
 }
 
 /** Confere que é mesmo o aviso de Pix RECEBIDO (e não Pix enviado, promoção, e-mail encaminhado...). */
@@ -111,15 +134,22 @@ async function emailsJaUsados(messageIds) {
 }
 
 /** Marca como paga de forma atômica. true só se ESTA chamada (ou uma anterior igual) deu a baixa. */
-async function reivindicar(p, messageId, agora) {
-  const r = await rest(
+async function reivindicar(p, messageId, agora, pagador = null) {
+  const corpoBase = { status: 'pago', pago_em: new Date(agora).toISOString(), email_message_id: messageId };
+  let r = await rest(
     `pix_pendentes?id=eq.${p.id}&status=eq.pendente&expira_em=gt.${iso(agora)}`,
     {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ status: 'pago', pago_em: new Date(agora).toISOString(), email_message_id: messageId }),
+      body: JSON.stringify(pagador ? { ...corpoBase, pagador_nome: pagador } : corpoBase),
     }
   );
+  if (pagador && r.status === 400) { // coluna pagador_nome ainda não criada: baixa sem o nome
+    r = await rest(
+      `pix_pendentes?id=eq.${p.id}&status=eq.pendente&expira_em=gt.${iso(agora)}`,
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(corpoBase) }
+    );
+  }
   if (r.status === 409) return false; // índice único: esse e-mail já confirmou outra pendência
   if (!r.ok) throw new Error(`falha ao marcar pago (${r.status})`);
   if (Array.isArray(r.corpo) && r.corpo.length === 1) return true;
@@ -170,7 +200,7 @@ async function buscarEmailsElegiveis(p) {
         const valor = extrairValorCentavos(texto);
         const messageId = parsed.messageId;
         if (valor == null || !messageId) continue;
-        achados.push({ messageId, valor, recebidoEm });
+        achados.push({ messageId, valor, recebidoEm, pagador: extrairNomePagador(texto) });
       }
     } finally {
       lock.release();
@@ -212,7 +242,7 @@ export async function verificarPendencia(id) {
   const depois = new Date();
   // Reconfere logo antes de gravar: outra pendência com o mesmo valor pode ter aberto durante a leitura do Gmail.
   if (!(await pendenciaUnicaAberta(p, depois))) return false;
-  return reivindicar(p, livres[0].messageId, depois);
+  return reivindicar(p, livres[0].messageId, depois, livres[0].pagador || null);
 }
 
 export async function handlePixEmailCheck(req, res) {
@@ -226,7 +256,12 @@ export async function handlePixEmailCheck(req, res) {
   }
   try {
     const pago = await verificarPendencia(id);
-    res.status(200).json({ pago });
+    let pagador = null;
+    if (pago) {
+      const r = await rest(`pix_pendentes?id=eq.${id}&select=pagador_nome`);
+      if (r.ok && Array.isArray(r.corpo) && r.corpo[0]?.pagador_nome) pagador = String(r.corpo[0].pagador_nome);
+    }
+    res.status(200).json({ pago, pagador });
   } catch (err) {
     // Detalhes só no log do servidor; o navegador recebe apenas { pago: false } e segue no fluxo manual.
     console.error('[pix-email-check]', err?.message || err);

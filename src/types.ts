@@ -82,6 +82,8 @@ export interface PaymentEntry {
   date: string;
   installments?: number;
   feePercent?: number;
+  /** PIX: nome de quem pagou (lido do e-mail do banco, em maiúsculas). Só informativo — aparece em vermelho na nota e no recibo. */
+  payerName?: string;
 }
 
 export interface SaleOrder {

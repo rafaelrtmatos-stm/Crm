@@ -61,7 +61,7 @@ export async function reivindicarBaixaPix(id: string): Promise<boolean> {
 /** Pergunta ao servidor se o PIX dessa pendência já chegou. Só recebe { pago } — nunca o e-mail. */
 export const TIMEOUT_CONSULTA_PIX_MS = 15000;
 
-export async function consultarPixPago(id: string): Promise<boolean> {
+export async function consultarPixPago(id: string): Promise<{ pago: boolean; pagador: string | null }> {
   // Timeout: uma requisição pendurada nunca pode travar o laço de consultas do card.
   const controle = new AbortController();
   const corte = setTimeout(() => controle.abort(), TIMEOUT_CONSULTA_PIX_MS);
@@ -72,11 +72,11 @@ export async function consultarPixPago(id: string): Promise<boolean> {
       body: JSON.stringify({ id }),
       signal: controle.signal,
     });
-    if (!r.ok) return false;
+    if (!r.ok) return { pago: false, pagador: null };
     const j = await r.json();
-    return j?.pago === true;
+    return { pago: j?.pago === true, pagador: typeof j?.pagador === 'string' && j.pagador.trim() ? j.pagador.trim() : null };
   } catch {
-    return false;
+    return { pago: false, pagador: null };
   } finally {
     clearTimeout(corte);
   }
