@@ -16,8 +16,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
  const[pontoFeriadosValor,setPontoFeriadosValor]=useState(0);
  const[pontoExtrasValor,setPontoExtrasValor]=useState(0);
 
- const hoje=new Date(),ehSabado=hoje.getDay()===6;
- const[weekOffset,setWeekOffset]=useState<number>(ehSabado?-1:0);
+ const[weekOffset,setWeekOffset]=useState<number>(-1);
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
  const descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
  const salarioSemanal=calcularSalarioSemanal(salarioBase);
@@ -77,7 +76,8 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
      }
      const extRes = resumoExtras(diasParaExtras, salarioBase, tol);
      valFer = extRes.valorFeriados;
-     valExt = extRes.valorExtras;
+     const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) || 'pagar';
+     valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
    }
 
    if(ok){

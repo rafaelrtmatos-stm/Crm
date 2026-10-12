@@ -13,9 +13,14 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const[banco,setBanco]=useState<any[]>([]);
  const[loading,setLoading]=useState(true);
 
- const hoje=new Date();
- const ehSabado=hoje.getDay()===6;
- const[weekOffset,setWeekOffset]=useState<number>(ehSabado?-1:0);
+ const[weekOffset,setWeekOffset]=useState<number>(-1);
+ const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => {
+   return (localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) as 'pagar' | 'folga') || 'pagar';
+ });
+ const handleSetDestinacao = (val: 'pagar' | 'folga') => {
+   setDestinacaoExtra(val);
+   localStorage.setItem(`rpro_ponto_dest_${colaboradorId}`, val);
+ };
 
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
 
@@ -56,7 +61,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
    return list;
  },[bounds.start,rMap,jornadas,func]);
 
- const horas=semana.reduce((s,d)=>s+d.a.trabalhados,0);
+  const hoje = hojeStr();
+  const horas=semana.reduce((s,d)=>s+d.a.trabalhados,0);
  const prev=semana.reduce((s,d)=>s+minutosPrevistos(d.j),0);
 
  const diferencaSemana=semana.reduce((s,d)=>{
@@ -138,7 +144,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div className={card}><Clock3 className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-2xl">{fmtHM(horas)}</b><p className="text-xs text-[var(--text-muted)]">Horas na semana</p></div>
     <div className={card}><CalendarDays className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-2xl">{fmtHM(prev)}</b><p className="text-xs text-[var(--text-muted)]">Meta prevista</p></div>
-    <div className={card}><WalletCards className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className={`text-2xl ${saldoTotal < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{saldoTotal < 0 ? '-' : '+'}{fmtHM(Math.abs(saldoTotal))}</b><p className="text-xs text-[var(--text-muted)]">Banco de horas</p></div>
+    <div className={card}><WalletCards className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className={`text-2xl ${saldoTotal < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{saldoTotal > 0 ? '+' : ''}{fmtHM(saldoTotal)}</b><p className="text-xs text-[var(--text-muted)]">Banco de horas</p></div>
     <div className={card}><Coffee className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{weekOffset === 0 ? 'Semana Atual' : 'Histórico'}</b><p className="text-xs text-[var(--text-muted)]">Período selecionado</p></div>
   </div>
 
