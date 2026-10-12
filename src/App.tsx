@@ -1056,16 +1056,16 @@ export default function App() {
           name: 'Funil Rafa Arts',
           is_default: true,
           is_active: true,
-        }).select().single();
-        funnelId = fRow.id;
+        }).select().maybeSingle();
+        funnelId = fRow?.id || '';
 
         const { data: stRow } = await supabase.from('funnel_stages').insert({
           funnel_id: funnelId,
           name: 'ENTRADA',
           order: 0,
           is_initial: true,
-        }).select().single();
-        stageId = stRow.id;
+        }).select().maybeSingle();
+        stageId = stRow?.id || '';
       } else {
         funnelId = funnelRows[0].id;
         let { data: stageRows } = await supabase.from('funnel_stages').select('id').eq('funnel_id', funnelId).eq('is_initial', true).limit(1);

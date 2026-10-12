@@ -1159,16 +1159,14 @@ const etapaOf = (sale: { etapaServico?: string; serviceStatus?: string }) => sal
 // Entregue = etapa final. Independe de estar lançado para produção.
 const isSaleDelivered = (sale: { etapaServico?: string; serviceStatus?: string }) => etapaOf(sale) === 'produto_entregue';
 
-// Troca a etapa no estado local. Só acompanha service_status se o pedido já está lançado.
+// Troca a etapa no estado local. Independe de service_status (lançado).
 const applyEtapa = <T extends { serviceStatus?: any; etapaServico?: any }>(sale: T, etapa: string): T =>
-  ({ ...sale, etapaServico: etapa as any, serviceStatus: sale.serviceStatus ? (etapa as any) : sale.serviceStatus });
+  ({ ...sale, etapaServico: etapa as any });
 
-// Campos gravados em vendas ao trocar a etapa. Só mexe em service_status (lançado) se o pedido já estiver lançado.
+// Campos gravados em vendas ao trocar a etapa. service_status e etapa_servico são independentes.
 const buildVendaEtapaUpdates = async (vendaId: string, etapa: string, forceLaunch = false): Promise<Record<string, any>> => {
   const updates: Record<string, any> = { etapa_servico: etapa };
-  if (forceLaunch) { updates.service_status = etapa; return updates; }
-  const { data } = await supabase.from('vendas').select('service_status').eq('id', vendaId).maybeSingle();
-  if (data?.service_status) updates.service_status = etapa;
+  if (forceLaunch) { updates.service_status = etapa; }
   return updates;
 };
 
@@ -20073,15 +20071,12 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!(await showConfirm(`Marcar o pedido de ${sale.customerName || 'cliente'} como entregue?`))) return;
     const nowIso = new Date().toISOString();
     
-    // Entregar é só a etapa final (etapa_servico): NÃO lança o pedido na esteira dos funcionários.
-    // Se ele já está lançado, service_status acompanha para 'produto_entregue'.
+    // Entregar é só a etapa final (etapa_servico): NÃO altera service_status (lançamento em produção).
     const updates: Record<string, any> = { etapa_servico: 'produto_entregue', updated_at: nowIso };
-    if (sale.serviceStatus) updates.service_status = 'produto_entregue';
 
     const atualizado = {
       ...sale,
       etapaServico: 'produto_entregue' as any,
-      serviceStatus: sale.serviceStatus ? ('produto_entregue' as any) : sale.serviceStatus,
       updatedAt: nowIso
     };
 

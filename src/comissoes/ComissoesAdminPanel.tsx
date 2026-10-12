@@ -52,6 +52,8 @@ import { calcularPrevisaoRecebimento, calcularAReceber } from './utils/previsaoR
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
+import { analisarDia, hojeStr } from '../lib/pontoCalc';
+import { resumoExtras } from '../lib/feriados';
 import { useApp } from '../AppContext';
 import { showAlert, showConfirm } from '../lib/notify';
 import ComissoesEmbedded from './ComissoesEmbedded';
@@ -98,6 +100,7 @@ interface ColaboradorWeeklyStats {
   saldoAnterior: number;
   dividaAnterior: number;
   totalEstimado: number;
+  totalEstimadoBruto: number;
   qtdServicos: number;
   metaSemanal: number;
   percentualMeta: number;
@@ -258,6 +261,40 @@ export default function ComissoesAdminPanel() {
   const [linkNewEmail, setLinkNewEmail] = useState('');
   const [savingLink, setSavingLink] = useState(false);
 
+  const getDefaultStats = (c: ColaboradorRow) => {
+    const modalidade = c.modalidade_remuneracao || 'fixo_comissao';
+    const salarioBaseCadastrado = calcularSalarioSemanal(Number(c.salario_base) || 0);
+    const rem = calcularRemuneracaoSemanal({
+      modalidade,
+      salarioBase: Number(c.salario_base) || 0,
+      comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 0,
+      metaPercentual: Number(c.meta_percentual) || 0,
+      metasValores: Array.isArray(c.metas_valores) ? c.metas_valores : undefined,
+      metaValorMinimo: Number(c.meta_valor_minimo) || 0,
+      metaValorMaximo: Number(c.meta_valor_maximo) || 0,
+    }, 0, 0);
+    if (modalidade !== 'meta' && modalidade !== 'faturamento_geral') {
+      rem.salarioBaseEfetivo = salarioBaseCadastrado;
+    }
+    const totalEstimadoBruto = calcularPrevisaoRecebimento({ salarioBase: rem.salarioBaseEfetivo, comissao: 0, descontos: 0, saldoAnterior: 0 });
+    const totalEstimado = calcularAReceber(totalEstimadoBruto, 0);
+    return {
+      salarioBase: rem.salarioBaseEfetivo,
+      totalComissao: 0,
+      totalProducao: 0,
+      totalDescontos: 0,
+      totalPago: 0,
+      saldoAnterior: 0,
+      dividaAnterior: 0,
+      totalEstimado,
+      totalEstimadoBruto,
+      qtdServicos: 0,
+      metaSemanal: Number(c.meta_semanal) || 0,
+      percentualMeta: 0,
+      modalidade,
+    };
+  };
+
   // Carrega lista de colaboradores e as estatísticas financeiras semanais de cada um
   const loadData = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -412,13 +449,82 @@ export default function ComissoesAdminPanel() {
         pagamentosByColab[cId] = (pagamentosByColab[cId] || 0) + (Number(p.valor) || 0);
       });
 
+      // Calcula salário base considerando ponto eletrônico se aplicável (mesma lógica do Meu Salário)
+      const pontoSalarioMap: Record<string, { base: number; debitoVal: number }> = {};
+      const colabsPonto = colabs.filter(c => {
+        let localExtra: any = null;
+        if (typeof window !== 'undefined' && c.id) {
+          try {
+            const raw = localStorage.getItem(`rpro_colab_remun_${c.id}`);
+            if (raw) localExtra = JSON.parse(raw);
+          } catch {}
+        }
+        return c.utiliza_ponto_eletronico === true || localExtra?.utilizaPontoEletronico === true;
+      });
+      if (colabsPonto.length > 0) {
+        await Promise.all(colabsPonto.map(async (c) => {
+          let { data: f } = await supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('colaborador_id', c.id).maybeSingle();
+          if (!f) {
+            const { data: f2 } = await supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('id', c.id).maybeSingle();
+            f = f2;
+          }
+          if (!f) return;
+          const pFuncId = f.id;
+          const tol = f.tolerancia_minutos ?? 10;
+          const pointBounds = getWorkWeekBounds(commissionWeekOffset - 1);
+          const [bRes, rRes, jRes] = await Promise.all([
+            supabase.from('ponto_banco_horas').select('minutos, tipo').eq('funcionario_id', pFuncId).gte('data', pointBounds.start).lte('data', pointBounds.end),
+            supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', pointBounds.start).lte('data', pointBounds.end),
+            supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
+          ]);
+
+          let debMin = 0;
+          let totalTrab = 0;
+          (bRes.data || []).forEach((bh: any) => {
+            const m = Number(bh.minutos) || 0;
+            if (m < 0) debMin += Math.abs(m);
+          });
+
+          const rMap = new Map((rRes.data || []).map((rx: any) => [rx.data, rx]));
+          const startD = new Date(pointBounds.start + 'T12:00:00');
+          const diasParaExtras = [];
+          for (let i = 0; i < 7; i++) {
+            const dStr = new Date(startD.getTime() + i * 86400000).toISOString().split('T')[0];
+            const rx = rMap.get(dStr);
+            const jx = (jRes.data || []).find((jj: any) => jj.dia_semana === new Date(dStr + 'T12:00:00').getDay()) || (jRes.data || [])[0];
+            const ax = analisarDia(rx, jx, dStr, hojeStr(), tol);
+            totalTrab += ax.trabalhados;
+            diasParaExtras.push({
+              data: dStr,
+              trabalhados: ax.trabalhados,
+              previstos: ax.previstos,
+              extra: ax.extra
+            });
+          }
+          const extRes = resumoExtras(diasParaExtras, Number(c.salario_base) || 0, tol);
+          const valFer = extRes.valorFeriados;
+          const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${c.id}`) || 'pagar';
+          const valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
+
+          const salarioMensal = Number(c.salario_base) || 0;
+          const valorHora = salarioMensal > 0 ? salarioMensal / 220 : 0;
+          const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
+          const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : (totalTrab > 0 ? (salarioHorasTrabalhadas + valFer + valExt) : calcularSalarioSemanal(salarioMensal));
+
+          const valorMinuto = salarioMensal > 0 ? salarioMensal / (220 * 60) : 0;
+          const descontoPontoValor = debMin > 0 ? debMin * valorMinuto : 0;
+
+          pontoSalarioMap[c.id] = { base: baseCalculada, debitoVal: descontoPontoValor };
+        }));
+      }
+
       // Constrói estatísticas individuais
       const statsMap: Record<string, ColaboradorWeeklyStats> = {};
 
       colabs.forEach((c) => {
         // salario_base no cadastro é mensal. Para o ciclo aberto, o card precisa usar
-        // a mesma base semanal exibida no painel do funcionário.
-        const salarioBaseCadastrado = calcularSalarioSemanal(Number(c.salario_base) || 0);
+        // a mesma base semanal exibida no painel do funcionário (com ponto eletrônico se aplicável).
+        const salarioBaseCadastrado = pontoSalarioMap[c.id] ? pontoSalarioMap[c.id].base : calcularSalarioSemanal(Number(c.salario_base) || 0);
         const caixaFechado = caixasByColab[c.id]?.status === 'fechado';
         // Se houver snapshot do fechamento, ele tem prioridade; ele já está em valor semanal.
         const salarioBaseFechado = caixasByColab[c.id]?.salarioBase;
@@ -430,11 +536,12 @@ export default function ComissoesAdminPanel() {
         const colabDescontos = descontosByColab[c.id] || [];
         // Desconto é sempre do MESMO ciclo do caixa exibido.
         // Se o caixa estiver fechado, usa o snapshot congelado daquele ciclo.
-        // Se estiver aberto, calcula somente os lançamentos do intervalo desse mesmo ciclo.
+        // Se estiver aberto, calcula somente os lançamentos do intervalo desse mesmo ciclo + débito de ponto.
         const totalDescontosFechado = caixasByColab[c.id]?.totalDescontos;
+        const pontoDebitoVal = pontoSalarioMap[c.id]?.debitoVal || 0;
         const totalDescontos = caixaFechado && totalDescontosFechado != null
           ? totalDescontosFechado
-          : calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end);
+          : (calculateDescontosNoPeriodo(colabDescontos, descBounds.start, descBounds.end) + pontoDebitoVal);
         const totalPago = pagamentosByColab[c.id] || 0;
 
         // Carrega eventual configuração persistida localmente (resiliência caso a migration SQL ainda não tenha rodado)
@@ -488,6 +595,11 @@ export default function ComissoesAdminPanel() {
           colabServicos.totalComissao
         );
 
+        if (modalidade !== 'meta' && modalidade !== 'faturamento_geral') {
+          remuneracao.salarioBaseEfetivo = salarioBase;
+          remuneracao.totalBruto = remuneracao.salarioBaseEfetivo + remuneracao.comissaoEfetiva;
+        }
+
         const saldoAnterior = caixasByColab[c.id]?.saldoAnterior || 0;
         // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
         const dividaAnterior = saldoAnterior < 0 ? Math.abs(saldoAnterior) : 0;
@@ -509,6 +621,7 @@ export default function ComissoesAdminPanel() {
           saldoAnterior,
           dividaAnterior,
           totalEstimado,
+          totalEstimadoBruto,
           qtdServicos: colabServicos.count,
           metaSemanal: metaSemanalEfetiva,
           percentualMeta,
@@ -596,12 +709,12 @@ export default function ComissoesAdminPanel() {
           totalComissaoSemana += stats.totalComissao;
           totalProducaoSemana += stats.totalProducao;
           totalDescontosSemana += stats.totalDescontos;
-          totalEstimadoEquipe += stats.totalEstimado;
-          totalPendenteEquipe += calcularAReceber(stats.totalEstimado, stats.totalPago);
+          totalEstimadoEquipe += (stats.totalEstimadoBruto ?? stats.totalEstimado);
+          totalPendenteEquipe += stats.totalEstimado;
         } else {
-          const base = calcularSalarioSemanal(Number(c.salario_base) || 0);
-          totalEstimadoEquipe += base;
-          totalPendenteEquipe += base;
+          const defStats = getDefaultStats(c);
+          totalEstimadoEquipe += (defStats.totalEstimadoBruto ?? defStats.totalEstimado);
+          totalPendenteEquipe += defStats.totalEstimado;
         }
       }
     });
@@ -1673,17 +1786,7 @@ export default function ComissoesAdminPanel() {
           /* ========================================================= */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
             {filteredColaboradores.map((c) => {
-              const stats = weeklyStatsMap[c.id] || {
-                salarioBase: calcularSalarioSemanal(Number(c.salario_base) || 0),
-                totalComissao: 0,
-                totalProducao: 0,
-                totalDescontos: 0,
-                totalPago: 0,
-                totalEstimado: calcularSalarioSemanal(Number(c.salario_base) || 0),
-                qtdServicos: 0,
-                metaSemanal: Number(c.meta_semanal) || 0,
-                percentualMeta: 0,
-              };
+              const stats = weeklyStatsMap[c.id] || getDefaultStats(c);
 
               const isSomenteNota = c.modo_lancamento_comissao === 'somente_nota';
 
@@ -1967,17 +2070,7 @@ export default function ComissoesAdminPanel() {
                 </thead>
                 <tbody className="divide-y divide-[var(--border-color)]">
                   {filteredColaboradores.map((c) => {
-                    const stats = weeklyStatsMap[c.id] || {
-                      salarioBase: calcularSalarioSemanal(Number(c.salario_base) || 0),
-                      totalComissao: 0,
-                      totalProducao: 0,
-                      totalDescontos: 0,
-                      totalPago: 0,
-                      totalEstimado: calcularSalarioSemanal(Number(c.salario_base) || 0),
-                      qtdServicos: 0,
-                      metaSemanal: Number(c.meta_semanal) || 0,
-                      percentualMeta: 0,
-                    };
+                    const stats = weeklyStatsMap[c.id] || getDefaultStats(c);
                     const isSomenteNota = c.modo_lancamento_comissao === 'somente_nota';
 
                     return (

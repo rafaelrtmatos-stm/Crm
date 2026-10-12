@@ -1,4 +1,5 @@
 import type { Orcamento } from '../types';
+import { supabase } from '../supabase';
 import {
   drawCard,
   drawBadgeIcon,
@@ -17,6 +18,8 @@ import {
   TEXT_MUTED,
   FONT,
 } from './receipt';
+
+let cachedLogoConfig: { light: string | null; dark: string | null } | null = null;
 
 export interface OrcamentoRenderInput {
   orcamento: Orcamento;
@@ -74,9 +77,26 @@ export async function renderOrcamentoCanvas({
     }
   }
 
-  // Logo da empresa
+  // Logo da empresa: prioriza a LOGO CLARA (fundo escuro), buscando em configuracoes com fallback para logoDarkUrl.
   let logoImg: HTMLImageElement | null = null;
-  const targetLogoUrl = logoLightUrl || logoDarkUrl || null;
+  let targetLogoUrl: string | null = logoLightUrl || null;
+  if (!targetLogoUrl) {
+    if (cachedLogoConfig) {
+      targetLogoUrl = cachedLogoConfig.light || cachedLogoConfig.dark || logoDarkUrl || null;
+    } else {
+      try {
+        const { data } = await supabase.from('configuracoes').select('logo_light_url, logo_dark_url').eq('company_id', 'rafa-arts').maybeSingle();
+        cachedLogoConfig = { light: data?.logo_light_url || null, dark: data?.logo_dark_url || null };
+        targetLogoUrl = cachedLogoConfig.light || cachedLogoConfig.dark || logoDarkUrl || null;
+      } catch {
+        targetLogoUrl = logoDarkUrl || null;
+      }
+    }
+  }
+  if (!targetLogoUrl && logoDarkUrl) {
+    targetLogoUrl = logoDarkUrl;
+  }
+
   if (targetLogoUrl) {
     try {
       logoImg = await loadImage(targetLogoUrl);
