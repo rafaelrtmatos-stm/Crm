@@ -84,6 +84,7 @@ interface ColaboradorRow {
   metas_valores?: any;
   telefone_whatsapp?: string | null;
   foto_url?: string | null;
+  utiliza_ponto_eletronico?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1886,11 +1887,11 @@ export default function ComissoesAdminPanel() {
                   </div>
 
                   {/* Rodapé de Ações */}
-                  <div className="px-5 py-3.5 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
+                  <div className="px-3 py-3 bg-[var(--bg-card-sec)]/80 border-t border-[var(--border-color)] flex items-center justify-between gap-1.5 flex-wrap">
+                    <div className="flex items-center gap-1 flex-wrap">
                       {isAdmin && <button
                         onClick={() => openEditForm(c)}
-                        className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                        className="flex items-center gap-1 h-8 px-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                         title="Editar funcionário"
                       >
                         <Edit3 className="w-3.5 h-3.5 text-amber-400" />
@@ -1899,10 +1900,10 @@ export default function ComissoesAdminPanel() {
 
                       {isAdmin && <button
                         onClick={() => openLinkModal(c)}
-                        className="flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                        className="flex items-center gap-1 h-8 px-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                         title="Anexar / Gerenciar conta de acesso"
                       >
-                        <Link2 className="w-3.5 h-3.5 text-purple-400" />
+                        <Link2 className="w-3 h-3 text-purple-400" />
                         <span>Conta</span>
                       </button>}
 
@@ -1925,10 +1926,10 @@ export default function ComissoesAdminPanel() {
 
                     <button
                       onClick={() => setSelected(c)}
-                      className="flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black uppercase tracking-wider shadow-md shadow-red-600/20 transition-all cursor-pointer active:scale-95 shrink-0"
+                      className="flex items-center gap-1 h-8 px-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-[10px] font-black uppercase tracking-wider shadow-md shadow-red-600/20 transition-all cursor-pointer active:scale-95 shrink-0"
                     >
                       <span>Painel</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
+                      <ChevronRight className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
@@ -2107,7 +2108,7 @@ export default function ComissoesAdminPanel() {
                               className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                               title="Editar funcionário"
                             >
-                              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                              <Edit3 className="w-3 h-3 text-amber-400" />
                               <span>Editar</span>
                             </button>}
 

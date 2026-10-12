@@ -1,62 +1,88 @@
 import React,{useEffect,useMemo,useState}from'react';
-import{CalendarDays,Clock3,WalletCards,Coffee,ChevronLeft,ChevronRight}from'lucide-react';
 import{supabase}from'../../supabase';
 import{formatCurrency}from'../utils/storage';
-import{diaEspecial,proximosDiasEspeciais,diasEntre,resumoExtras,valorFeriadoTrabalhado,valorHoraExtra}from'../../lib/feriados';
+import{getWorkWeekBounds,getDescontosValesBounds}from'../utils/caixaSemanalStorage';
+import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,valorFeriadoTrabalhado}from'../../lib/feriados';
 import{PontoJornada,PontoRegistro,analisarDia,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
-import{getWorkWeekBounds}from'../utils/caixaSemanalStorage';
+import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight}from'lucide-react';
 
-export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase?:number}>=({colaboradorId,nome,salarioBase=0})=>{
+export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase:number}>=({colaboradorId,nome,salarioBase})=>{
  const[func,setFunc]=useState<any>(null);
- const[jornadas,setJornadas]=useState<PontoJornada[]>([]);
  const[registros,setRegistros]=useState<PontoRegistro[]>([]);
+ const[jornadas,setJornadas]=useState<PontoJornada[]>([]);
  const[banco,setBanco]=useState<any[]>([]);
  const[loading,setLoading]=useState(true);
- // Semana padrão exibida para o funcionário: -1 (Semana passada, a qual ele vai receber por ela)
- const[weekOffset,setWeekOffset]=useState<number>(-1);
 
- const hoje=hojeStr();
+ const hoje=new Date();
+ const ehSabado=hoje.getDay()===6;
+ const[weekOffset,setWeekOffset]=useState<number>(ehSabado?-1:0);
+
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
 
  useEffect(()=>{
    let ok=true;
    (async()=>{
      const{data:f}=await supabase.from('ponto_funcionarios').select('id,numero_relogio,tolerancia_minutos').eq('colaborador_id',colaboradorId).eq('ativo',true).maybeSingle();
-     if(!f){if(ok){setLoading(false);setFunc(null)}return}
-     const ini=somarDias(bounds.start,-15);
-     const fim=somarDias(bounds.end,7);
-     const[j,r,b]=await Promise.all([
-       supabase.from('ponto_jornadas').select('*').eq('funcionario_id',f.id),
-       supabase.from('ponto_registros').select('*').eq('funcionario_id',f.id).gte('data',ini).lte('data',fim).order('data',{ascending:false}),
-       supabase.from('ponto_banco_horas').select('minutos,tipo,validade').eq('funcionario_id',f.id)
-     ]);
-     if(ok){
-       setFunc(f);
-       setJornadas(j.data||[]);
-       setRegistros(r.data||[]);
-       setBanco(b.data||[]);
-       setLoading(false);
+     if(!ok)return;
+     setFunc(f||null);
+     if(f){
+       const [rRes,jRes,bRes]=await Promise.all([
+         supabase.from('ponto_registros').select('*').eq('funcionario_id',f.id).gte('data',bounds.start).lte('data',bounds.end),
+         supabase.from('ponto_jornadas').select('*').eq('funcionario_id',f.id),
+         supabase.from('ponto_banco_horas').select('*').eq('funcionario_id',f.id)
+       ]);
+       if(ok){
+         setRegistros(rRes.data||[]);
+         setJornadas(jRes.data||[]);
+         setBanco(bRes.data||[]);
+       }
      }
+     setLoading(false);
    })();
    return()=>{ok=false};
  },[colaboradorId,bounds.start,bounds.end]);
 
- const map=useMemo(()=>new Map(registros.map(r=>[r.data,r])),[registros]);
- const dias=useMemo(()=>Array.from({length:7},(_,i)=>somarDias(bounds.start,i)),[bounds.start]);
- const semana=dias.map(data=>{
-   const r=map.get(data)||null;
-   const j=jornadaDoDia(jornadas,data);
-   const a=analisarDia(r,j,data,hoje,func?.tolerancia_minutos??10);
-   return{data,r,j,a};
- });
+ const rMap=useMemo(()=>new Map(registros.map(r=>[r.data,r])),[registros]);
+ const semana=useMemo(()=>{
+   const startD=new Date(bounds.start+'T12:00:00');
+   const list=[];
+   for(let i=0;i<7;i++){
+     const d=new Date(startD.getTime()+i*86400000).toISOString().split('T')[0];
+     const r=rMap.get(d);
+     const j=jornadas.find(jj=>jj.dia_semana===new Date(d+'T12:00:00').getDay())||jornadas[0];
+     const a=analisarDia(r,j,d,hojeStr(),func?.tolerancia_minutos??10);
+     list.push({data:d,r,j,a});
+   }
+   return list;
+ },[bounds.start,rMap,jornadas,func]);
 
  const horas=semana.reduce((s,d)=>s+d.a.trabalhados,0);
  const prev=semana.reduce((s,d)=>s+minutosPrevistos(d.j),0);
- const saldo=banco.filter(m=>m.minutos<0||!m.validade||m.validade>=hoje).reduce((s,m)=>s+m.minutos,0);
+
+ const diferencaSemana=semana.reduce((s,d)=>{
+   if(d.data<=hoje&&d.j&&d.j.trabalha){
+     return s+(d.a.trabalhados-d.a.previstos);
+   }
+   return s;
+ },0);
+ const saldoBancoRegistrado=banco.filter(m=>m.minutos<0||!m.validade||m.validade>=hoje).reduce((s,m)=>s+m.minutos,0);
+ const saldoTotal=saldoBancoRegistrado+diferencaSemana;
  
- const esp=diaEspecial(hoje);
- const proximos=proximosDiasEspeciais(hoje,5);
+ const esp=diaEspecial(hojeStr());
+ const anoSelecao=Number(bounds.start.slice(0,4));
+ const mesSelecao=Number(bounds.start.slice(5,7));
+ const feriadosMes=useMemo(()=>{
+   return diasEspeciaisDoAno(anoSelecao).filter(d=>{
+     const p=d.data.split('-');
+     return Number(p[0])===anoSelecao && Number(p[1])===mesSelecao;
+   });
+ },[anoSelecao,mesSelecao]);
+
  const extras=resumoExtras(semana.map(d=>({data:d.data,trabalhados:d.a.trabalhados,previstos:d.a.previstos,extra:d.a.extra})),salarioBase,func?.tolerancia_minutos??10);
+
+ const valorHora=salarioBase>0?salarioBase/220:0;
+ const salarioHorasTrabalhadas=valorHora*(horas/60);
+ const totalSemana=salarioHorasTrabalhadas+(salarioBase>0?(extras.valorFeriados+extras.valorExtras):0);
 
  const card='bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 shadow-sm';
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Carregando Meu Ponto...</div>;
@@ -107,17 +133,60 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     </div>
   </div>
 
-  {esp&&<div className={'rounded-2xl border p-4 text-sm '+(esp.tipo==='feriado'?'bg-amber-500/10 border-amber-500/30 text-amber-200':'bg-sky-500/10 border-sky-500/30 text-sky-200')}><b>{esp.tipo==='feriado'?'Hoje é feriado':'Hoje é ponto facultativo'}: {esp.nome}.</b> {esp.tipo==='feriado'?('Se trabalhar hoje, o dia é pago em dobro (2× a diária'+(salarioBase>0?' = '+formatCurrency(valorFeriadoTrabalhado(salarioBase)):'')+').'):'Ponto facultativo não dobra o dia; combine com a empresa se haverá expediente.'}</div>}
+  {esp&&<div className={'rounded-2xl border p-4 text-sm '+(esp.tipo==='feriado'?'bg-amber-500/10 border-amber-500/30 text-amber-200':'bg-sky-500/10 border-sky-500/30 text-sky-200')}><b>{esp.tipo==='feriado'?'Hoje é feriado':'Hoje é ponto facultativo'}: {esp.nome}.</b> {esp.tipo==='feriado'?('Se trabalhar hoje, o dia é pago em dobro (2× a diária'+(salarioBase>0?' = '+formatCurrency(valorFeriadoTrabalhado(salarioBase)):'')+').'):'Ponto facultativo não é feriado oficial; ausência sem acordo pode gerar falta.'}</div>}
   
   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div className={card}><Clock3 className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-2xl">{fmtHM(horas)}</b><p className="text-xs text-[var(--text-muted)]">Horas na semana</p></div>
     <div className={card}><CalendarDays className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-2xl">{fmtHM(prev)}</b><p className="text-xs text-[var(--text-muted)]">Meta prevista</p></div>
-    <div className={card}><WalletCards className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-2xl">{saldo>=0?'+':'-'}{fmtHM(Math.abs(saldo))}</b><p className="text-xs text-[var(--text-muted)]">Banco de horas</p></div>
+    <div className={card}><WalletCards className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className={`text-2xl ${saldoTotal < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{saldoTotal < 0 ? '-' : '+'}{fmtHM(Math.abs(saldoTotal))}</b><p className="text-xs text-[var(--text-muted)]">Banco de horas</p></div>
     <div className={card}><Coffee className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{weekOffset === 0 ? 'Semana Atual' : 'Histórico'}</b><p className="text-xs text-[var(--text-muted)]">Período selecionado</p></div>
   </div>
 
+  {salarioBase>0&&(
+    <div className={card}>
+      <h3 className="font-black mb-3 text-emerald-400">Resumo Salarial da Semana</h3>
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-[var(--text-muted)]">Proporcional às horas trabalhadas ({fmtHM(horas)}):</span>
+          <b className="text-[var(--text-main)]">{formatCurrency(salarioHorasTrabalhadas)}</b>
+        </div>
+        {extras.feriadosTrabalhados>0&&(
+          <div className="flex justify-between">
+            <span className="text-amber-400">Feriados trabalhados ({extras.feriadosTrabalhados}× em dobro):</span>
+            <b className="text-amber-400">{formatCurrency(extras.valorFeriados)}</b>
+          </div>
+        )}
+        {extras.minutosExtra>0&&(
+          <div className="flex justify-between">
+            <span className="text-sky-400">Horas extras ({fmtHM(extras.minutosExtra)}):</span>
+            <b className="text-sky-400">{formatCurrency(extras.valorExtras)}</b>
+          </div>
+        )}
+        <div className="pt-2 border-t border-[var(--border-color)] flex justify-between text-base font-black">
+          <span className="text-[var(--text-main)]">Total a Receber na Semana:</span>
+          <span className="text-emerald-400">{formatCurrency(totalSemana)}</span>
+        </div>
+      </div>
+    </div>
+  )}
+
   <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th></tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome:d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td></tr>)}</tbody></table></div></div>
-  <div className={card}><h3 className="font-black mb-4">Próximos feriados e pontos facultativos</h3><ul className="space-y-2 text-sm">{proximos.map(f=>{const n=diasEntre(hoje,f.data);return <li key={f.data} className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] last:border-0 pb-2 last:pb-0"><span><b>{new Date(f.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})}</b> · {f.nome}</span><span className="flex items-center gap-2 shrink-0"><small className={'text-[10px] font-black uppercase px-2 py-0.5 rounded-full border '+(f.tipo==='feriado'?'border-amber-500/30 text-amber-300':'border-sky-500/30 text-sky-300')}>{f.tipo==='feriado'?'Feriado':'Facultativo'}</small><small className="text-[var(--text-muted)]">{n===1?'amanhã':'em '+n+' dias'}</small></span></li>})}</ul><p className="text-xs text-[var(--text-muted)] mt-4">Feriado trabalhado = 2× a diária{salarioBase>0?' ('+formatCurrency(valorFeriadoTrabalhado(salarioBase))+')':''} · Hora extra = valor da hora × 1,5{salarioBase>0?' ('+formatCurrency(valorHoraExtra(salarioBase))+'/h)':''}</p></div>
-  {salarioBase>0&&(extras.feriadosTrabalhados>0||extras.minutosExtra>0)&&<div className={card}><h3 className="font-black mb-4">Adicionais da semana</h3><div className="space-y-2 text-sm"><div className="flex justify-between"><span>Feriado trabalhado ({extras.feriadosTrabalhados}×)</span><b>{formatCurrency(extras.valorFeriados)}</b></div><div className="flex justify-between"><span>Hora extra ({fmtHM(extras.minutosExtra)})</span><b>{formatCurrency(extras.valorExtras)}</b></div></div></div>}
+  
+  <div className={card}>
+    <h3 className="font-black mb-2">Feriados e Pontos Facultativos do Mês ({mesSelecao}/{anoSelecao})</h3>
+    <p className="text-[11px] text-[var(--text-muted)] mb-3">
+      <b>Feriado:</b> Feriado oficial. Se trabalhar, recebe em dobro (2×); se folgar, dia abonado. · <b>Ponto Facultativo:</b> Não é feriado oficial. Ausência sem acordo pode gerar falta; expediente normal.
+    </p>
+    {feriadosMes.length===0?(
+      <p className="text-xs text-[var(--text-muted)] italic">Nenhum feriado ou ponto facultativo registrado para este mês.</p>
+    ):(
+      <ul className="space-y-2 text-sm">
+        {feriadosMes.map(f=>{
+          const n=diasEntre(hojeStr(),f.data);
+          return <li key={f.data} className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] last:border-0 pb-2 last:pb-0"><span><b>{new Date(f.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})}</b> · {f.nome}</span><span className="flex items-center gap-2 shrink-0"><small className={'text-[10px] font-black uppercase px-2 py-0.5 rounded-full border '+(f.tipo==='feriado'?'border-amber-500/30 text-amber-300':'border-sky-500/30 text-sky-300')}>{f.tipo==='feriado'?'Feriado (Dobro/Folga)':'Facultativo (Aviso)'}</small><small className="text-[var(--text-muted)]">{n===0?'hoje':n>0?`em ${n} dias`:`há ${Math.abs(n)} dias`}</small></span></li>;
+        })}
+      </ul>
+    )}
+  </div>
  </div>
 };

@@ -742,7 +742,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Quick Stat Cards for Selected Period */}
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className={`lg:col-span-2 grid grid-cols-1 ${userSettings.modalidadeRemuneracao === 'fixo' ? 'sm:grid-cols-1' : 'sm:grid-cols-2'} gap-4`}>
           
           {/* Card 1: Produção do Período */}
           <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] relative overflow-hidden transition-all hover:border-[var(--accent-red)]/50 group flex flex-col justify-between">
@@ -766,42 +766,42 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Card 2: Comissão no Período */}
-          <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] relative overflow-hidden transition-all hover:border-[var(--accent-red)]/50 group flex flex-col justify-between">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-red" />
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  {userSettings.modalidadeRemuneracao === 'meta'
-                    ? `DEGRAU ATINGIDO (SEMANA)`
-                    : `COMISSÃO (${period.toUpperCase()})`}
-                </span>
-                <div className="text-3xl sm:text-4xl font-black text-[var(--accent-red)] font-mono mt-1">
-                  {formatCurrency(userSettings.modalidadeRemuneracao === 'meta' ? (metaCalculada?.comissaoEfetiva ?? 0) : displayStats.totalCommission)}
+          {/* Card 2: Comissão no Período (Apenas para quem recebe comissão) */}
+          {userSettings.modalidadeRemuneracao !== 'fixo' && (
+            <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] relative overflow-hidden transition-all hover:border-[var(--accent-red)]/50 group flex flex-col justify-between">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-red" />
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    {userSettings.modalidadeRemuneracao === 'meta'
+                      ? `DEGRAU ATINGIDO (SEMANA)`
+                      : `COMISSÃO (${period.toUpperCase()})`}
+                  </span>
+                  <div className="text-3xl sm:text-4xl font-black text-[var(--accent-red)] font-mono mt-1">
+                    {formatCurrency(userSettings.modalidadeRemuneracao === 'meta' ? (metaCalculada?.comissaoEfetiva ?? 0) : displayStats.totalCommission)}
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-xl bg-gradient-red text-white shadow-red-glow">
+                  <Target className="w-6 h-6 stroke-[2.5]" />
                 </div>
               </div>
-              <div className="p-3.5 rounded-xl bg-gradient-red text-white shadow-red-glow">
-                <Target className="w-6 h-6 stroke-[2.5]" />
+              <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
+                <span>
+                  {userSettings.modalidadeRemuneracao === 'meta' ? 'Meta Loja da Semana: ' : 'Acumulado Semana: '}
+                  <strong className="text-emerald-400 font-bold">
+                    {userSettings.modalidadeRemuneracao === 'meta' ? formatCurrency(metaCalculada?.comissaoEfetiva ?? 0) : formatCurrency(weeklyStats.weeklyCommission)}
+                  </strong>
+                </span>
+                <span className="text-[var(--text-muted)]">
+                  {userSettings.modalidadeRemuneracao === 'meta' ? (
+                    <span className="text-emerald-400 font-bold">{metaCalculada?.metaAtingidaNome || 'Faixa Semanal'}</span>
+                  ) : (
+                    <>Taxa Média: <strong className="text-[var(--text-main)]">{displayStats.averageCommissionRate.toFixed(1)}%</strong></>
+                  )}
+                </span>
               </div>
             </div>
-            <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
-              <span>
-                {userSettings.modalidadeRemuneracao === 'meta' ? 'Meta Loja da Semana: ' : 'Acumulado Semana: '}
-                <strong className="text-emerald-400 font-bold">
-                  {userSettings.modalidadeRemuneracao === 'meta' ? formatCurrency(metaCalculada?.comissaoEfetiva ?? 0) : formatCurrency(weeklyStats.weeklyCommission)}
-                </strong>
-              </span>
-              <span className="text-[var(--text-muted)]">
-                {userSettings.modalidadeRemuneracao === 'meta' ? (
-                  <span className="text-emerald-400 font-bold">{metaCalculada?.metaAtingidaNome || 'Faixa Semanal'}</span>
-                ) : userSettings.modalidadeRemuneracao === 'fixo' ? (
-                  <span className="text-blue-400 font-bold">Fixo</span>
-                ) : (
-                  <>Taxa Média: <strong className="text-[var(--text-main)]">{displayStats.averageCommissionRate.toFixed(1)}%</strong></>
-                )}
-              </span>
-            </div>
-          </div>
+          )}
 
         </div>
       </div>
