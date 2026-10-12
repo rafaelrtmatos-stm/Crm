@@ -56,6 +56,7 @@ export interface UserSettings {
   metasValores?: MetaValorItem[];
   metaValorMinimo?: number;
   metaValorMaximo?: number;
+  utilizaPontoEletronico?: boolean;
 }
 
 export interface FilterOptions {

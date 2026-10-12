@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Wallet, ChevronRight, Calculator, Target, TrendingUp, Award, ShieldCheck } from 'lucide-react';
+import { Wallet, ChevronRight, Calculator, Target, Award } from 'lucide-react';
 import { formatCurrency } from '../utils/storage';
 import { MetaValorItem } from '../types';
 import { calcularPrevisaoRecebimento, calcularAReceber } from '../utils/previsaoRecebimento';
@@ -37,13 +37,10 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
   metaValorMinimo = 600,
   onOpenDescontos,
 }) => {
-  // Saldo anterior (dívida < 0, crédito > 0) entra na previsão, igual ao painel da equipe.
-  // O que já foi pago na semana é descontado do valor a receber.
   const forecastBruto = calcularPrevisaoRecebimento({ salarioBase: baseSalary, comissao: totalCommission, descontos: totalDiscounts, saldoAnterior: previousBalance });
   const forecastTotal = calcularAReceber(forecastBruto, totalPaid);
   const isHojeSabado = new Date().getDay() === 6;
 
-  // Cálculo detalhado da modalidade META
   const infoMeta = useMemo(() => {
     if (modalidadeRemuneracao !== 'meta') return null;
 
@@ -98,45 +95,39 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
       id="card-previsao-recebimento"
       className="relative overflow-hidden rounded-3xl bg-gradient-red p-5 sm:p-6 text-white shadow-red-lg-glow transition-all duration-300 hover:shadow-2xl h-full flex flex-col justify-between"
     >
-      {/* Background ambient lighting effects */}
       <div className="absolute -right-8 -top-8 w-44 h-44 rounded-full bg-white/10 blur-2xl pointer-events-none" />
       <div className="absolute -left-12 -bottom-12 w-52 h-52 rounded-full bg-black/25 blur-3xl pointer-events-none" />
 
       <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
-        {/* ========================================================= */}
-        {/* 1. CABEÇALHO & VALOR PRINCIPAL (EM LINHA ÚNICA) */}
-        {/* ========================================================= */}
+        {/* Cabeçalho */}
         <div className="space-y-3">
-          {/* Header Tag */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 bg-black/25 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-black tracking-wider uppercase border border-white/15 shadow-sm whitespace-nowrap">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 bg-black/25 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-black tracking-wider uppercase border border-white/15 shadow-sm">
               <Wallet className="w-4 h-4 text-white shrink-0" />
               <span>Previsão de Recebimento</span>
             </div>
-            <span className="text-[11px] font-bold text-white/80 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 shrink-0 whitespace-nowrap">
-              'Salário + comissão'
+            <span className="text-[11px] font-bold text-white/90 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10">
+              Salário + Comissão
             </span>
           </div>
 
-          {/* Main Forecast Hero Display - Organizado em linha única sem quebras */}
-          <div className="bg-black/25 backdrop-blur-md rounded-2xl p-4 border border-white/15 shadow-inner flex items-center justify-between gap-3">
+          {/* Valor Principal (Topo) */}
+          <div className="bg-black/25 backdrop-blur-md rounded-2xl p-4 border border-white/15 shadow-inner flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <span className="text-xs uppercase tracking-wider text-white/90 font-black block whitespace-nowrap truncate">
+              <span className="text-xs uppercase tracking-wider text-white/90 font-black block">
                 Total a Receber
               </span>
-              <span className="text-[11px] text-white/70 font-medium block whitespace-nowrap truncate mt-0.5">
-                'Salário + comissões - descontos'
+              <span className="text-[11px] text-white/70 font-medium block mt-0.5">
+                Salário + Comissões − Descontos
               </span>
             </div>
-            <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono whitespace-nowrap text-right shrink-0">
+            <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono text-right shrink-0">
               {formatCurrency(forecastTotal)}
             </div>
           </div>
         </div>
 
-        {/* ========================================================= */}
-        {/* 1.1 TERMÔMETRO E PROGRESSO DA META (QUANDO MODALIDADE META) */}
-        {/* ========================================================= */}
+        {/* Termômetro Meta se aplicável */}
         {infoMeta && (
           <div className="bg-black/30 backdrop-blur-md rounded-2xl p-4 border border-white/15 space-y-3 shadow-inner">
             <div className="flex items-center justify-between text-xs pb-2 border-b border-white/15">
@@ -155,20 +146,17 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               </span>
             </div>
 
-            {/* Informações de Faturamento e Próxima Meta */}
             {infoMeta.proximaFaixa ? (
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-white/80">
-                    {modalidadeRemuneracao === 'meta' ? 'Receita da Loja (Quitadas):' : 'Sua Produção:'}{' '}
-                    <strong className="font-mono text-white">{formatCurrency(totalProduction)}</strong>
+                    Produção: <strong className="font-mono text-white">{formatCurrency(totalProduction)}</strong>
                   </span>
                   <span className="text-amber-300 font-bold">
                     Faltam: <strong className="font-mono text-amber-200">{formatCurrency(infoMeta.quantoFalta)}</strong>
                   </span>
                 </div>
 
-                {/* Barra de Progresso Visual */}
                 <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden p-0.5 border border-white/15">
                   <div
                     className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all duration-500 shadow-sm"
@@ -178,7 +166,7 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
                 <div className="text-[11px] text-white/85 flex items-center justify-between pt-0.5 leading-tight">
                   <span>
-                    Próximo Degrau Loja: <strong>{infoMeta.proximaFaixa.nome || 'Faixa Seguinte'}</strong> ({formatCurrency(infoMeta.proximaFaixa.valorProducao)})
+                    Próximo Degrau: <strong>{infoMeta.proximaFaixa.nome || 'Faixa Seguinte'}</strong> ({formatCurrency(infoMeta.proximaFaixa.valorProducao)})
                   </span>
                   <span className="text-emerald-300 font-black">
                     Recebe: {formatCurrency(infoMeta.proximaFaixa.valorReceber)}
@@ -188,108 +176,85 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
             ) : (
               <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 text-xs font-bold text-center flex items-center justify-center gap-2">
                 <Award className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span>Parabéns! Você alcançou a maior faixa de remuneração da semana!</span>
+                <span>Parabéns! Você alcançou a maior faixa de remuneração!</span>
               </div>
             )}
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* 2. COMPOSIÇÃO DOS VALORES (SEM CORTES OU TRUNCATE) */}
-        {/* ========================================================= */}
+        {/* Composição do Valor */}
         <div className="bg-black/30 backdrop-blur-md rounded-2xl p-4 border border-white/15 space-y-3 shadow-inner">
           <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-white/90 pb-2 border-b border-white/15">
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="flex items-center gap-1.5">
               <Calculator className="w-4 h-4 text-white/90 shrink-0" />
               Composição do Valor
             </span>
-            <span className="text-[10px] text-white/70 font-mono font-normal whitespace-nowrap">
+            <span className="text-[10px] text-white/70 font-mono">
               {cycleDates || 'Salário • Comissões • Descontos'}
             </span>
           </div>
 
           <div className="space-y-2 text-xs">
-            {/* 1. Salário Base (quando modalidade não é 'meta' nem 'faturamento_geral' puro) */}
-            {modalidadeRemuneracao !== 'meta' && (baseSalary > 0 || modalidadeRemuneracao === 'fixo') && (
-              <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
-                <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
-                  'Salário'
-                </span>
-                <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
-              </div>
-            )}
+            {/* Salário Base (Sempre visível) */}
+            <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
+              <span className="text-white/85 font-semibold text-xs">Salário</span>
+              <span className="font-bold text-white font-mono text-sm">{formatCurrency(baseSalary)}</span>
+            </div>
 
-            {/* 2. Modalidade META: Mostra se é faixa atingida ou piso mínimo garantido */}
-            {modalidadeRemuneracao === 'meta' && (
+            {/* Comissões */}
+            {modalidadeRemuneracao === 'meta' ? (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
-                <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
-                  {infoMeta?.bateuAlgumaFaixa
-                    ? `+ Meta (${infoMeta.atualNome})`
-                    : `+ Piso Mínimo Garantido (${formatCurrency(infoMeta?.valorMinimo || 600)})`}
+                <span className="text-emerald-200 font-semibold text-xs">
+                  {infoMeta?.bateuAlgumaFaixa ? `+ Meta (${infoMeta.atualNome})` : `+ Piso Mínimo Garantido`}
                 </span>
-                <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">
-                  +{formatCurrency(totalCommission)}
-                </span>
+                <span className="font-bold text-emerald-300 font-mono text-sm">+{formatCurrency(totalCommission)}</span>
               </div>
-            )}
-
-            {/* 3. Outras modalidades: Comissões sobre Produção ou Faturamento */}
-            {modalidadeRemuneracao !== 'fixo' && modalidadeRemuneracao !== 'meta' && (
+            ) : (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
-                <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
-                  {modalidadeRemuneracao === 'faturamento_geral'
-                    ? `+ Comissão (${metaPercentual || 0}% do Faturamento Geral)`
-                    : '+ Comissões'}
+                <span className="text-emerald-200 font-semibold text-xs">
+                  {modalidadeRemuneracao === 'faturamento_geral' ? `+ Comissão (${metaPercentual || 0}% Faturamento)` : '+ Comissões'}
                 </span>
-                <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
+                <span className="font-bold text-emerald-300 font-mono text-sm">+{formatCurrency(totalCommission)}</span>
               </div>
             )}
 
-            {/* 4. Descontos (faltas, atrasos, etc.) */}
+            {/* Descontos (Ponto / Dinheiro) */}
             {totalDiscounts > 0 && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 gap-2">
-                <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Descontos</span>
-                <span className="font-bold text-rose-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalDiscounts)}</span>
+                <span className="text-rose-200 font-semibold text-xs">- Descontos</span>
+                <span className="font-bold text-rose-300 font-mono text-sm">-{formatCurrency(totalDiscounts)}</span>
               </div>
             )}
 
-            {/* 4.1 Saldo anterior (dívida ou crédito de semanas passadas) */}
+            {/* Saldo anterior */}
             {previousBalance !== 0 && (
               <div className={`flex items-center justify-between py-1.5 px-3 rounded-xl gap-2 ${previousBalance < 0 ? 'bg-rose-950/40 border border-rose-500/30' : 'bg-emerald-950/40 border border-emerald-500/30'}`}>
-                <span className={`${previousBalance < 0 ? 'text-rose-200' : 'text-emerald-200'} font-semibold text-xs whitespace-nowrap`}>
+                <span className={`${previousBalance < 0 ? 'text-rose-200' : 'text-emerald-200'} font-semibold text-xs`}>
                   {previousBalance < 0 ? '- Dívida anterior' : '+ Saldo anterior'}
                 </span>
-                <span className={`font-bold ${previousBalance < 0 ? 'text-rose-300' : 'text-emerald-300'} font-mono text-sm whitespace-nowrap`}>
+                <span className={`font-bold ${previousBalance < 0 ? 'text-rose-300' : 'text-emerald-300'} font-mono text-sm`}>
                   {previousBalance < 0 ? '-' : '+'}{formatCurrency(Math.abs(previousBalance))}
                 </span>
               </div>
             )}
 
-            {/* 4.2 Já pago na semana */}
+            {/* Já pago */}
             {totalPaid > 0 && (
               <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-rose-950/40 border border-rose-500/30 gap-2">
-                <span className="text-rose-200 font-semibold text-xs whitespace-nowrap">- Já recebido</span>
-                <span className="font-bold text-rose-300 font-mono text-sm whitespace-nowrap">-{formatCurrency(totalPaid)}</span>
+                <span className="text-rose-200 font-semibold text-xs">- Já recebido</span>
+                <span className="font-bold text-rose-300 font-mono text-sm">-{formatCurrency(totalPaid)}</span>
               </div>
             )}
 
-            {/* 5. Linha de Fechamento Líquido */}
+            {/* Saldo a Receber (Igual ao Total Principal) */}
             <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-white/20 border border-white/30 shadow-sm mt-1 gap-2">
-              <span className="text-white font-black uppercase text-xs tracking-wider whitespace-nowrap">= Saldo a Receber</span>
-              <span className="font-black text-white font-mono text-base whitespace-nowrap">{formatCurrency(forecastTotal)}</span>
+              <span className="text-white font-black uppercase text-xs tracking-wider">= Saldo a Receber</span>
+              <span className="font-black text-white font-mono text-base">{formatCurrency(forecastTotal)}</span>
             </div>
-
-            {isHojeSabado && (
-              <div className="text-[10px] text-white/80 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10 text-center leading-tight">
-                ℹ️ O total é calculado por salário + comissões − descontos ± saldo anterior.
-              </div>
-            )}
           </div>
         </div>
 
-        {/* ========================================================= */}
-        {/* 3. BOTÃO DE AÇÃO / DETALHES DE DESCONTOS E VALES */}
-        {/* ========================================================= */}
+        {/* Botão de Histórico */}
         {onOpenDescontos && (
           <button
             type="button"
@@ -304,4 +269,3 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
     </div>
   );
 };
-

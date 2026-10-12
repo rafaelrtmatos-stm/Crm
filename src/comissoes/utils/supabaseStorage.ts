@@ -36,6 +36,7 @@ export interface Colaborador {
   metaValorMinimo: number;
   metaValorMaximo: number;
   metasValores?: MetaValorItem[];
+  utilizaPontoEletronico?: boolean;
 }
 
 export const mapColaboradorRow = (row: any): Colaborador => {
@@ -79,6 +80,7 @@ export const mapColaboradorRow = (row: any): Colaborador => {
     metasValores: Array.isArray(row.metas_valores) && row.metas_valores.length > 0
       ? row.metas_valores
       : (Array.isArray(localExtra?.metasValores) ? localExtra.metasValores : undefined),
+    utilizaPontoEletronico: row.utiliza_ponto_eletronico === true || localExtra?.utilizaPontoEletronico === true,
   };
 };
 

@@ -42,6 +42,8 @@ import { ServiceModal } from './components/ServiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ServicosAgendados } from './components/ServicosAgendados';
 import { DescontosView } from './components/DescontosView';
+import { MeuPontoView } from './components/MeuPontoView';
+import { MeuSalarioView } from './components/MeuSalarioView';
 import { NotaDetalhe, NotaSelecionadoItem } from './components/NotaDetalheModal';
 import { CheckCircle2 } from 'lucide-react';
 import { getTodayISO } from './utils/dateHelpers';
@@ -67,7 +69,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
   });
   const [loadingData, setLoadingData] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'weekly' | 'table' | 'reports' | 'servicos' | 'descontos' | 'ponto' | 'salario'>('dashboard');
   // So o admin (veio de "Ver Painel" no painel de Comissoes do CRM, com presetColaborador
   // preenchido) pode criar/editar/excluir desconto -- o colaborador (login proprio, seja
   // aqui no menu embutido ou em /comissoes) so enxerga, nunca escreve.
@@ -502,6 +504,8 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 metaPercentual={colaborador.metaPercentual}
               />
             )}
+            {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
+            {activeTab === 'salario' && <MeuSalarioView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} modalidade={userSettings.modalidadeRemuneracao} comissaoPadraoPercentual={userSettings.defaultCommissionRate} metaPercentual={userSettings.metaPercentual} metasValores={userSettings.metasValores} metaValorMinimo={userSettings.metaValorMinimo} metaValorMaximo={userSettings.metaValorMaximo} utilizaPontoEletronico={colaborador.utilizaPontoEletronico} />}
           </>
         )}
       </main>

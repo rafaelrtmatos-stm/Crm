@@ -126,6 +126,7 @@ interface FormState {
   usuarioId: string;
   criarNovaConta: boolean;
   novoEmailConta: string;
+  utilizaPontoEletronico: boolean;
 }
 
 export const defaultMetasTemplate: MetaValorItem[] = [
@@ -154,6 +155,7 @@ const emptyForm: FormState = {
   usuarioId: '',
   criarNovaConta: false,
   novoEmailConta: '',
+  utilizaPontoEletronico: false,
 };
 
 function formatCurrencyBR(value: number): string {
@@ -725,6 +727,7 @@ export default function ComissoesAdminPanel() {
       usuarioId: linkedU?.id || '',
       criarNovaConta: false,
       novoEmailConta: '',
+      utilizaPontoEletronico: c.utiliza_ponto_eletronico === true,
     });
     setShowPasswordInModal(false);
     setShowModal(true);
@@ -948,6 +951,7 @@ export default function ComissoesAdminPanel() {
       meta_valor_minimo: isMeta ? (Number(form.metaValorMinimo) || 600) : 0,
       metas_valores: isMeta ? form.metasValores : null,
       ativo: form.ativo,
+      utiliza_ponto_eletronico: form.utilizaPontoEletronico,
       updated_at: new Date().toISOString(),
     };
 
@@ -956,13 +960,23 @@ export default function ComissoesAdminPanel() {
       ? await supabase.from('colaboradores').update(payload).eq('id', editingId).select().maybeSingle()
       : await supabase.from('colaboradores').insert(payload).select().maybeSingle();
 
+    if (error && /utiliza_ponto_eletronico/i.test(error.message || '')) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.utiliza_ponto_eletronico;
+      const resFallback = editingId
+        ? await supabase.from('colaboradores').update(fallbackPayload).eq('id', editingId).select().maybeSingle()
+        : await supabase.from('colaboradores').insert(fallbackPayload).select().maybeSingle();
+      savedData = resFallback.data;
+      error = resFallback.error;
+    }
+
     // Coluna ausente no banco: NÃO salva "pela metade" (antes o fallback gravava só salário/comissão
     // e descartava modalidade e faixas sem avisar, parecendo que tinha salvo).
     if (error && /column|schema cache/i.test(error.message || '')) {
       setSaving(false);
       showAlert(
-        `O banco ainda não tem as colunas de modalidade/metas (${error.message}). ` +
-        'Execute supabase/add_modalidade_remuneracao_colaboradores.sql no Supabase e tente de novo. Nada foi salvo.'
+        `O banco ainda não tem as colunas necessárias (${error.message}). ` +
+        'Execute supabase/add_utiliza_ponto_colaboradores.sql no Supabase e tente de novo. Nada foi salvo.'
       );
       return;
     }
@@ -1089,6 +1103,7 @@ export default function ComissoesAdminPanel() {
           metasValores: form.metasValores,
           metaValorMinimo: form.metaValorMinimo,
           metaValorMaximo: form.metaValorMaximo,
+          utilizaPontoEletronico: form.utilizaPontoEletronico,
         }));
       } catch {
         // ignore
@@ -2366,6 +2381,28 @@ export default function ComissoesAdminPanel() {
                             <span className="text-[10px] font-bold text-primary-400 bg-primary-500/10 border border-primary-500/20 px-2.5 py-1 rounded-lg">
                               Vincular na aba Ponto Eletrônico
                             </span>
+                          </div>
+                        )}
+
+                        {isAdmin && (
+                          <div className="pt-3 border-t border-[var(--border-color)]/60 flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-black text-[var(--text-main)] block">Vincular ao Ponto para Cálculo de Salário (Grupo A)</span>
+                              <span className="text-[10px] text-[var(--text-muted)] block">
+                                Quando ativo, o salário é apurado pelas horas de ponto (banco de horas a 50% e faltas). Desativado = modelo padrão (Grupo B).
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setForm({ ...form, utilizaPontoEletronico: !form.utilizaPontoEletronico })}
+                              className={`h-8 px-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                                form.utilizaPontoEletronico
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                  : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)]'
+                              }`}
+                            >
+                              {form.utilizaPontoEletronico ? 'Vinculado (Grupo A)' : 'Não Vinculado (Grupo B)'}
+                            </button>
                           </div>
                         )}
                       </div>
