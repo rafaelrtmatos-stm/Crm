@@ -302,7 +302,7 @@ import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
 import { calculateDescontosNoPeriodo } from '../comissoes/utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
-import { calcularPrevisaoRecebimento } from '../comissoes/utils/previsaoRecebimento';
+import { calcularPrevisaoRecebimento, calcularAReceber } from '../comissoes/utils/previsaoRecebimento';
 import { DashboardMetasCard } from './DashboardMetasCard';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
@@ -1660,7 +1660,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             .eq('semana_inicio', start).eq('semana_fim', end),
           supabase.from('vendas')
             .select('total, status, down_payment, created_at')
-            .gte('created_at', start).lte('created_at', end).is('deleted_at', null),
+            .gte('created_at', start).lte('created_at', end + 'T23:59:59.999Z').is('deleted_at', null),
         ]);
 
         const colabs = colabsRes.data || [];
@@ -1695,13 +1695,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           descontosByColab[d.colaborador_id].push(d);
         });
 
-        const pagamentosByColab: Record<string, number> = {};
-        pagamentos.forEach((p: any) => {
-          pagamentosByColab[p.colaborador_id] = (pagamentosByColab[p.colaborador_id] || 0) + (Number(p.valor) || 0);
-        });
-
         const caixasByColab: Record<string, any> = {};
         caixas.forEach((cx: any) => { caixasByColab[cx.colaborador_id] = cx; });
+
+        const pagamentosByColab: Record<string, number> = {};
+        pagamentos.forEach((p: any) => {
+          const cId = p.colaborador_id;
+          const caixaExibido = caixasByColab[cId];
+          if (!caixaExibido || p.caixa_id !== caixaExibido.id) return;
+          pagamentosByColab[cId] = (pagamentosByColab[cId] || 0) + (Number(p.valor) || 0);
+        });
 
         let totalEquipe = 0;
 
@@ -1754,15 +1757,15 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             descBounds.start,
             descBounds.end
           );
+          const totalPago = pagamentosByColab[c.id] || 0;
 
-          // Total estimado da equipe: mesma fórmula do painel admin e do perfil do funcionário.
-          // NÃO desconta pagamentos (o total fica fixo ao pagar). Dívida anterior reduz, crédito soma.
-          const totalEstimado = calcularPrevisaoRecebimento({
+          const totalEstimadoBruto = calcularPrevisaoRecebimento({
             salarioBase: remuneracao.salarioBaseEfetivo,
             comissao: remuneracao.comissaoEfetiva,
             descontos: totalDescontos,
             saldoAnterior,
           });
+          const totalEstimado = calcularAReceber(totalEstimadoBruto, totalPago);
 
           totalEquipe += totalEstimado;
         });

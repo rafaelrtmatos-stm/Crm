@@ -327,7 +327,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       .from('vendas')
       .select('total, status, down_payment, created_at')
       .gte('created_at', bounds.start)
-      .lte('created_at', bounds.end)
+      .lte('created_at', bounds.end + 'T23:59:59.999Z')
       .is('deleted_at', null)
       .then(({ data }) => {
         if (cancelled) return;

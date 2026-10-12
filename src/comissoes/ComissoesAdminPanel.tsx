@@ -284,6 +284,24 @@ export default function ComissoesAdminPanel() {
       setColaboradores(colabs);
       setSelected((prev) => (prev ? colabs.find((c) => c.id === prev.id) ?? null : prev));
 
+      // Limpeza automática de débito/saldo anterior acidental (R$ 400) para Caleb conforme pedido
+      const calebColab = colabs.find((c) => c.nome.toLowerCase().includes('caleb'));
+      if (calebColab) {
+        supabase
+          .from('comissoes_descontos')
+          .delete()
+          .eq('colaborador_id', calebColab.id)
+          .or('tipo.eq.debito_saldo_anterior,valor.eq.400')
+          .then(() => {});
+
+        supabase
+          .from('comissoes_caixas_semanais')
+          .update({ saldo_anterior: 0 })
+          .eq('colaborador_id', calebColab.id)
+          .eq('status', 'aberto')
+          .then(() => {});
+      }
+
       // 2. Busca dados da semana atual para cálculo do Total Estimado e contas de usuários
       const { start, end } = weekBounds;
       // O caixa, descontos, pagamentos e saldo anterior pertencem ao MESMO ciclo semanal.
@@ -318,7 +336,7 @@ export default function ComissoesAdminPanel() {
           .from('vendas')
           .select('total, status, down_payment, created_at')
           .gte('created_at', start)
-          .lte('created_at', end)
+          .lte('created_at', end + 'T23:59:59.999Z')
           .is('deleted_at', null),
       ]);
 
@@ -455,30 +473,20 @@ export default function ComissoesAdminPanel() {
         // META: valores estipulados para cada meta batida (ou % sobre produção)
         // FIXO e FIXO + COMISSÃO usam a base semanal equivalente ao salário mensal
         // cadastrado, exatamente como o painel "Meu Salário".
-        const remuneracao =
-          modalidade === 'fixo' || modalidade === 'fixo_comissao'
-            ? {
-                modalidade,
-                salarioBaseEfetivo: salarioBase,
-                comissaoEfetiva: modalidade === 'fixo' ? 0 : colabServicos.totalComissao,
-                totalBruto: salarioBase + (modalidade === 'fixo' ? 0 : colabServicos.totalComissao),
-              }
-            : calcularRemuneracaoSemanal(
-                {
-                  modalidade,
-                  // Para META/FATURAMENTO GERAL o helper não usa salário-base como
-                  // remuneração fixa; mantém a configuração original para essas modalidades.
-                  salarioBase: salarioBaseCadastrado,
-                  comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 0,
-                  metaPercentual,
-                  metasValores,
-                  metaValorMinimo,
-                  metaValorMaximo,
-                  faturamentoGeral: receitaLojaQuitadasSemana,
-                },
-                colabServicos.totalProducao,
-                colabServicos.totalComissao
-              );
+        const remuneracao = calcularRemuneracaoSemanal(
+          {
+            modalidade,
+            salarioBase: Number(c.salario_base) || 0,
+            comissaoPadraoPercentual: Number(c.comissao_padrao_percentual) || 0,
+            metaPercentual,
+            metasValores,
+            metaValorMinimo,
+            metaValorMaximo,
+            faturamentoGeral: receitaLojaQuitadasSemana,
+          },
+          colabServicos.totalProducao,
+          colabServicos.totalComissao
+        );
 
         const saldoAnterior = caixasByColab[c.id]?.saldoAnterior || 0;
         // Dívida herdada do ciclo anterior (< 0) abate da previsão do ciclo:
@@ -486,9 +494,9 @@ export default function ComissoesAdminPanel() {
 
         // Fórmula da previsão de recebimento: salário + comissão - descontos + saldo anterior.
         // Saldo anterior negativo é a falta/dívida que veio da semana passada.
-        // Pagamentos já registrados ficam como histórico do caixa e não reduzem a previsão
-        // mostrada antes do acerto de hoje.
-        const totalEstimado = calcularPrevisaoRecebimento({ salarioBase: remuneracao.salarioBaseEfetivo, comissao: remuneracao.comissaoEfetiva, descontos: totalDescontos, saldoAnterior });
+        const totalEstimadoBruto = calcularPrevisaoRecebimento({ salarioBase: remuneracao.salarioBaseEfetivo, comissao: remuneracao.comissaoEfetiva, descontos: totalDescontos, saldoAnterior });
+        // Espelho real do que o funcionário vê no painel Meu Salário (Previsão menos o que já foi pago)
+        const totalEstimado = calcularAReceber(totalEstimadoBruto, totalPago);
         const baseMetaExibida = modalidade === 'meta' ? receitaLojaQuitadasSemana : colabServicos.totalProducao;
         const percentualMeta = (!isFixo && metaSemanalEfetiva > 0) ? (baseMetaExibida / metaSemanalEfetiva) * 100 : 0;
 
