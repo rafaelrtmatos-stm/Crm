@@ -27,6 +27,8 @@ import {
 } from '../utils/caixaSemanalStorage';
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
+import { analisarDia, hojeStr } from '../../lib/pontoCalc';
+import { resumoExtras } from '../../lib/feriados';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -53,6 +55,7 @@ interface DashboardProps {
   // ID do colaborador -- usado pra buscar o caixa/pagamentos e calcular o total estimado
   // já descontando o que ele recebeu a mais (mesmo cálculo usado na aba Descontos).
   colaboradorId?: string;
+  utilizaPontoEletronico?: boolean;
 }
 
 const getTodayISO = () => {
@@ -188,6 +191,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   weeklyGoal,
   descontos = [],
   colaboradorId,
+  utilizaPontoEletronico = false,
 }) => {
   const [period, setPeriod] = useState<PeriodFilter>('semana');
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -255,6 +259,64 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const pointWeekOffset = commissionWeekOffset - 1;
   const commissionWeekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
   const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
+
+  const [pontoBaseSalaryCalculated, setPontoBaseSalaryCalculated] = useState<number | null>(null);
+
+  useEffect(() => {
+    let ok = true;
+    if (!utilizaPontoEletronico || !colaboradorId) {
+      setPontoBaseSalaryCalculated(null);
+      return;
+    }
+    (async () => {
+      const { data: f } = await supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('colaborador_id', colaboradorId).maybeSingle();
+      if (!ok || !f) {
+        setPontoBaseSalaryCalculated(null);
+        return;
+      }
+      const pFuncId = f.id;
+      const tol = f.tolerancia_minutos ?? 10;
+      const [rRes, jRes] = await Promise.all([
+        supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', pointWeekBounds.start).lte('data', pointWeekBounds.end),
+        supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
+      ]);
+      if (!ok) return;
+
+      const rMap = new Map((rRes.data || []).map((rx: any) => [rx.data, rx]));
+      const startD = new Date(pointWeekBounds.start + 'T12:00:00');
+      let totalTrab = 0;
+      const diasParaExtras = [];
+      for (let i = 0; i < 7; i++) {
+        const dStr = new Date(startD.getTime() + i * 86400000).toISOString().split('T')[0];
+        const rx = rMap.get(dStr);
+        const jx = (jRes.data || []).find((jj: any) => jj.dia_semana === new Date(dStr + 'T12:00:00').getDay()) || (jRes.data || [])[0];
+        const ax = analisarDia(rx, jx, dStr, hojeStr(), tol);
+        totalTrab += ax.trabalhados;
+        diasParaExtras.push({
+          data: dStr,
+          trabalhados: ax.trabalhados,
+          previstos: ax.previstos,
+          extra: ax.extra
+        });
+      }
+      const extRes = resumoExtras(diasParaExtras, userSettings.baseSalary, tol);
+      const valFer = extRes.valorFeriados;
+      const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) || 'pagar';
+      const valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
+
+      const valorHora = userSettings.baseSalary > 0 ? userSettings.baseSalary / 220 : 0;
+      const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
+      const baseFinal = totalTrab > 0 ? (salarioHorasTrabalhadas + valFer + valExt) : calcularSalarioSemanal(userSettings.baseSalary);
+      if (ok) setPontoBaseSalaryCalculated(baseFinal);
+    })();
+    return () => { ok = false; };
+  }, [utilizaPontoEletronico, colaboradorId, pointWeekBounds.start, pointWeekBounds.end, userSettings.baseSalary]);
+
+  const baseSalaryFinal = userSettings.modalidadeRemuneracao === 'meta'
+    ? 0
+    : (utilizaPontoEletronico && pontoBaseSalaryCalculated !== null
+        ? pontoBaseSalaryCalculated
+        : calcularSalarioSemanal(userSettings.baseSalary));
 
   // Receita da loja no ciclo semanal de Sábado a Sexta (apenas notas 100% quitadas/recebidas)
   const [receitaLojaSemana, setReceitaLojaSemana] = useState(0);
@@ -725,7 +787,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Featured Card de Previsão de Recebimento */}
         <div className="lg:col-span-1">
           <ReceiptForecastCard
-            baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : calcularSalarioSemanal(userSettings.baseSalary)}
+            baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : baseSalaryFinal}
             totalCommission={resumoComissaoSemanaVigente?.totalComissao ?? 0}
             weeklyGoal={userSettings.weeklyGoal}
             totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
@@ -909,15 +971,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div className="mt-3 pt-3 border-t border-[var(--border-color)] space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-[var(--text-muted)] font-bold">COMISSÃO DA SEMANA</span>
-                <span className="font-mono font-black text-[var(--accent-red)]">
-                  {formatCurrency(weeklyStats.weeklyCommission)}
-                </span>
-              </div>
+              {userSettings.modalidadeRemuneracao !== 'fixo' && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[var(--text-muted)] font-bold">COMISSÃO DA SEMANA</span>
+                  <span className="font-mono font-black text-[var(--accent-red)]">
+                    {formatCurrency(weeklyStats.weeklyCommission)}
+                  </span>
+                </div>
+              )}
               <div className="text-[11px] text-[var(--text-muted)] font-semibold flex items-center justify-between">
-                <span>Taxa da Semana:</span>
-                <span className="text-white font-mono font-bold">{weeklyStats.commissionRate.toFixed(1)}%</span>
+                <span>{userSettings.modalidadeRemuneracao === 'fixo' ? 'Modalidade:' : 'Taxa da Semana:'}</span>
+                <span className="text-white font-mono font-bold">
+                  {userSettings.modalidadeRemuneracao === 'fixo' ? 'Fixo' : `${weeklyStats.commissionRate.toFixed(1)}%`}
+                </span>
               </div>
             </div>
           </div>

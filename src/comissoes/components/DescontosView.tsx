@@ -613,7 +613,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
         )}
 
         {resumoCaixa && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-center text-[11px]">
+          <div className={`grid grid-cols-2 sm:grid-cols-3 ${modalidadeRemuneracao === 'fixo' ? 'lg:grid-cols-6' : 'lg:grid-cols-7'} gap-2 text-center text-[11px]`}>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">
                 {periodoVisualizacao === 'semana' ? 'Saldo Anterior' : 'Saldo Anterior ao Período'}
@@ -632,19 +632,21 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
                 {modalidadeRemuneracao === 'meta' ? 'R$ 0,00' : formatCurrency(resumoPorPeriodo.salarioBase)}
               </span>
             </div>
-            <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
-              <span className="text-[var(--text-muted)] block mb-1">
-                {modalidadeRemuneracao === 'meta' ? `Meta (${metaPercentual || 0}%)` : 'Comissão'}
-              </span>
-              <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.totalComissao)}</span>
-            </div>
+            {modalidadeRemuneracao !== 'fixo' && (
+              <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
+                <span className="text-[var(--text-muted)] block mb-1">
+                  {modalidadeRemuneracao === 'meta' ? `Meta (${metaPercentual || 0}%)` : 'Comissão'}
+                </span>
+                <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(resumoPorPeriodo.totalComissao)}</span>
+              </div>
+            )}
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">Descontos</span>
               <span className="font-bold font-mono text-rose-400">-{formatCurrency(resumoPorPeriodo.totalDescontos)}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">
-                {modalidadeRemuneracao === 'fixo' ? 'Remuneração Fixa' : modalidadeRemuneracao === 'meta' ? 'Remuneração (Meta)' : 'Salário + Comissão'}
+                {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : modalidadeRemuneracao === 'meta' ? 'Remuneração (Meta)' : 'Salário + Comissão'}
               </span>
               <span className="font-bold font-mono text-[var(--text-main)]">{formatCurrency(
                   periodoVisualizacao === 'semana'

@@ -122,7 +122,8 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    return{base,comissao,desc,descontoPontoValor,pontoDebitoMinutos,pontoExtraMinutos,pontoFeriadosValor,pontoExtrasValor,saldoAnterior,pago,total:Math.max(0,Number((previsao-pago).toFixed(2)))};
  },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal,modalidade,comissaoPadraoPercentual,metaPercentual,metasValores,metaValorMinimo,metaValorMaximo,receitaLoja,pontoDebitoMinutos,utilizaPontoEletronico,pontoTrabalhadoMinutos,pontoFeriadosValor,pontoExtrasValor,salarioBase]);
 
- const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
+  const ehSabado = new Date().getDay() === 6;
+  const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';
  const formatLabelData=(d:string)=>{const p=d.split('-');return `${p[2]}/${p[1]}`;};
 
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Calculando Meu Salário...</div>;

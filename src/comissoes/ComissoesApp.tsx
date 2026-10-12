@@ -392,6 +392,7 @@ export default function ComissoesApp() {
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
                 colaboradorId={colaborador?.id}
+                 utilizaPontoEletronico={colaborador?.utilizaPontoEletronico}
                 onlyPullFromNote={colaborador?.modoLancamentoComissao === 'somente_nota'}
               />
             )}

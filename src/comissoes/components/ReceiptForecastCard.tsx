@@ -106,8 +106,8 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <Wallet className="w-4 h-4 text-white shrink-0" />
               <span>Previsão de Recebimento</span>
             </div>
-            <span className="text-[11px] font-bold text-white/90 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10">
-              Salário + Comissão
+            <span className="text-[11px] font-bold text-white/90 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10 whitespace-nowrap">
+              {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : 'Salário + Comissão'}
             </span>
           </div>
 
@@ -117,8 +117,8 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
               <span className="text-xs uppercase tracking-wider text-white/90 font-black block">
                 Total a Receber
               </span>
-              <span className="text-[11px] text-white/70 font-medium block mt-0.5">
-                Salário + Comissões − Descontos
+              <span className="text-[11px] text-white/70 font-medium block mt-0.5 whitespace-nowrap">
+                {modalidadeRemuneracao === 'fixo' ? 'Salário − Descontos' : 'Salário + Comissões − Descontos'}
               </span>
             </div>
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-sm font-mono text-right shrink-0">
@@ -184,38 +184,40 @@ export const ReceiptForecastCard: React.FC<ReceiptForecastCardProps> = ({
 
         {/* Composição do Valor */}
         <div className="bg-black/30 backdrop-blur-md rounded-2xl p-4 border border-white/15 space-y-3 shadow-inner">
-          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-white/90 pb-2 border-b border-white/15">
-            <span className="flex items-center gap-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold uppercase tracking-wider text-white/90 pb-2 border-b border-white/15 gap-1 sm:gap-2">
+            <span className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
               <Calculator className="w-4 h-4 text-white/90 shrink-0" />
               Composição do Valor
             </span>
-            <span className="text-[10px] text-white/70 font-mono">
-              {cycleDates || 'Salário • Comissões • Descontos'}
+            <span className="text-[10px] text-white/70 font-mono text-left sm:text-right leading-tight">
+              {cycleDates || (modalidadeRemuneracao === 'fixo' ? 'Salário • Descontos' : 'Salário • Comissões • Descontos')}
             </span>
           </div>
 
           <div className="space-y-2 text-xs">
             {/* Salário Base (Sempre visível) */}
             <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-black/20 border border-white/10 gap-2">
-              <span className="text-white/85 font-semibold text-xs">Salário</span>
-              <span className="font-bold text-white font-mono text-sm">{formatCurrency(baseSalary)}</span>
+              <span className="text-white/85 font-semibold text-xs whitespace-nowrap">
+                {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : 'Salário'}
+              </span>
+              <span className="font-bold text-white font-mono text-sm whitespace-nowrap">{formatCurrency(baseSalary)}</span>
             </div>
 
             {/* Comissões (Apenas para quem recebe comissão) */}
             {modalidadeRemuneracao !== 'fixo' && (
               modalidadeRemuneracao === 'meta' ? (
                 <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
-                  <span className="text-emerald-200 font-semibold text-xs">
+                  <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
                     {infoMeta?.bateuAlgumaFaixa ? `+ Meta (${infoMeta.atualNome})` : `+ Piso Mínimo Garantido`}
                   </span>
-                  <span className="font-bold text-emerald-300 font-mono text-sm">+{formatCurrency(totalCommission)}</span>
+                  <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
                 </div>
               ) : (
                 <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 gap-2">
-                  <span className="text-emerald-200 font-semibold text-xs">
+                  <span className="text-emerald-200 font-semibold text-xs whitespace-nowrap">
                     {modalidadeRemuneracao === 'faturamento_geral' ? `+ Comissão (${metaPercentual || 0}% Faturamento)` : '+ Comissões'}
                   </span>
-                  <span className="font-bold text-emerald-300 font-mono text-sm">+{formatCurrency(totalCommission)}</span>
+                  <span className="font-bold text-emerald-300 font-mono text-sm whitespace-nowrap">+{formatCurrency(totalCommission)}</span>
                 </div>
               )
             )}

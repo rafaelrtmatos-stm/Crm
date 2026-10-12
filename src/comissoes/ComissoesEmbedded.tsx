@@ -458,6 +458,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 weeklyGoal={userSettings.weeklyGoal}
                 descontos={descontos}
                 colaboradorId={colaborador?.id}
+                 utilizaPontoEletronico={colaborador?.utilizaPontoEletronico}
                 onlyPullFromNote={colaborador?.modoLancamentoComissao === 'somente_nota'}
                 canAdd={podeAdicionarServico}
                 canEdit={!readOnlyView}

@@ -35,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   hideSettings = false,
   onLogout,
 }) => {
+  const isFixo = userSettings?.modalidadeRemuneracao === 'fixo';
+
   // Format current date in Portuguese
   const todayDateFormatted = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -120,33 +122,37 @@ export const Header: React.FC<HeaderProps> = ({
             <span>DASHBOARD</span>
           </button>
 
-          <button
-            id="nav-tab-weekly"
-            onClick={() => setActiveTab('weekly')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-xl text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'weekly'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span className="lg:hidden">SEMANA</span>
-            <span className="hidden lg:inline">AGENDA SEMANAL</span>
-          </button>
+          {!isFixo && (
+            <>
+              <button
+                id="nav-tab-weekly"
+                onClick={() => setActiveTab('weekly')}
+                className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-xl text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'weekly'
+                    ? 'bg-gradient-red text-white shadow-red-glow'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+                <span className="lg:hidden">SEMANA</span>
+                <span className="hidden lg:inline">AGENDA SEMANAL</span>
+              </button>
 
-          <button
-            id="nav-tab-table"
-            onClick={() => setActiveTab('table')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-xl text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'table'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <Table className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span className="lg:hidden">PLANILHA</span>
-            <span className="hidden lg:inline">PLANILHA GERAL</span>
-          </button>
+              <button
+                id="nav-tab-table"
+                onClick={() => setActiveTab('table')}
+                className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-xl text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'table'
+                    ? 'bg-gradient-red text-white shadow-red-glow'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+                }`}
+              >
+                <Table className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+                <span className="lg:hidden">PLANILHA</span>
+                <span className="hidden lg:inline">PLANILHA GERAL</span>
+              </button>
+            </>
+          )}
 
           <button
             id="nav-tab-reports"
@@ -161,18 +167,20 @@ export const Header: React.FC<HeaderProps> = ({
             <span>RELATÓRIOS</span>
           </button>
 
-          <button
-            id="nav-tab-servicos"
-            onClick={() => setActiveTab('servicos')}
-            className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-xl text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'servicos'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span>SERVIÇOS</span>
-          </button>
+          {!isFixo && (
+            <button
+              id="nav-tab-servicos"
+              onClick={() => setActiveTab('servicos')}
+              className={`flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-xl text-[10px] lg:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'servicos'
+                  ? 'bg-gradient-red text-white shadow-red-glow'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-card-hover)]'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+              <span>SERVIÇOS</span>
+            </button>
+          )}
 
           <button id="nav-tab-ponto" onClick={() => setActiveTab('ponto')} className={activeTab === 'ponto' ? 'bg-gradient-red text-white shadow-red-glow flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold'}><Clock3 className="w-4 h-4"/><span>MEU PONTO</span></button>
           <button id="nav-tab-salario" onClick={() => setActiveTab('salario')} className={activeTab === 'salario' ? 'bg-gradient-red text-white shadow-red-glow flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold'}><CircleDollarSign className="w-4 h-4"/><span>MEU SALÁRIO</span></button>
@@ -206,29 +214,33 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Painel</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('weekly')}
-            className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
-              activeTab === 'weekly'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] bg-[var(--bg-card)] hover:text-[var(--text-main)]'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Semana</span>
-          </button>
+          {!isFixo && (
+            <>
+              <button
+                onClick={() => setActiveTab('weekly')}
+                className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
+                  activeTab === 'weekly'
+                    ? 'bg-gradient-red text-white shadow-red-glow'
+                    : 'text-[var(--text-muted)] bg-[var(--bg-card)] hover:text-[var(--text-main)]'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Semana</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab('table')}
-            className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
-              activeTab === 'table'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] bg-[var(--bg-card)] hover:text-[var(--text-main)]'
-            }`}
-          >
-            <Table className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Planilha</span>
-          </button>
+              <button
+                onClick={() => setActiveTab('table')}
+                className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
+                  activeTab === 'table'
+                    ? 'bg-gradient-red text-white shadow-red-glow'
+                    : 'text-[var(--text-muted)] bg-[var(--bg-card)] hover:text-[var(--text-main)]'
+                }`}
+              >
+                <Table className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Planilha</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={() => setActiveTab('reports')}
@@ -242,17 +254,19 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="truncate">Relatórios</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('servicos')}
-            className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
-              activeTab === 'servicos'
-                ? 'bg-gradient-red text-white shadow-red-glow'
-                : 'text-[var(--text-muted)] bg-[var(--bg-card)] hover:text-[var(--text-main)]'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Serviços</span>
-          </button>
+          {!isFixo && (
+            <button
+              onClick={() => setActiveTab('servicos')}
+              className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 py-1.5 px-1 rounded-xl text-[10px] sm:text-xs font-black transition-all text-center leading-none min-w-0 ${
+                activeTab === 'servicos'
+                  ? 'bg-gradient-red text-white shadow-red-glow'
+                  : 'text-[var(--text-muted)] bg-[var(--bg-card)] hover:text-[var(--text-main)]'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Serviços</span>
+            </button>
+          )}
 
           <button onClick={() => setActiveTab('ponto')} className={activeTab === 'ponto' ? 'bg-gradient-red text-white shadow-red-glow flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black' : 'text-[var(--text-muted)] bg-[var(--bg-card)] flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black'}><Clock3 className="w-3.5 h-3.5"/><span>Meu Ponto</span></button>
           <button onClick={() => setActiveTab('salario')} className={activeTab === 'salario' ? 'bg-gradient-red text-white shadow-red-glow flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black' : 'text-[var(--text-muted)] bg-[var(--bg-card)] flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl text-[10px] font-black'}><CircleDollarSign className="w-3.5 h-3.5"/><span>Salário</span></button>
