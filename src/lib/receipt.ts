@@ -785,6 +785,15 @@ export async function renderReceiptCanvas({
     ctx.fillText('Sem telefone informado', clientCardX + 22, currentY + 80);
   }
 
+  // Nome de quem pagou o PIX (informativo), em vermelho e letra pequena, abaixo do cliente
+  const pagadoresPix = Array.from(new Set((order.payments || []).filter((p) => p.method === 'pix' && p.payerName).map((p) => String(p.payerName).toUpperCase())));
+  if (pagadoresPix.length > 0) {
+    ctx.fillStyle = RED;
+    ctx.font = `700 8.5px ${FONT}`;
+    const txtPag = `Pagador PIX: ${pagadoresPix.join(' / ')}`;
+    ctx.fillText(txtPag.length > 44 ? txtPag.slice(0, 43) + '…' : txtPag, clientCardX + 22, currentY + 93);
+  }
+
   // BLOCO DADOS DO PEDIDO
   drawCard(ctx, orderCardX, currentY, halfW, infoCardsH, 16);
   // Marca d'água sutil

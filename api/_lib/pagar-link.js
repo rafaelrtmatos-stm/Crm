@@ -54,7 +54,7 @@ async function carregarPendencia(id) {
 }
 
 /** Soma o PIX recebido na nota (down_payment/received_value/payments/status), com trava otimista. */
-async function aplicarBaixaNaNota(link, valor) {
+async function aplicarBaixaNaNota(link, valor, pagador = null) {
   for (let tentativa = 0; tentativa < 3; tentativa++) {
     const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,payments,status,customer_name,customer_phone&limit=1`);
     if (!g.ok || !Array.isArray(g.corpo) || !g.corpo[0]) throw new Error('nota não encontrada para a baixa');
@@ -63,7 +63,7 @@ async function aplicarBaixaNaNota(link, valor) {
     const pagoAntes = venda.down_payment == null ? null : Number(venda.down_payment) || 0;
     const novoPago = round2((pagoAntes || 0) + valor);
     const restante = Math.max(0, round2(Number(venda.total) - novoPago));
-    const pagamentos = [...(Array.isArray(venda.payments) ? venda.payments : []), { method: 'pix', value: valor, date: new Date().toISOString() }];
+    const pagamentos = [...(Array.isArray(venda.payments) ? venda.payments : []), { method: 'pix', value: valor, date: new Date().toISOString(), ...(pagador ? { payerName: pagador } : {}) }];
     const filtroVersao = pagoAntes == null ? 'down_payment=is.null' : `down_payment=eq.${pagoAntes}`;
     const u = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&${filtroVersao}`, {
       method: 'PATCH',
@@ -287,7 +287,7 @@ async function darBaixaCard(pend) {
   const valor = round2(pend.valor_centavos / 100);
   let resultado;
   try {
-    resultado = await aplicarBaixaNaNota({ sale_id: pend.sale_id }, valor);
+    resultado = await aplicarBaixaNaNota({ sale_id: pend.sale_id }, valor, pend.pagador_nome || null);
   } catch (err) {
     await rest(`pix_pendentes?id=eq.${pend.id}`, { method: 'PATCH', body: JSON.stringify({ baixa_em: null }) }).catch(() => {});
     throw err;

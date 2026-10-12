@@ -277,6 +277,7 @@ import { verificarPagamentosLinks } from '../lib/verificarPagamentosLinks';
 import { EVENTO_PAGAMENTO_LINK, modaisParaFechar, tocarSomDeDinheiro } from '../lib/pagamentoRecebido';
 import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { PixPaymentModal } from './PixPaymentModal';
+import { PagadorPixBloco } from './PagadorPixBloco';
 import { PixQrImage } from './PixQrImage';
 import { renderReceiptCanvas, downloadCanvasAsPng, downloadCanvasAsPdf, COMPANY_CONTACT, CompanyContactInfo } from '../lib/receipt';
 import { renderOrcamentoCanvas, renderOrcamentoSimplesCanvas } from '../lib/orcamentoDoc';
@@ -15639,6 +15640,65 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     avisoPixAutoRef.current = null;
     enviarAvisoPagamentoPix({ phone: telefone, customerName: order.customerName, valor, itens: order.items, orderId: order.id, restante, total: order.total, pagamentos: order.payments, pago: order.downPayment }).catch(() => {});
   };
+  // Nome de quem pagou o PIX (e-mail do banco): o PIX confirmado grava `payerName` no pagamento da nota
+  const pixPagadorRef = useRef<{ valor: number; nome: string } | null>(null);
+  const ativaNaoCancelada = (v: any) => v.status !== 'canceled' && !v.deleted_at;
+  /** Outras notas ATIVAS do mesmo cliente: pelo vínculo (cliente_id) ou pelo mesmo telefone (últimos 8 dígitos). */
+  const buscarOutrasNotasDoCliente = async (order: SaleOrder, clienteId: string | null): Promise<string[]> => {
+    const ids = new Set<string>();
+    if (clienteId) {
+      const { data } = await supabase.from('vendas').select('id, status, deleted_at').eq('cliente_id', clienteId).neq('id', order.id);
+      (data || []).filter(ativaNaoCancelada).forEach((v: any) => ids.add(v.id));
+    }
+    const u8 = String(order.customerPhone || '').replace(/\D/g, '').slice(-8);
+    if (u8.length === 8) {
+      const { data } = await supabase.from('vendas').select('id, status, deleted_at, customer_phone').ilike('customer_phone', `%${u8}%`).neq('id', order.id).limit(500);
+      (data || []).filter((v: any) => ativaNaoCancelada(v) && String(v.customer_phone || '').replace(/\D/g, '').slice(-8) === u8).forEach((v: any) => ids.add(v.id));
+    }
+    return Array.from(ids);
+  };
+  const contarOutrasNotasPagador = async (order: SaleOrder) => (await buscarOutrasNotasDoCliente(order, order.customerId || null)).length;
+  /** Grava o nome do pagador na nota, no cadastro (cria se não existir; telefone opcional) e nas outras notas ativas. */
+  const aplicarNomePagadorNaNota = async (order: SaleOrder, nomeBruto: string): Promise<boolean> => {
+    const nome = String(nomeBruto || '').trim().toLocaleUpperCase('pt-BR');
+    if (!nome) return false;
+    try {
+      let clienteId: string | null = order.customerId || null;
+      if (clienteId) {
+        const { error } = await supabase.from('clientes').update({ full_name: nome }).eq('id', clienteId);
+        if (error) throw error;
+      } else {
+        const dup = await buscarClienteDuplicado({ fullName: nome, phone: order.customerPhone || null });
+        if (dup?.motivo === 'phone') clienteId = dup.cliente.id;
+        else if (dup?.motivo === 'nome' && await showConfirm(`Já existe um cliente cadastrado como "${dup.cliente.full_name}". Usar esse cadastro em vez de criar um novo?`)) clienteId = dup.cliente.id;
+        if (clienteId) {
+          const { error } = await supabase.from('clientes').update({ full_name: nome }).eq('id', clienteId);
+          if (error) throw error;
+        } else {
+          const { data, error } = await supabase.from('clientes').insert({ full_name: nome, phone: order.customerPhone || null }).select().maybeSingle();
+          if (error) throw error;
+          clienteId = data?.id || null;
+        }
+      }
+      const outras = await buscarOutrasNotasDoCliente(order, clienteId);
+      const ids = [order.id, ...outras];
+      const campos: any = { customer_name: nome };
+      if (clienteId) campos.cliente_id = clienteId;
+      const { error: errVendas } = await supabase.from('vendas').update(campos).in('id', ids);
+      if (errVendas) throw errVendas;
+      const aplicarLocal = (v: SaleOrder): SaleOrder => ids.includes(v.id) ? { ...v, customerName: nome, ...(clienteId ? { customerId: clienteId } : {}) } : v;
+      setAllSalesHistory(prev => prev.map(aplicarLocal));
+      setSalesToday(prev => prev.map(aplicarLocal));
+      setLastFinalizedOrder(prev => prev ? aplicarLocal(prev) : prev);
+      setSettlingOrder(prev => prev ? aplicarLocal(prev) : prev);
+      showAlert(outras.length > 0 ? `Nome atualizado na nota, no cadastro e em mais ${outras.length} nota(s) do cliente.` : 'Nome atualizado na nota e no cadastro do cliente.');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao atualizar nome do pagador:', err);
+      showAlert(`Não foi possível atualizar o nome: ${err?.message || 'erro desconhecido'}`);
+      return false;
+    }
+  };
   const salesHistoryDebounceRef = React.useRef<any>(null);
   const [salesToday, setSalesToday] = useState<SaleOrder[]>([]);
   const [allSalesHistory, setAllSalesHistory] = useState<SaleOrder[]>([]);
@@ -20166,7 +20226,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // ignorarCampoPendente: usado pela confirmação automática do PIX — o campo de valor volta preenchido com o
       // restante e NÃO pode virar um pagamento extra (senão a entrada de 50 viraria 100).
       const pendingEntry = (forceZeroPayment || ignorarCampoPendente) ? null : buildPaymentEntryFromInput();
-      const effectivePaymentEntries = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
+      const entradasBase = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
+      // PIX confirmado automaticamente: grava o nome de quem pagou no lançamento PIX correspondente (só informativo)
+      const pagadorPix = pixPagadorRef.current;
+      pixPagadorRef.current = null;
+      let pagadorAplicado = false;
+      const effectivePaymentEntries = pagadorPix
+        ? entradasBase.map((p) => {
+            if (!pagadorAplicado && p.method === 'pix' && !p.payerName && Math.abs((p.value || 0) - pagadorPix.valor) < 0.01) { pagadorAplicado = true; return { ...p, payerName: pagadorPix.nome }; }
+            return p;
+          })
+        : entradasBase;
       const effectivePaymentEntriesTotal = effectivePaymentEntries.reduce((sum, p) => sum + (p.value || 0), 0);
       if (pendingEntry) {
         setPaymentEntries(effectivePaymentEntries);
@@ -20591,6 +20661,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
     } finally {
       avisoPixAutoRef.current = null;
+      pixPagadorRef.current = null;
       setIsFinalizingSale(false);
     }
   };
@@ -24783,6 +24854,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                                     </div>
                                  </div>
 
+                                 {p.method === 'pix' && p.payerName && <p className="text-[8.5px] font-bold text-red-500 leading-tight">Pagador PIX: {p.payerName}</p>}
                                  {(numParc > 1 || feePct > 0) && (
                                     <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[8px] text-amber-200 space-y-1">
                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 font-bold">
@@ -25411,6 +25483,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    <span>Valor que Falta Pagar</span>
                    <span className="font-mono font-bold">R$ {Math.max(0, (lastFinalizedOrder?.total || 0) - (lastFinalizedOrder?.downPayment ?? lastFinalizedOrder?.receivedValue ?? 0)).toFixed(2)}</span>
                 </div>
+                {lastFinalizedOrder && <PagadorPixBloco order={lastFinalizedOrder} contarOutras={contarOutrasNotasPagador} aplicar={aplicarNomePagadorNaNota} />}
                 {lastFinalizedOrder?.scheduledFor && (
                    <div className="flex justify-between text-[10px] text-primary-300 font-black bg-primary-500/10 p-2 rounded-lg border border-primary-500/20 mt-1.5">
                       <span>Entrega Agendada:</span>
@@ -27950,7 +28023,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            amount={amountToCharge}
            beneficiaryName={pixConfig.beneficiaryName}
            bank={pixConfig.bank || undefined}
-           onAutoPaid={(valorPago) => { avisoPixAutoRef.current = valorPago; handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
+           onAutoPaid={(valorPago, pagador) => { avisoPixAutoRef.current = valorPago; pixPagadorRef.current = pagador ? { valor: valorPago, nome: pagador } : null; handleFinalize(paymentModalRemaining > 0, false, true); }} // mesmo botão da tela: com saldo = Lançar Entrada; sem saldo = Quitar/Finalizar
            autoConfirm={{ companyId: currentCompany?.id || 'rafa-arts', saleId: baixaPeloServidor ? settlingOrder!.id : null }}
          />
        );

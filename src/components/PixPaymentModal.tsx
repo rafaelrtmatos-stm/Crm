@@ -46,7 +46,7 @@ export interface PixPaymentModalProps {
    * Se ausente, usa o onConfirm. O pai deve fazer o mesmo que o clique manual de quitar/finalizar
    * (som, tela de venda finalizada) — o card fecha logo depois.
    */
-  onAutoPaid?: (valorPago: number) => void;
+  onAutoPaid?: (valorPago: number, pagador?: string | null) => void;
   /**
    * Confirmação automática por e-mail do Nubank. Enquanto o card estiver aberto, registra uma pendência
    * e consulta o servidor a cada ~8 s; ao detectar o pagamento, aciona o onConfirm e fecha o card.
@@ -79,6 +79,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   const concluidoRef = useRef(false);
   // true quando o SERVIDOR já deu a baixa desta nota (navegador não repete a baixa nem o aviso).
   const servidorDeuBaixaRef = useRef(false);
+  const pagadorRef = useRef<string | null>(null);
   const TEMPO_CONFIRMADO_MS = 1800;
 
   const limparTimerPago = () => {
@@ -97,7 +98,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
     const auto = onAutoPaidRef.current;
     const manual = onConfirmRef.current;
     if (auto || manual) {
-      if (!confirmDisabledRef.current) { if (auto) auto(amountRef.current); else manual?.(); } // mesma ação do botão manual (ex.: handleFinalizeSale)
+      if (!confirmDisabledRef.current) { if (auto) auto(amountRef.current, pagadorRef.current); else manual?.(); } // mesma ação do botão manual (ex.: handleFinalizeSale)
     } else {
       showAlert('PIX recebido: pagamento confirmado automaticamente.');
     }
@@ -126,7 +127,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   fecharRef.current = fechar;
 
   useEffect(() => {
-    if (!isOpen) { limparTimerPago(); setPagoAuto(false); concluidoRef.current = false; servidorDeuBaixaRef.current = false; }
+    if (!isOpen) { limparTimerPago(); setPagoAuto(false); concluidoRef.current = false; servidorDeuBaixaRef.current = false; pagadorRef.current = null; }
   }, [isOpen]);
   useEffect(() => () => limparTimerPago(), []);
 
@@ -168,7 +169,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
         if (Date.now() >= expiraEm) { setAutoStatus('expirado'); return; } // para de consultar
         emVoo = true;
         let pago = false;
-        try { pago = await consultarPixPago(pend.id); } finally { emVoo = false; }
+        try { const r = await consultarPixPago(pend.id); pago = r.pago; if (r.pago) pagadorRef.current = r.pagador; } finally { emVoo = false; }
         if (!ativo) return;
         if (pago) {
           ativo = false; pendenciaId = null;
