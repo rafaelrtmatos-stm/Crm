@@ -509,7 +509,10 @@ export default function ComissoesAdminPanel() {
           const salarioMensal = Number(c.salario_base) || 0;
           const valorHora = salarioMensal > 0 ? salarioMensal / 220 : 0;
           const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
-          const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : (totalTrab > 0 ? (salarioHorasTrabalhadas + valFer + valExt) : calcularSalarioSemanal(salarioMensal));
+          const valorDiariaVal = salarioMensal > 0 ? salarioMensal / 30 : 0;
+          const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0).length;
+          const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
+          const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : (totalTrab > 0 ? Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR) : calcularSalarioSemanal(salarioMensal));
 
           const valorMinuto = salarioMensal > 0 ? salarioMensal / (220 * 60) : 0;
           const descontoPontoValor = debMin > 0 ? debMin * valorMinuto : 0;

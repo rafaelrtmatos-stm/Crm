@@ -15,6 +15,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
  const[pontoTrabalhadoMinutos,setPontoTrabalhadoMinutos]=useState(0);
  const[pontoFeriadosValor,setPontoFeriadosValor]=useState(0);
  const[pontoExtrasValor,setPontoExtrasValor]=useState(0);
+ const[pontoFaltasCount,setPontoFaltasCount]=useState(0);
 
  const[weekOffset,setWeekOffset]=useState<number>(-1);
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
@@ -42,6 +43,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    let totalTrab = 0;
    let valFer = 0;
    let valExt = 0;
+   let faltasCountVal = 0;
 
    if (utilizaPontoEletronico && res[4]?.data?.id) {
      const pFuncId = res[4].data.id;
@@ -67,6 +69,11 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
        const jx = (jRes.data || []).find((jj: any) => jj.dia_semana === new Date(dStr + 'T12:00:00').getDay()) || (jRes.data || [])[0];
        const ax = analisarDia(rx, jx, dStr, hojeStr(), tol);
        totalTrab += ax.trabalhados;
+       const dow = new Date(dStr + 'T12:00:00').getDay();
+       const isWorkingDay = jx ? jx.trabalha : dow !== 0;
+       if (ax.status === 'ausente' && isWorkingDay) {
+         faltasCountVal++;
+       }
        diasParaExtras.push({
          data: dStr,
          trabalhados: ax.trabalhados,
@@ -90,6 +97,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
      setPontoTrabalhadoMinutos(totalTrab);
      setPontoFeriadosValor(valFer);
      setPontoExtrasValor(valExt);
+     setPontoFaltasCount(faltasCountVal);
      setLoading(false);
    }
  })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end,utilizaPontoEletronico,salarioBase]);
@@ -104,7 +112,9 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    
    const valorHora = salarioBase > 0 ? salarioBase / 220 : 0;
    const salarioHorasTrabalhadas = valorHora * (pontoTrabalhadoMinutos / 60);
-   const baseCalculada = modalidade==='meta'?0: (utilizaPontoEletronico && pontoTrabalhadoMinutos > 0 ? (salarioHorasTrabalhadas + pontoFeriadosValor + pontoExtrasValor) : salarioSemanal);
+   const valorDiariaVal = salarioBase > 0 ? salarioBase / 30 : 0;
+   const descontoDSR = pontoFaltasCount > 0 ? valorDiariaVal : 0;
+   const baseCalculada = modalidade==='meta'?0: (utilizaPontoEletronico && pontoTrabalhadoMinutos > 0 ? Math.max(0, salarioHorasTrabalhadas + pontoFeriadosValor + pontoExtrasValor - descontoDSR) : salarioSemanal);
 
    const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||baseCalculada:baseCalculada;
    const comissao=rem.comissaoEfetiva;

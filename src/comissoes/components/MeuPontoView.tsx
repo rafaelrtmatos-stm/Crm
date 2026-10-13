@@ -84,11 +84,22 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
    });
  },[anoSelecao,mesSelecao]);
 
+ const faltasCount = useMemo(() => {
+   return semana.filter(d => {
+     const dow = new Date(d.data + 'T12:00:00').getDay();
+     const isWorkingDay = d.j ? d.j.trabalha : dow !== 0;
+     return d.a.status === 'ausente' && isWorkingDay;
+   }).length;
+ }, [semana]);
+
  const extras=resumoExtras(semana.map(d=>({data:d.data,trabalhados:d.a.trabalhados,previstos:d.a.previstos,extra:d.a.extra})),salarioBase,func?.tolerancia_minutos??10);
 
  const valorHora=salarioBase>0?salarioBase/220:0;
  const salarioHorasTrabalhadas=valorHora*(horas/60);
- const totalSemana=salarioHorasTrabalhadas+(salarioBase>0?(extras.valorFeriados+extras.valorExtras):0);
+ const valorDiariaVal = salarioBase > 0 ? salarioBase / 30 : 0;
+ const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
+ const salarioLiquidoPonto = Math.max(0, salarioHorasTrabalhadas - descontoDSR);
+ const totalSemana=salarioLiquidoPonto+(salarioBase>0?(extras.valorFeriados+extras.valorExtras):0);
 
  const card='bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 shadow-sm';
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Carregando Meu Ponto...</div>;
@@ -156,6 +167,12 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
           <span className="text-[var(--text-muted)]">Proporcional às horas trabalhadas ({fmtHM(horas)}):</span>
           <b className="text-[var(--text-main)]">{formatCurrency(salarioHorasTrabalhadas)}</b>
         </div>
+        {faltasCount > 0 && (
+          <div className="flex justify-between">
+            <span className="text-rose-400">Desconto DSR (Folga perdida por falta):</span>
+            <b className="text-rose-400">-{formatCurrency(descontoDSR)}</b>
+          </div>
+        )}
         {extras.feriadosTrabalhados>0&&(
           <div className="flex justify-between">
             <span className="text-amber-400">Feriados trabalhados ({extras.feriadosTrabalhados}× em dobro):</span>
@@ -176,7 +193,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     </div>
   )}
 
-  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th></tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome:d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td></tr>)}</tbody></table></div></div>
+  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th></tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&faltasCount>0)return'Folga perdida por falta';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome:d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td></tr>)}</tbody></table></div></div>
   
   <div className={card}>
     <h3 className="font-black mb-2">Feriados e Pontos Facultativos do Mês ({mesSelecao}/{anoSelecao})</h3>
