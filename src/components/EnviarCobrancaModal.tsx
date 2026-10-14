@@ -2,22 +2,24 @@ import React, { useMemo, useState } from 'react';
 import { Link2, MessageSquare, QrCode } from 'lucide-react';
 import { Button, Input, Modal } from './SharedUI';
 import { showAlert } from '../lib/notify';
+import { useApp } from '../AppContext';
 import type { SaleOrder } from '../types';
 import {
   PixConfigLite,
   OpcaoCobranca,
   criarLinkPagamento,
   enviarCobrancaPix,
-  enviarLinkPagamento,
+  montarTextoLinkPagamento,
   fmtBRL,
   fmtValidade,
   opcoesPadrao,
   telefoneParaEnvio,
 } from '../lib/cobrancaPix';
 
-// "Cobrar saldo via PIX": a partir de uma nota já salva, manda ao cliente (WhatsApp)
+// "Cobrar saldo via PIX": a partir de uma nota já salva, prepara a cobrança para o cliente (WhatsApp)
 //  - MENSAGEM: QR Code (imagem) + PIX copia e cola, com o valor escolhido (50%, total ou outro); ou
-//  - LINK: página pública /pagar/:token em que o próprio cliente escolhe entre as opções marcadas.
+//  - LINK: página pública /pagar/:token em que o próprio cliente escolhe entre as opções marcadas — o texto vai para a
+//    CAIXA DE MENSAGEM da conversa (como recibo/orçamento), sem envio automático.
 
 interface Props {
   order: SaleOrder;
@@ -28,6 +30,7 @@ interface Props {
 }
 
 export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, pix, companyId, onClose }) => {
+  const { openWhatsAppChat } = useApp();
   const pago = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? order.total : 0);
   const restante = Math.max(0, Number((order.total - pago).toFixed(2)));
   const padrao = useMemo(() => opcoesPadrao(restante), [restante]);
@@ -106,16 +109,18 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     expiraEmData: venceEm ?? undefined,
   });
 
+  // Link de pagamento: cria o link e deixa o texto pronto na CAIXA DE MENSAGEM da conversa (igual recibo/orçamento).
+  // Nada é enviado sozinho: quem manda é o usuário, clicando em enviar no chat.
   const enviarLink = async () => {
     if (enviando || !validar()) return;
     setEnviando(true);
     try {
       const link = await gerarLink();
       if (!link.ok || !link.url) { showAlert(`Não foi possível criar o link: ${link.erro || 'erro desconhecido'}`); return; }
-      const r = await enviarLinkPagamento({ phone: telefone, customerName: order.customerName, itens: order.items, opcoes: opcoesParaEnviar, url: link.url, expiraEm: link.expiraEm });
-      if (!r.ok) { showAlert(`Link criado, mas o envio falhou: ${r.erro || 'erro no envio'}`); return; }
-      showAlert('Link de pagamento enviado no WhatsApp do cliente!');
+      const texto = montarTextoLinkPagamento({ customerName: order.customerName, itens: order.items, opcoes: opcoesParaEnviar, url: link.url, expiraEm: link.expiraEm });
       onClose();
+      await openWhatsAppChat(telefone, order.customerName || 'Cliente', texto);
+      showAlert('Link criado! O texto está na caixa de mensagem da conversa — revise e envie.');
     } finally {
       setEnviando(false);
     }
@@ -236,7 +241,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
             className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 border border-primary-500/40 flex items-center gap-1.5 disabled:opacity-50"
           >
             <MessageSquare size={15} />
-            <span>{enviando ? 'Enviando...' : (modo === 'mensagem' ? 'Enviar no WhatsApp' : 'Enviar link no WhatsApp')}</span>
+            <span>{enviando ? (modo === 'mensagem' ? 'Enviando...' : 'Criando link...') : (modo === 'mensagem' ? 'Enviar no WhatsApp' : 'Colocar link na conversa')}</span>
           </button>
         </div>
       </div>
