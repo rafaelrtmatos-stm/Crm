@@ -6306,6 +6306,79 @@ export const ChatPanel = ({
     return () => { ativo = false; };
   }, [conversation?.phone, conversation?.id, clienteVinculado?.id, clienteVinculado?.full_name, clienteVinculado?.phone]);
 
+  // --- Orçamentos do cliente -- anexados ao lead logo abaixo das vendas, casando pelos mesmos critérios
+  // das vendas (cliente_id do cadastro vinculado, telefone pelos últimos 8 dígitos e nome completo oficial).
+  const [clienteOrcamentos, setClienteOrcamentos] = useState<any[]>([]);
+  const [isLoadingOrcamentos, setIsLoadingOrcamentos] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    const ultimos8Conv = (conversation?.phone || '').replace(/\D/g, '').slice(-8);
+    const ultimos8Cli = (clienteVinculado?.phone || '').replace(/\D/g, '').slice(-8);
+
+    if ((!ultimos8Conv || ultimos8Conv.length < 6) && !clienteVinculado?.id && !clienteVinculado?.full_name) {
+      setClienteOrcamentos([]);
+      return;
+    }
+
+    setIsLoadingOrcamentos(true);
+    const carregarOrcamentos = async () => {
+      try {
+        const orClauses: string[] = [];
+        if (clienteVinculado?.id) orClauses.push(`cliente_id.eq.${clienteVinculado.id}`);
+        // Orçamentos guardam o telefone como foi digitado (às vezes "(93) 99216-7654"): além dos 8 dígitos
+        // seguidos, casa também com hífen/espaço no meio dos 8 últimos dígitos.
+        const clausulasTelefone = (u8: string) => (u8 && u8.length >= 8)
+          ? [`phone.ilike.%${u8}%`, `phone.ilike.%${u8.slice(0, 4)}-${u8.slice(4)}%`, `phone.ilike.%${u8.slice(0, 4)} ${u8.slice(4)}%`]
+          : (u8 && u8.length >= 6 ? [`phone.ilike.%${u8}%`] : []);
+        orClauses.push(...clausulasTelefone(ultimos8Conv));
+        if (ultimos8Cli !== ultimos8Conv) orClauses.push(...clausulasTelefone(ultimos8Cli));
+        const nomeOficial = (clienteVinculado?.full_name || '').trim();
+        if (nomeOficial && nomeOficial.length >= 3 && !/^\+?\d+$/.test(nomeOficial)) {
+          orClauses.push(`customer_name.ilike.%${nomeOficial.replace(/,/g, '')}%`);
+        }
+        if (orClauses.length === 0) { if (ativo) setClienteOrcamentos([]); return; }
+
+        const { data, error } = await supabase
+          .from('orcamentos')
+          .select('id, numero, total, status, venda_id, items, created_at, customer_name, phone')
+          .is('deleted_at', null)
+          .eq('document_type', 'orcamento')
+          .or(orClauses.join(','))
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        if (!ativo) return;
+        if (error) {
+          console.warn('Erro ao carregar orçamentos do cliente na conversa:', error);
+          return;
+        }
+
+        const mapa = new Map<string, any>();
+        (data || []).forEach((o: any) => {
+          if (mapa.has(o.id)) return;
+          const itensLista = Array.isArray(o.items) ? o.items : [];
+          const status = String(o.status || 'rascunho');
+          mapa.set(o.id, {
+            ...o,
+            total: Number(o.total) || 0,
+            itemsSummary: itensLista.map((i: any) => i.name || i.product_name).filter(Boolean).join(', ') || 'Orçamento',
+            statusLabel: ORCAMENTO_STATUS_LABELS_FICHA[status] || status,
+            statusTone: ['aprovado', 'em_producao', 'concluido'].includes(status) ? 'ok' : (['recusado', 'cancelado', 'expirado'].includes(status) ? 'bad' : 'neutral'),
+            virouVenda: !!o.venda_id,
+          });
+        });
+        setClienteOrcamentos(Array.from(mapa.values()));
+      } catch (err) {
+        console.error('Falha ao processar orçamentos do cliente:', err);
+      } finally {
+        if (ativo) setIsLoadingOrcamentos(false);
+      }
+    };
+
+    carregarOrcamentos();
+    return () => { ativo = false; };
+  }, [conversation?.phone, conversation?.id, clienteVinculado?.id, clienteVinculado?.full_name, clienteVinculado?.phone]);
+
   // --- Transcrição de áudio ---
   // Toggle por conversa (salvo no proprio lead, ver Lead em types.ts) -- fica identico nas duas
   // telas (Funil CRM e Mensagens) porque as duas leem/escrevem o mesmo documento. O gatilho em si
@@ -10075,6 +10148,53 @@ export const ChatPanel = ({
                    })}
                  </div>
                )}
+
+               {/* Orçamentos do lead -- logo abaixo das vendas */}
+               <div className="flex items-center justify-between pt-2">
+                 <div>
+                   <h3 className="text-xl font-bold text-white italic">Orçamentos</h3>
+                   <p className="text-[10px] text-white/40">Orçamentos do cadastro do cliente ou mesmo telefone.</p>
+                 </div>
+                 {clienteOrcamentos.length > 0 && (
+                   <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 text-xs font-black">
+                     {clienteOrcamentos.length} {clienteOrcamentos.length === 1 ? 'orçamento' : 'orçamentos'}
+                   </span>
+                 )}
+               </div>
+               {isLoadingOrcamentos ? (
+                 <div className="flex justify-center py-6"><RefreshCw className="animate-spin text-primary-500" size={20} /></div>
+               ) : clienteOrcamentos.length === 0 ? (
+                 <p className="text-xs text-white/20 text-center py-6">Nenhum orçamento encontrado para este cliente ainda.</p>
+               ) : (
+                 <div className="space-y-2">
+                   {clienteOrcamentos.map((orc) => (
+                     <button
+                       key={orc.id}
+                       type="button"
+                       onClick={() => { setPendingOpenOrcamentoId?.(orc.id); setRootActiveTab?.('pos'); }}
+                       className="w-full text-left p-3 bg-sky-500/5 hover:bg-sky-500/10 border border-sky-500/15 rounded-xl space-y-1 transition-colors cursor-pointer"
+                       title="Abrir orçamento"
+                     >
+                       <div className="flex items-center justify-between gap-2">
+                         <div className="flex items-center gap-2 min-w-0">
+                           <p className="text-xs font-mono font-black text-sky-300">{orc.numero || `#${String(orc.id).slice(-6).toUpperCase()}`}</p>
+                           <p className="text-[9px] text-white/30">{orc.created_at ? safeFormat(orc.created_at, 'dd/MM/yyyy HH:mm') : ''}</p>
+                         </div>
+                         <span className="text-xs font-black text-white shrink-0">R$ {orc.total.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                       <p className="text-[11px] font-bold text-white truncate">{orc.itemsSummary}</p>
+                       <div className="flex flex-wrap gap-1">
+                         <Badge className={cn("text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none", orc.statusTone === 'ok' ? "bg-emerald-500/20 text-emerald-300" : orc.statusTone === 'bad' ? "bg-rose-500/20 text-rose-300" : "bg-amber-500/20 text-amber-300")}>
+                           {orc.statusLabel}
+                         </Badge>
+                         {orc.virouVenda && (
+                           <Badge className="text-[7.5px] font-black uppercase px-1.5 py-0.5 border-none bg-primary-500/20 text-primary-300">Virou venda</Badge>
+                         )}
+                       </div>
+                     </button>
+                   ))}
+                 </div>
+               )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -10185,6 +10305,8 @@ export const ChatPanel = ({
                 taskInputRef={taskInputRef}
                 clienteVendas={clienteVendas}
                 isLoadingVendas={isLoadingVendas}
+                clienteOrcamentos={clienteOrcamentos}
+                isLoadingOrcamentos={isLoadingOrcamentos}
                 orderSummaryDraft={orderSummaryDraft}
                 setOrderSummaryDraft={setOrderSummaryDraft}
                 estimatedValueDraft={estimatedValueDraft}
@@ -10256,6 +10378,8 @@ export const ChatPanel = ({
                 taskInputRef={taskInputRef}
                 clienteVendas={clienteVendas}
                 isLoadingVendas={isLoadingVendas}
+                clienteOrcamentos={clienteOrcamentos}
+                isLoadingOrcamentos={isLoadingOrcamentos}
                 orderSummaryDraft={orderSummaryDraft}
                 setOrderSummaryDraft={setOrderSummaryDraft}
                 estimatedValueDraft={estimatedValueDraft}
@@ -10320,6 +10444,8 @@ export const ChatPanel = ({
                 taskInputRef={taskInputRef}
                 clienteVendas={clienteVendas}
                 isLoadingVendas={isLoadingVendas}
+                clienteOrcamentos={clienteOrcamentos}
+                isLoadingOrcamentos={isLoadingOrcamentos}
                 orderSummaryDraft={orderSummaryDraft}
                 setOrderSummaryDraft={setOrderSummaryDraft}
                 estimatedValueDraft={estimatedValueDraft}

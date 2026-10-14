@@ -856,6 +856,8 @@ export const CustomerContextSidebar = ({
   taskInputRef,
   clienteVendas,
   isLoadingVendas,
+  clienteOrcamentos = [],
+  isLoadingOrcamentos = false,
   onOpenVenda,
   onOpenContrato,
   onOpenOrcamento,
@@ -913,6 +915,8 @@ export const CustomerContextSidebar = ({
   taskInputRef: React.RefObject<HTMLInputElement | null>;
   clienteVendas: any[];
   isLoadingVendas: boolean;
+  clienteOrcamentos?: any[];
+  isLoadingOrcamentos?: boolean;
   onOpenVenda?: (id: string) => void;
   onOpenContrato?: (id: string) => void;
   onOpenOrcamento?: (id: string) => void;
@@ -1698,6 +1702,51 @@ export const CustomerContextSidebar = ({
                   </div>
                 );
               })
+            )}
+
+            {/* Orçamentos do lead -- logo abaixo das vendas */}
+            <div className="flex items-center justify-between pt-1.5">
+              <span className="text-[9.5px] font-black uppercase tracking-wider text-sky-400">
+                Orçamentos ({clienteOrcamentos.length})
+              </span>
+            </div>
+            {isLoadingOrcamentos ? (
+              <div className="flex justify-center py-4"><RefreshCw size={16} className="animate-spin text-primary-500" /></div>
+            ) : clienteOrcamentos.length === 0 ? (
+              <p className="text-center py-4 text-white/30 text-[11px]">Nenhum orçamento registrado para este cliente.</p>
+            ) : (
+              clienteOrcamentos.map((orc: any) => (
+                <button
+                  key={orc.id}
+                  type="button"
+                  onClick={() => onOpenOrcamento?.(orc.id)}
+                  className="w-full text-left p-2.5 bg-sky-500/5 hover:bg-sky-500/10 border border-sky-500/15 rounded-xl space-y-1.5 transition-colors cursor-pointer"
+                  title="Abrir orçamento"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-sky-300 text-[11px] truncate flex-1">
+                      {orc.numero || `#${String(orc.id).slice(-6).toUpperCase()}`}
+                    </span>
+                    <span className="font-bold text-white text-[11px] shrink-0">
+                      R$ {(orc.total || 0).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  {orc.itemsSummary && (
+                    <p className="text-[10px] font-bold text-white/90 truncate">{orc.itemsSummary}</p>
+                  )}
+                  <div className="flex items-center justify-between text-[9px] text-white/40">
+                    <span>{safeFormatDate(orc.created_at, 'dd/MM/yyyy HH:mm')}</span>
+                    <div className="flex gap-1">
+                      {orc.virouVenda && (
+                        <Badge className="text-[8px] font-black uppercase px-1 py-0.2 border-none bg-primary-500/20 text-primary-300">Virou venda</Badge>
+                      )}
+                      <Badge className={cn("text-[8px] font-black uppercase px-1 py-0.2 border-none", orc.statusTone === 'ok' ? "bg-emerald-500/20 text-emerald-300" : orc.statusTone === 'bad' ? "bg-rose-500/20 text-rose-300" : "bg-amber-500/20 text-amber-300")}>
+                        {orc.statusLabel}
+                      </Badge>
+                    </div>
+                  </div>
+                </button>
+              ))
             )}
           </div>
         )}
