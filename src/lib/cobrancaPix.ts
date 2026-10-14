@@ -282,21 +282,18 @@ export async function criarLinkPagamento(p: {
   return { ok: true, url: `${PUBLIC_SIGN_BASE_URL}/pagar/${token}`, expiraEm };
 }
 
-/** Manda o link de pagamento na conversa do cliente. */
-export async function enviarLinkPagamento(p: {
-  phone: string;
+/** Texto do link de pagamento (o mesmo no envio direto e no rascunho da caixa de mensagem). */
+export function montarTextoLinkPagamento(p: {
   customerName?: string | null;
   itens?: Array<{ name?: string; quantity?: number }>;
   opcoes: OpcaoCobranca[];
   url: string;
   /** ISO do vencimento do link — vira "Válido até dd/mm às hh:mm" na mensagem. */
   expiraEm?: string;
-}): Promise<{ ok: boolean; erro?: string }> {
-  const phone = telefoneParaEnvio(p.phone);
-  if (!phone) return { ok: false, erro: 'Telefone inválido.' };
+}): string {
   const opcoesTxt = p.opcoes.map(o => `• ${o.label}: ${fmtBRL(o.valor_centavos / 100)}`).join('\n');
   const validade = p.expiraEm ? fmtValidade(p.expiraEm) : '';
-  const texto = [
+  return [
     '💳 *Link de pagamento*',
     `Olá, ${abreviarNome(p.customerName)}! Segue o link para pagar sua nota referente a: ${resumirItens(p.itens)}`,
     '',
@@ -306,5 +303,19 @@ export async function enviarLinkPagamento(p: {
     ...(validade ? [`⏳ Válido até ${validade}`] : []),
     `👉 ${p.url}`,
   ].join('\n');
+}
+
+/** Manda o link de pagamento direto na conversa do cliente (envio automático; o modal não usa mais). */
+export async function enviarLinkPagamento(p: {
+  phone: string;
+  customerName?: string | null;
+  itens?: Array<{ name?: string; quantity?: number }>;
+  opcoes: OpcaoCobranca[];
+  url: string;
+  expiraEm?: string;
+}): Promise<{ ok: boolean; erro?: string }> {
+  const phone = telefoneParaEnvio(p.phone);
+  if (!phone) return { ok: false, erro: 'Telefone inválido.' };
+  const texto = montarTextoLinkPagamento(p);
   return postarWhatsApp({ phone, text: texto, senderName: 'Sistema' });
 }
