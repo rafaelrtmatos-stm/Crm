@@ -20306,7 +20306,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       // digitado no campo e nunca foi confirmado na lista.
       // ignorarCampoPendente: usado pela confirmação automática do PIX — o campo de valor volta preenchido com o
       // restante e NÃO pode virar um pagamento extra (senão a entrada de 50 viraria 100).
-      const pendingEntry = (forceZeroPayment || ignorarCampoPendente) ? null : buildPaymentEntryFromInput();
+      // Nota NOVA salva com saldo ("Salvar a prazo" / "Lançar entrada"): o campo de valor vem pré-preenchido com o saldo
+      // inteiro e o botão só mostra o que já foi confirmado na lista. Incluir o campo aqui gravava um PIX fantasma do
+      // valor total em `payments` com `down_payment` zerado (e depois o aviso/faturamento somavam esse valor a mais).
+      const ignorarCampoNotaNovaPendente = isPending && !settlingOrder && !editingFullOrder;
+      const pendingEntry = (forceZeroPayment || ignorarCampoPendente || ignorarCampoNotaNovaPendente) ? null : buildPaymentEntryFromInput();
       const entradasBase = pendingEntry ? [...paymentEntries, pendingEntry] : paymentEntries;
       // PIX confirmado automaticamente: grava o nome de quem pagou no lançamento PIX correspondente (só informativo)
       const pagadorPix = pixPagadorRef.current;
@@ -20542,7 +20546,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       }
 
       // 3. Nova Venda / Lançar Entrada
-      const finalDownPayment = forceZeroPayment ? 0 : (downPayment === '' || typeof downPayment === 'string' ? 0 : Number(downPayment));
+      // A entrada é SEMPRE a soma dos pagamentos que serão gravados (mesma fonte de `payments`): os dois nunca divergem.
+      const finalDownPayment = forceZeroPayment ? 0 : Math.round(effectivePaymentEntriesTotal * 100) / 100;
       const currentRemaining = Math.max(0, total - finalDownPayment);
       const paymentsToSave = forceZeroPayment ? [] : effectivePaymentEntries;
       const deliveryDate = localDatetimeToIso(scheduledFor) || undefined;

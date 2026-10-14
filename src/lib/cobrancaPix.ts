@@ -126,7 +126,9 @@ export function montarMensagemPagamento(p: {
     if (anterior > 0.009) pagamentos.push({ metodo: 'dinheiro', valor: anterior });
     pagamentos.push({ metodo: 'pix', valor: p.valor });
   }
-  const totalPago = Math.round(pagamentos.reduce((a, x) => a + x.valor, 0) * 100) / 100;
+  // O que a nota realmente recebeu (down_payment) manda; a soma da lista só vale quando esse valor não foi informado.
+  const somaLista = Math.round(pagamentos.reduce((a, x) => a + x.valor, 0) * 100) / 100;
+  const totalPago = p.pago != null && Number.isFinite(Number(p.pago)) ? Math.round(Number(p.pago) * 100) / 100 : somaLista;
   const falta = Math.max(0, Math.round((p.total - totalPago) * 100) / 100);
   const linhas = [
     `Olá ${nome}!`,

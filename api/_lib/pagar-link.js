@@ -76,7 +76,7 @@ async function aplicarBaixaNaNota(link, valor, pagador = null) {
         updated_at: new Date().toISOString(),
       }),
     });
-    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim(), telefone: venda.customer_phone || null, itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
+    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, pago: novoPago, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim(), telefone: venda.customer_phone || null, itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
     // Alguém alterou a nota entre a leitura e a gravação: relê e tenta de novo.
   }
   throw new Error('não foi possível atualizar a nota (conflito)');
@@ -87,11 +87,13 @@ const ROTULO_PAGAMENTO = {
   transferencia: 'Transferência', boleto: 'Boleto', crediario: 'Crediário',
 };
 
-function montarMensagemPagamento({ nome, valor, resumo, itens, total, pagamentos }) {
+function montarMensagemPagamento({ nome, valor, resumo, itens, total, pagamentos, pago }) {
   const lista = (Array.isArray(pagamentos) ? pagamentos : [])
     .filter((x) => Number(x?.value) > 0)
     .map((x) => ({ metodo: String(x.method || 'pix'), valor: Number(x.value) }));
-  const totalPago = round2(lista.reduce((a, x) => a + x.valor, 0));
+  // O que a nota realmente recebeu (down_payment) manda; a soma da lista só vale quando esse valor não veio.
+  const somaLista = round2(lista.reduce((a, x) => a + x.valor, 0));
+  const totalPago = pago != null && Number.isFinite(Number(pago)) ? round2(Number(pago)) : somaLista;
   const falta = Math.max(0, round2(Number(total) - totalPago));
   const linhas = [`Olá ${nome}!`, '', `Valor: ${fmtBRL(valor)}`, `Referente a: ${resumo || 'Pedido'}`];
   const its = (Array.isArray(itens) ? itens : []).filter((i) => i && i.name);
@@ -123,7 +125,7 @@ async function avisarCliente(link, valor, restante, resultado) {
       } catch { /* usa o nome do link */ }
     }
     const texto = (resultado?.total > 0 && Array.isArray(resultado?.pagamentos))
-      ? montarMensagemPagamento({ nome: nomeCompleto || link.cliente_nome || 'Cliente', valor, resumo: link.resumo, itens: resultado.itens, total: resultado.total, pagamentos: resultado.pagamentos })
+      ? montarMensagemPagamento({ nome: nomeCompleto || link.cliente_nome || 'Cliente', valor, resumo: link.resumo, itens: resultado.itens, total: resultado.total, pagamentos: resultado.pagamentos, pago: resultado.pago })
       : [
         '✅ *Pagamento PIX confirmado*',
         `Cliente: ${nomeCompleto || link.cliente_nome || 'Cliente'}`,
