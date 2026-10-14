@@ -8,6 +8,7 @@ import { Company, AppUser } from '../types';
 import { supabase } from '../supabase';
 import { showAlert } from '../lib/notify';
 import { Button, PhoneInputBR, CpfCnpjInput } from './SharedUI';
+import { fetchAllRows } from '../lib/fetchAllRows';
 
 interface SettingsModuleProps {
   currentCompany?: Company | null;
@@ -111,9 +112,9 @@ export const SettingsModule: React.FC<SettingsModuleProps> = ({ currentCompany, 
     try {
       showAlert('Gerando backup dos dados...');
       const [{ data: vendas }, { data: clientes }, { data: produtos }] = await Promise.all([
-        supabase.from('vendas').select('*').limit(500),
-        supabase.from('clientes').select('*').limit(500),
-        supabase.from('produtos').select('*').limit(500)
+        fetchAllRows((from, to) => supabase.from('vendas').select('*').order('id').range(from, to)),
+        fetchAllRows((from, to) => supabase.from('clientes').select('*').order('id').range(from, to)),
+        fetchAllRows((from, to) => supabase.from('produtos').select('*').order('id').range(from, to))
       ]);
 
       const backupObj = {

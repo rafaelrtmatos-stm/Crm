@@ -13,6 +13,7 @@ import { Badge, Button, GlassCard, Modal, PhoneInputBR, CpfCnpjInput, RgInput, G
 import { GoogleContactsSyncModal } from './GoogleContactsSyncModal';
 import { getSavedGoogleAccount, GoogleConnectedAccount } from '../lib/googleContacts';
 import * as XLSX from 'xlsx';
+import { fetchAllRows } from '../lib/fetchAllRows';
 
 interface ContactsModuleProps {
   currentCompany?: Company | null;
@@ -70,11 +71,13 @@ export const ContactsModule: React.FC<ContactsModuleProps> = ({
   const fetchClients = async () => {
     try {
       setLoading(true);
-      let query = supabase.from('clientes').select('*');
-      if (currentCompany?.id) {
-        query = query.or(`company_id.eq.${currentCompany.id},company_id.is.null`);
-      }
-      const { data, error } = await query;
+      const { data, error } = await fetchAllRows((from, to) => {
+        let query = supabase.from('clientes').select('*').order('id');
+        if (currentCompany?.id) {
+          query = query.or(`company_id.eq.${currentCompany.id},company_id.is.null`);
+        }
+        return query.range(from, to);
+      });
       if (error) throw error;
       const normalized = (data || []).map((c: any) => ({
         ...c,

@@ -2,6 +2,7 @@ import { auth } from '../firebase';
 import { GoogleAuthProvider, signInWithPopup, User } from 'firebase/auth';
 import { supabase } from '../supabase';
 import { normalizarTelefoneBR, chaveDoContato } from './phone';
+import { fetchAllRows } from './fetchAllRows';
 
 export const GOOGLE_CONTACTS_SCOPES = [
   'https://www.googleapis.com/auth/contacts',
@@ -253,11 +254,13 @@ export async function syncGoogleContactsWithDatabase(
   }
 
   onProgress?.(0, contacts.length, 'Carregando clientes cadastrados no sistema...');
-  let query = supabase.from('clientes').select('*');
-  if (companyId) {
-    query = query.or(`company_id.eq.${companyId},company_id.is.null`);
-  }
-  const { data: existingClients, error } = await query;
+  const { data: existingClients, error } = await fetchAllRows((from, to) => {
+    let query = supabase.from('clientes').select('*').order('id');
+    if (companyId) {
+      query = query.or(`company_id.eq.${companyId},company_id.is.null`);
+    }
+    return query.range(from, to);
+  });
   if (error) {
     throw new Error(`Falha ao ler clientes existentes: ${error.message}`);
   }
@@ -509,11 +512,13 @@ export async function exportContactsToGoogle(
     clientsList = selectedClients;
   } else {
     onProgress?.(0, 0, 'Buscando clientes no sistema...');
-    let query = supabase.from('clientes').select('*');
-    if (companyId) {
-      query = query.or(`company_id.eq.${companyId},company_id.is.null`);
-    }
-    const { data, error } = await query;
+    const { data, error } = await fetchAllRows((from, to) => {
+      let query = supabase.from('clientes').select('*').order('id');
+      if (companyId) {
+        query = query.or(`company_id.eq.${companyId},company_id.is.null`);
+      }
+      return query.range(from, to);
+    });
     if (error) throw new Error(`Falha ao ler clientes: ${error.message}`);
     clientsList = data || [];
   }
