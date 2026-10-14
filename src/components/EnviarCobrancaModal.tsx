@@ -149,7 +149,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     (ativo ? 'bg-primary-500/20 text-primary-200 border-primary-500/50' : 'bg-white/[0.03] text-white/60 border-white/10 hover:bg-white/[0.08]');
 
   return (
-    <Modal isOpen onClose={onClose} title="Cobrar saldo via PIX" size="sm" className="w-full max-w-[calc(100vw-24px)] sm:max-w-md mx-auto rounded-[22px] p-3 sm:p-4">
+    <Modal isOpen onClose={onClose} title="Cobrar saldo via PIX" size="sm" zClass="z-[60]" className="w-full max-w-[calc(100vw-24px)] sm:max-w-md mx-auto rounded-[22px] p-3 sm:p-4">
       <div className="space-y-3">
         <div className="p-3 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
           <div>

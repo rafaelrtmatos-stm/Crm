@@ -26026,6 +26026,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
            onClose={() => { if (!enviandoReciboWhatsApp) setReceiptRecipientModal(null); }}
            title="Enviar Recibo via WhatsApp"
            size="md"
+           zClass="z-[60]"
            className="max-w-lg mx-auto rounded-2xl sm:rounded-3xl p-3 sm:p-5"
          >
            <div className="space-y-4 p-2 sm:p-3">

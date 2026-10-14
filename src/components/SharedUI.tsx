@@ -344,7 +344,9 @@ export const SectionHeader = ({ title, subtitle, actions }: any) => (
 );
 
 // --- MODAL ---
-export const Modal = ({ isOpen, onClose, title, children, size = 'md', className, contentClassName }: any) => {
+// zClass: camada do modal (padrão z-50). Um modal que abre A PARTIR de outro modal já aberto (ex.: "Enviar Recibo via WhatsApp"
+// aberto da janela "Visualizar Recibo") usa uma camada maior para aparecer NA FRENTE, em vez de ficar escondido atrás.
+export const Modal = ({ isOpen, onClose, title, children, size = 'md', className, contentClassName, zClass = 'z-50' }: any) => {
   const sizes: Record<string, string> = {
     compact: "max-w-[340px]",
     xs: "max-w-sm",
@@ -378,7 +380,7 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', className
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden">
+        <div className={cn("fixed inset-0 flex items-center justify-center p-2 sm:p-4 overflow-hidden", zClass)}>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
