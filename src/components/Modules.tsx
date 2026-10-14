@@ -304,6 +304,7 @@ import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/c
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
 import { calcularPrevisaoRecebimento, calcularAReceber } from '../comissoes/utils/previsaoRecebimento';
 import { DashboardMetasCard } from './DashboardMetasCard';
+import { fetchAllRows } from '../lib/fetchAllRows';
 
 // Formata uma data com fallback seguro — evita "RangeError: Invalid time value"
 // quando vendas importadas de planilha tem um createdAt malformado ou vazio.
@@ -28433,7 +28434,9 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
         showAlert('Todas as vendas já estão vinculadas a um cliente cadastrado.');
         return;
       }
-      const { data: todosClientes } = await supabase.from('clientes').select('id, full_name, phone');
+      const { data: todosClientes } = await fetchAllRows((from, to) =>
+        supabase.from('clientes').select('id, full_name, phone').order('id').range(from, to)
+      );
       const porNome = new Map<string, string>();
       const porTelefone8 = new Map<string, string>();
       (todosClientes || []).forEach((c: any) => {
@@ -28534,7 +28537,9 @@ export const ContactsModule = ({ currentCompany, onViewHistoryForClient, onStart
       }
 
       // Busca os clientes ja cadastrados pra decidir Atualizar (mesmo CPF/CNPJ ou telefone) x Cadastrar novo
-      const { data: existentes } = await supabase.from('clientes').select('id, phone, cpf_cnpj');
+      const { data: existentes } = await fetchAllRows((from, to) =>
+        supabase.from('clientes').select('id, phone, cpf_cnpj').order('id').range(from, to)
+      );
       const porCpf = new Map<string, string>();
       const porTelefone = new Map<string, string>();
       (existentes || []).forEach((c: any) => {

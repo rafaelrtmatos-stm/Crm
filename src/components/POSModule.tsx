@@ -54,6 +54,7 @@ import { PixPaymentModal } from './PixPaymentModal';
 import { EnviarCobrancaModal } from './EnviarCobrancaModal';
 import { getCache, setCache, useOnlineStatus, enqueueOp, getQueue, flushOfflineQueue, isNetworkError } from '../lib/offlineSync';
 import type { VendaOfflinePayload } from '../lib/offlineSync';
+import { fetchAllRows } from '../lib/fetchAllRows';
 
 // Chaves de cache local usadas para carregar o PDV instantaneamente offline
 const CACHE_KEYS = {
@@ -447,11 +448,15 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const loadCustomers = async () => {
     if (!isOnline || vendasOfflineAguardando()) return;
     try {
-      let query = supabase.from('clientes').select('*').order('full_name', { ascending: true });
-      let { data, error } = await query;
+      // Busca em páginas: o Supabase corta cada consulta em 1.000 linhas.
+      let { data, error } = await fetchAllRows((from, to) =>
+        supabase.from('clientes').select('*').order('full_name', { ascending: true }).order('id').range(from, to)
+      );
       if (error) {
         // Fallback without order or filter
-        const fallback = await supabase.from('clientes').select('*');
+        const fallback = await fetchAllRows((from, to) =>
+          supabase.from('clientes').select('*').order('id').range(from, to)
+        );
         data = fallback.data;
       }
       const mapped = (data || []).map((c: any) => ({

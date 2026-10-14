@@ -4,6 +4,7 @@ import { showAlert } from '../lib/notify';
 import { cn } from './SharedUI';
 import { supabase } from '../supabase';
 import * as XLSXImport from 'xlsx';
+import { fetchAllRows } from '../lib/fetchAllRows';
 
 const XLSX = (XLSXImport as any).default || XLSXImport;
 
@@ -132,7 +133,9 @@ export function PontoModule() {
   useEffect(() => {
     const fetchClients = async () => {
       try {
-        const { data, error } = await supabase.from('clientes').select('id, full_name, phone').order('full_name');
+        const { data, error } = await fetchAllRows((from, to) =>
+          supabase.from('clientes').select('id, full_name, phone').order('full_name').order('id').range(from, to)
+        );
         if (!error && data) {
           setSystemClients(data);
         }

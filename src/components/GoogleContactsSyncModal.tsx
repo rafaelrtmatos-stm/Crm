@@ -43,6 +43,7 @@ import {
 } from '../lib/googleContacts';
 import { supabase } from '../supabase';
 import { showAlert, showConfirm } from '../lib/notify';
+import { fetchAllRows } from '../lib/fetchAllRows';
 
 interface GoogleContactsSyncModalProps {
   isOpen: boolean;
@@ -97,11 +98,13 @@ export const GoogleContactsSyncModal: React.FC<GoogleContactsSyncModalProps> = (
   const loadClients = async () => {
     setLoadingClients(true);
     try {
-      let query = supabase.from('clientes').select('*').order('full_name', { ascending: true });
-      if (companyId) {
-        query = query.or(`company_id.eq.${companyId},company_id.is.null`);
-      }
-      const { data, error } = await query;
+      const { data, error } = await fetchAllRows((from, to) => {
+        let query = supabase.from('clientes').select('*').order('full_name', { ascending: true }).order('id');
+        if (companyId) {
+          query = query.or(`company_id.eq.${companyId},company_id.is.null`);
+        }
+        return query.range(from, to);
+      });
       if (error) throw error;
       setClients(data || []);
     } catch (err: any) {
