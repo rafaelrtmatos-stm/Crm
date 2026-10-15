@@ -18283,6 +18283,34 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     return `Olá *${customerName || 'Cliente'}*!\n\nSegue resumo do seu pedido *#${order.id.slice(-8).toUpperCase()}* na *${currentCompany?.name || 'Rafa Arts Graphics'}*:\n\n${itemsText}\n\n💰 *Total dos Itens:* R$ ${total.toFixed(2).replace('.', ',')}${acrescimoCartao}${pagamentosTexto}\n✅ *Total Pago/Recebido:* R$ ${down.toFixed(2).replace('.', ',')}${isPending ? `\n🔴 *Valor que Falta Pagar:* R$ ${balance.toFixed(2).replace('.', ',')}` : '\n🎉 *Status:* 100% Quitado'}${deliveryStr}\n\nObrigado pela preferência!`;
   };
 
+  // Texto interno da nota para o GRUPO (sem saudacao ao cliente nem agradecimento). Linhas vazias nao aparecem.
+  const buildGroupShareMessage = (order: SaleOrder, customerName: string) => {
+    const brl = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
+    const total = order.total;
+    const down = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? total : 0);
+    const balance = Math.max(0, total - down);
+    const isPending = balance > 0 || order.status === 'pending';
+    const itemsText = order.items.map(i => `• ${i.quantity}x ${i.name} (${brl((i.area ? i.price * i.area : i.price) * i.quantity)})`).join('\n');
+    const etapa = etapaOf(order);
+    const linhas: string[] = [
+      `📋 *NOTA #${order.id.slice(-8).toUpperCase()}*`,
+      `👤 *Cliente:* ${(customerName || 'Cliente').toUpperCase()}`,
+      '',
+      itemsText,
+      '',
+      `💰 *Total:* ${brl(total)}`,
+      `✅ *Recebido:* ${brl(down)}`,
+      isPending ? `🔴 *Falta pagar:* ${brl(balance)}` : '🎉 *Status:* Quitado',
+    ];
+    const extras: string[] = [];
+    if (etapa) extras.push(`⚙️ *Etapa:* ${STAGE_LABELS[etapa] || etapa}`);
+    if (order.scheduledFor) extras.push(`📅 *Entrega:* ${safeFormat(order.scheduledFor, 'dd/MM/yyyy HH:mm')}`);
+    if (order.responsavel) extras.push(`🧑‍💼 *Responsável:* ${order.responsavel}`);
+    if (order.observacoes && order.observacoes.trim()) extras.push(`📝 *Obs:* ${order.observacoes.trim()}`);
+    if (extras.length > 0) linhas.push('', ...extras);
+    return linhas.join('\n');
+  };
+
   const findOrCreateLeadAndOpenChat = async (phoneDigits: string, name: string, prefillMessage: string) => {
     await openWhatsAppChat(phoneDigits, name, prefillMessage);
     setIsSuccessModalOpen(false);
@@ -18359,13 +18387,13 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (groupDest) { rawPhone = (sale.customerPhone || selectedCustomer?.phone || '').trim(); saveToCustomerProfile = false; }
     const customerName = (groupDest ? (sale.customerName || selectedCustomer?.name || 'Cliente') : (recipientName || sale.customerName || selectedCustomer?.name || 'Cliente')).trim();
     const chatName = groupDest ? (groupDest.nome || customerName) : customerName;
-    const legenda = buildOrderShareMessage(sale, customerName);
+    const legenda = groupDest ? buildGroupShareMessage(sale, customerName) : buildOrderShareMessage(sale, customerName);
 
     setEnviandoReciboWhatsApp(true);
     try {
-      // 1. Renderiza o canvas do recibo de forma leve e otimizada
+      // 1. Renderiza o canvas do recibo de forma leve e otimizada (grupo recebe so o texto, sem imagem)
       let blob: Blob | null = null;
-      try {
+      if (!groupDest) try {
         const canvas = await renderReceiptCanvas({
           order: { ...sale, customerPhone: rawPhone, customerName },
           companyName: currentCompany?.name || 'Rafa Arts Graphics',
@@ -18407,7 +18435,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
       // Abre o chat do cliente com a imagem e a legenda prontas no card de texto
       await openWhatsAppChat(cleanPhone, chatName, legenda);
-      showAlert('Recibo gerado com sucesso! A imagem e o texto já estão anexados no chat.');
+      showAlert(groupDest ? 'Texto da nota pronto no chat do grupo. Confira e envie.' : 'Recibo gerado com sucesso! A imagem e o texto já estão anexados no chat.');
     } catch (err: any) {
       console.error('Erro ao gerar recibo para o chat:', err);
       setReceiptRecipientModal(null);
@@ -26241,7 +26269,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <p className="text-[10px] text-white/40">
                    {gruposRecibo.length === 0
                      ? 'Nenhum grupo disponível pra você. Confira em Grupos do WhatsApp se o grupo está visível e vinculado ao seu usuário.'
-                     : 'O recibo e o texto vão anexados na conversa do grupo, prontos pra você conferir e enviar.'}
+                     : 'O texto da nota vai pronto na conversa do grupo, pra você conferir e enviar (sem a imagem do recibo).'}
                  </p>
                </div>
              )}
