@@ -118,6 +118,7 @@ import { DespesasFixasModule } from './components/DespesasFixasModule';
 import { PontoApp } from './components/ponto/PontoApp';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
 import { SEM_CRM_MESSAGES } from './lib/flags';
+import { normalizarTelefoneBR, variantesTelefoneBR, nomeEhPlaceholder } from './lib/phone';
 
 export { AppContext, useApp, type MainTab, type AppContextType };
 
@@ -826,7 +827,9 @@ export default function App() {
   // interno); quando a integração de envio for plugada, basta implementar o disparo real aqui
   // dentro, sem precisar mexer em cada botão espalhado pelo sistema.
   const openWhatsAppChat = async (phoneRaw: string, name: string, prefillMessage: string = '') => {
-    const phoneDigits = (phoneRaw || '').replace(/\D/g, '');
+    const phoneDigits = normalizarTelefoneBR((phoneRaw || '').replace(/\D/g, ''));
+    // Nome digitado por quem iniciou a conversa ("Cliente"/vazio = nao digitou nada)
+    const nomeDigitado = nomeEhPlaceholder(name) ? '' : (name || '').trim();
     if (!phoneDigits) {
       showAlert('Esse cliente não tem telefone/WhatsApp cadastrado.');
       return;
@@ -839,7 +842,7 @@ export default function App() {
       if (ultimos8.length >= 8) {
         const { data: matchedLeads } = await supabase
           .from('leads')
-          .select('id, phone, archived')
+          .select('id, phone, archived, contact_name')
           .eq('company_id', 'rafa-arts')
           .ilike('phone', `%${ultimos8}%`)
           .limit(10);
@@ -855,7 +858,7 @@ export default function App() {
       if (!existing) {
         const { data: fallbackLeads } = await supabase
           .from('leads')
-          .select('id, phone, archived')
+          .select('id, phone, archived, contact_name')
           .eq('company_id', 'rafa-arts')
           .order('created_at', { ascending: false })
           .limit(100);
@@ -872,6 +875,9 @@ export default function App() {
         leadId = existing.id;
         if (existing.archived) {
           await supabase.from('leads').update({ archived: false }).eq('id', existing.id);
+        }
+        if (nomeDigitado && !existing.contact_name) {
+          await supabase.from('leads').update({ contact_name: nomeDigitado }).eq('id', existing.id);
         }
       } else {
         // Acha o funil/etapa inicial padrão da empresa, igual ao Funil CRM faz
@@ -897,7 +903,9 @@ export default function App() {
           company_id: 'rafa-arts',
           funnel_id: funnelId,
           funnel_stage_id: funnelStageId,
-          full_name: name || 'Cliente',
+          full_name: nomeDigitado || 'Cliente',
+          contact_name: nomeDigitado,
+          whatsapp_name: '',
           first_name: nameParts[0] || 'Cliente',
           last_name: nameParts.slice(1).join(' ') || '',
           phone: phoneDigits,
@@ -910,7 +918,8 @@ export default function App() {
             .from('leads')
             .select('id')
             .eq('company_id', 'rafa-arts')
-            .eq('phone', phoneDigits)
+            .in('phone', variantesTelefoneBR(phoneDigits))
+            .limit(1)
             .maybeSingle();
           if (leadExistente?.id) {
             leadId = leadExistente.id;
@@ -1037,7 +1046,10 @@ export default function App() {
       const textoPrevia: string = ehGrupo && msgData.senderName ? `${msgData.senderName}: ${msgData.text || ''}` : (msgData.text || '');
       const nomeConversa: string = ehGrupo ? (grupo!.nome || `Grupo ${msgData.phone}`) : '';
       // Check if lead already exists for this phone/contact
-      const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').eq('phone', msgData.phone || '');
+      // Procura o lead por QUALQUER formato do mesmo numero (com/sem 55, com/sem o nono digito): o lead criado ao iniciar
+      // a conversa pode ter sido salvo num formato diferente do que o webhook grava, e antes isso gerava um lead duplicado.
+      const variantesFone = variantesTelefoneBR(msgData.phone);
+      const { data: leadRows } = await supabase.from('leads').select('*').eq('company_id', 'rafa-arts').in('phone', variantesFone.length ? variantesFone : [msgData.phone || '']);
 
       // Find or create default funnel and initial stage ("ENTRADA")
       let { data: funnelRows } = await supabase.from('funnels').select('*').eq('company_id', 'rafa-arts').eq('is_default', true).limit(1);
@@ -1220,6 +1232,9 @@ export default function App() {
             ? patchRetornoFunil
             : (ehGrupo ? {} : (leadRow.status ? {} : { status: 'ENTRADA' }))),
           ...(msgData.senderName && !ehGrupo ? { whatsapp_name: msgData.senderName } : {}),
+          ...(msgData.senderName && !ehGrupo && nomeEhPlaceholder(leadRow.full_name)
+            ? { full_name: msgData.senderName, first_name: msgData.senderName.split(' ')[0], last_name: msgData.senderName.split(' ').slice(1).join(' ') || '' }
+            : {}),
           ...(stageId && !ehGrupo && (!leadRow.funnel_stage_id || isConcluidoOuArquivado) ? { funnel_stage_id: stageId } : {}),
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)

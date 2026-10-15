@@ -752,7 +752,7 @@ export default async function handler(req, res) {
         // Grupo: `phone` = digitos do group_jid, SEM normalizacao de telefone (nao e um numero de celular).
         const ehGrupoMsg = phoneRaw.endsWith('@g.us');
         const digitosRemoto = phoneRaw.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
-        const phone = ehGrupoMsg ? digitosRemoto : normalizarTelefoneBR(digitosRemoto);
+        const phone = ehGrupoMsg ? digitosRemoto : normalizarTelefoneBR(digitosRemoto, { assumirBrasil: false });
         const text = extrairTextoMensagem(msg?.message);
         const whatsappMessageId = msg?.key?.id || null;
         const createdAt = timestampParaIso(msg?.messageTimestamp);
@@ -778,7 +778,7 @@ export default async function handler(req, res) {
           let part = String(msg?.key?.participant || msg?.participant || '');
           if (part.endsWith('@lid')) part = String(msg?.key?.participantAlt || msg?.key?.participantPn || '');
           const dig = part.replace(/@.*$/, '').replace(/\D/g, '');
-          if (dig) senderPhone = normalizarTelefoneBR(dig);
+          if (dig) senderPhone = normalizarTelefoneBR(dig, { assumirBrasil: false });
         }
 
         if (phone && text) {
@@ -897,7 +897,7 @@ export default async function handler(req, res) {
         if (remoto && !remoto.endsWith('@g.us') && !remoto.endsWith('@s.whatsapp.net') && !remoto.endsWith('@lid')) continue;
         const ehGrupoUpd = remoto.endsWith('@g.us');
         const digitos = remoto.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '').replace(/\D/g, '');
-        const phoneDerivado = digitos ? (ehGrupoUpd ? digitos : normalizarTelefoneBR(digitos)) : null;
+        const phoneDerivado = digitos ? (ehGrupoUpd ? digitos : normalizarTelefoneBR(digitos, { assumirBrasil: false })) : null;
         if (SEM_CRM_MESSAGES) {
           if (phoneDerivado) waitUntil(sinalizarMensagemNova(phoneDerivado));
           continue;
@@ -935,7 +935,7 @@ export default async function handler(req, res) {
       const dados = body?.data;
       const remoteJid = dados?.id || dados?.remoteJid || '';
       if (remoteJid && !remoteJid.endsWith('@g.us')) {
-        const phone = normalizarTelefoneBR(remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, ''));
+        const phone = normalizarTelefoneBR(remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, ''), { assumirBrasil: false });
         const presencas = dados?.presences
           ? Object.values(dados.presences)
           : (dados?.presence ? [dados.presence] : []);

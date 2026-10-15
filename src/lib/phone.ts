@@ -1,9 +1,12 @@
 // Normaliza celular brasileiro pro formato canonico 55DDD9XXXXXXXX (13 digitos): mesma regra de
 // api/_lib/phone.js (usada pelo webhook), pra o CRM reconhecer como o MESMO contato o telefone gravado
 // com/sem "55" e com/sem o nono digito.
-export function normalizarTelefoneBR(digitos: string): string {
+// `assumirBrasil: false` = o numero ja veio com DDI: so completa o nono digito de numero 55..., nunca acrescenta "55".
+// Numero dos EUA/Canada com DDI ("1" + 10 digitos) tambem nao e tratado como brasileiro.
+export function normalizarTelefoneBR(digitos: string, { assumirBrasil = true }: { assumirBrasil?: boolean } = {}): string {
   if (!digitos) return digitos;
-  if (!digitos.startsWith('55') && (digitos.length === 10 || digitos.length === 11)) digitos = `55${digitos}`;
+  const pareceNanp = digitos.length === 11 && digitos.startsWith('1') && digitos[2] !== '9';
+  if (assumirBrasil && !pareceNanp && !digitos.startsWith('55') && (digitos.length === 10 || digitos.length === 11)) digitos = `55${digitos}`;
   if (!digitos.startsWith('55')) return digitos; // fora do Brasil, nao mexe
   const resto = digitos.slice(2);
   if (resto.length === 10) {
@@ -38,4 +41,13 @@ export function variantesTelefoneBR(telefone: string | null | undefined): string
     if (fixo) [canon, `${fixo[1]}${fixo[2]}`].forEach((v) => set.add(v));
   }
   return [...set];
+}
+
+// Nome que NAO e um nome de verdade (vazio, "Cliente", "Contato sem nome" ou so numero de telefone).
+// Serve pra decidir se o nome do WhatsApp pode preencher o Nome Principal do lead na primeira resposta.
+export function nomeEhPlaceholder(nome: string | null | undefined): boolean {
+  const n = (nome || '').trim();
+  if (!n) return true;
+  if (/^(cliente|contato|contato sem nome|cliente de balc[aã]o)$/i.test(n)) return true;
+  return /^\+?[\d\s()-]+$/.test(n);
 }

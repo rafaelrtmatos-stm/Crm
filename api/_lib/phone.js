@@ -12,14 +12,20 @@
 // Extraida aqui pra api/whatsapp-send.js e api/whatsapp-import-history.js
 // tambem poderem normalizar antes de mandar pra Evolution API, sem duplicar a
 // funcao em 3 arquivos.
-export function normalizarTelefoneBR(digitos) {
+// `assumirBrasil: false` = o numero JA veio com DDI (ex.: JID do WhatsApp). Ai so completa o nono digito de
+// numero brasileiro (55...) e nunca acrescenta "55" -- senao numero de outro pais com 10/11 digitos seria
+// transformado num numero brasileiro invalido e a resposta do cliente nao casaria com o lead.
+export function normalizarTelefoneBR(digitos, { assumirBrasil = true } = {}) {
   if (!digitos) return digitos;
+  // EUA/Canada com DDI: "1" + 10 digitos. Celular brasileiro de 11 digitos tem "9" na 3a posicao e nenhum
+  // codigo de area norte-americano tem 9 no meio, entao isso separa os dois sem confundir.
+  const pareceNanp = digitos.length === 11 && digitos.startsWith('1') && digitos[2] !== '9';
 
   // Sem o "55" na frente — assume Brasil se tiver o formato certo (DDD + numero
   // de 8 ou 9 digitos = 10 ou 11 digitos no total) e adiciona o "55" antes de
   // seguir com o resto da normalizacao. Numeros de outros paises normalmente tem
   // tamanho diferente e nao caem nesse caso (ficam do jeito que vieram).
-  if (!digitos.startsWith('55') && (digitos.length === 10 || digitos.length === 11)) {
+  if (assumirBrasil && !pareceNanp && !digitos.startsWith('55') && (digitos.length === 10 || digitos.length === 11)) {
     digitos = `55${digitos}`;
   }
 

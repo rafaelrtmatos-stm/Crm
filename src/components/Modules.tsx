@@ -25,6 +25,7 @@ import {
 } from '../lib/stickersStorage';
 import { carregarMensagensRapidas, getQuickRepliesSync, type QuickReply } from '../lib/quickRepliesStorage';
 import { variantesTelefoneBR } from '../lib/phone';
+import { WA_COUNTRIES, WA_COUNTRIES_POR_PREFIXO } from '../lib/countries';
 import { QuickRepliesManager } from './QuickRepliesManager';
 import { getCache, setCache, isNetworkError } from '../lib/offlineSync';
 import { 
@@ -17895,14 +17896,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setCopiedHistoryField({ id, field });
     setTimeout(() => setCopiedHistoryField(null), 1500);
   };
-  const WA_COUNTRIES = [
-    { code: '+55', flag: '🇧🇷', name: 'Brasil' },
-    { code: '+1', flag: '🇺🇸', name: 'Estados Unidos' },
-    { code: '+351', flag: '🇵🇹', name: 'Portugal' },
-    { code: '+54', flag: '🇦🇷', name: 'Argentina' },
-    { code: '+595', flag: '🇵🇾', name: 'Paraguai' },
-    { code: '+598', flag: '🇺🇾', name: 'Uruguai' },
-  ];
+  // Lista de paises: ver src/lib/countries.ts (todos os paises, Brasil como padrao)
   interface ReceiptRecipientModalState {
     sale: SaleOrder;
     phone: string;
@@ -18325,7 +18319,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     let initialPhone = (defaultPhone || regPhone).trim();
     let matchedCountry = WA_COUNTRIES[0];
 
-    for (const c of WA_COUNTRIES) {
+    for (const c of WA_COUNTRIES_POR_PREFIXO) {
       if (initialPhone.startsWith(c.code)) {
         matchedCountry = c;
         initialPhone = initialPhone.slice(c.code.length).trim();
@@ -26158,7 +26152,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                      onClick={() => {
                        let num = modal.registeredPhone;
                        let ctry = modal.country;
-                       for (const c of WA_COUNTRIES) {
+                       for (const c of WA_COUNTRIES_POR_PREFIXO) {
                          if (num.startsWith(c.code)) {
                            ctry = c;
                            num = num.slice(c.code.length).trim();
@@ -26189,11 +26183,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                          const found = WA_COUNTRIES.find(c => c.code === e.target.value) || WA_COUNTRIES[0];
                          setReceiptRecipientModal(prev => prev ? { ...prev, country: found } : null);
                        }}
-                       className="h-11 bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
+                       className="h-11 max-w-[10rem] bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
                      >
                        {WA_COUNTRIES.map(c => (
                          <option key={c.code} value={c.code} className="bg-slate-900">
-                           {c.flag} {c.code}
+                           {c.flag} {c.code} {c.name}
                          </option>
                        ))}
                      </select>
@@ -26331,10 +26325,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                  <select
                    value={waFormCountry.code}
                    onChange={(e) => setWaFormCountry(WA_COUNTRIES.find(c => c.code === e.target.value) || WA_COUNTRIES[0])}
-                   className="h-11 bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
+                   className="h-11 max-w-[10rem] bg-white/5 border border-white/10 rounded-xl pl-3 pr-7 text-sm text-white appearance-none focus:outline-none focus:border-primary-500 cursor-pointer"
                  >
                    {WA_COUNTRIES.map(c => (
-                     <option key={c.code} value={c.code} className="bg-slate-900">{c.flag} {c.code}</option>
+                     <option key={c.code} value={c.code} className="bg-slate-900">{c.flag} {c.code} {c.name}</option>
                    ))}
                  </select>
                </div>
