@@ -344,7 +344,7 @@ export const SectionHeader = ({ title, subtitle, actions }: any) => (
 );
 
 // --- MODAL ---
-export const Modal = ({ isOpen, onClose, title, children, size = 'md', className, contentClassName }: any) => {
+export const Modal = ({ isOpen, onClose, title, children, size = 'md', className, contentClassName, zIndex }: any) => {
   const sizes: Record<string, string> = {
     compact: "max-w-[340px]",
     xs: "max-w-sm",
@@ -378,7 +378,7 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md', className
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden" style={zIndex ? { zIndex } : undefined}>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
