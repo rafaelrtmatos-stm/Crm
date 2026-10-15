@@ -3241,7 +3241,9 @@ export default function App() {
                         setActiveTab('pos');
                       }}
                       onOpenReceiptById={(saleId: string) => {
-                        setPendingReceiptOpenId(saleId);
+                        // Abre a nota igual ao Historico: vai pra aba Historico do PDV e abre o recibo por cima,
+                        // sem marcar "veio da Producao" (ao fechar, o usuario fica no Historico).
+                        setPendingOpenNotaNoPdv({ saleId, aba: 'historico' });
                         setActiveTab('pos');
                       }}
                     />
