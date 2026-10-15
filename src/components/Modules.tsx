@@ -17142,8 +17142,45 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     if (!o) return;
     const phoneDigits = waSendPhone.replace(/\D/g, '');
     if (!phoneDigits) { showAlert('Digite um telefone válido.'); return; }
-    const linhas = o.items.map(i => `${i.quantity}x ${i.name} — R$ ${(i.area ? i.price * i.area * i.quantity : i.price * i.quantity).toFixed(2)}`).join('\n');
-    const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: R$ ${o.desconto.toFixed(2)}\n` : ''}*Total: R$ ${o.total.toFixed(2)}*\n\n${o.prazoProducao ? `Prazo: ${o.prazoProducao}\n\n` : ''}${o.formaPagamentoTexto ? `Pagamento: ${o.formaPagamentoTexto}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
+    const fmtBRL = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const linhas = o.items.map(i => `${i.quantity}x ${i.name} — ${fmtBRL(i.area ? i.price * i.area * i.quantity : i.price * i.quantity)}`).join('\n');
+
+    // Prazo: gerado a partir dos campos estruturados (dias/tipo/gatilho). Se não for possível, usa o texto salvo.
+    let prazoMsg = o.prazoProducao || '';
+    if (o.prazoDias && o.prazoDias > 0) {
+      const dias = o.prazoDias;
+      const unidade = o.prazoTipo === 'corridos' ? (dias === 1 ? 'dia corrido' : 'dias corridos') : (dias === 1 ? 'dia útil' : 'dias úteis');
+      const gatilhos: Record<string, string> = {
+        aprovacao: 'da aprovação deste orçamento',
+        pagamento_entrada: 'da confirmação do pagamento da entrada',
+        aprovacao_arte: 'da aprovação da arte pelo cliente',
+        entrega_material: 'da entrega dos materiais pelo cliente',
+      };
+      const gatilho = o.prazoGatilho ? gatilhos[o.prazoGatilho] : undefined;
+      if (gatilho) {
+        const naoInclui = o.prazoGatilho === 'aprovacao_arte' ? '' : ' O prazo não inclui o tempo necessário para aprovação da arte pelo cliente.';
+        prazoMsg = `Até ${dias} ${unidade} para produção, contado a partir ${gatilho}.${naoInclui}`;
+      }
+    }
+
+    // Pagamento (entrada + saldo na entrega): texto com valores calculados, mais as linhas de Produção e Conclusão/entrega.
+    let producaoMsg = '';
+    let pagamentoMsg = o.formaPagamentoTexto || '';
+    let conclusaoMsg = '';
+    if (o.politicaPagamento === 'entrada_restante_entrega') {
+      const usaPercentual = !!o.entradaPercentual && !o.entradaValor;
+      const entradaVal = usaPercentual ? (o.total * (o.entradaPercentual || 0)) / 100 : (o.entradaValor || 0);
+      if (entradaVal > 0 && entradaVal < o.total) {
+        const saldoVal = o.total - entradaVal;
+        const entradaRotulo = usaPercentual ? `${o.entradaPercentual}% (${fmtBRL(entradaVal)})` : fmtBRL(entradaVal);
+        const saldoRotulo = usaPercentual ? `${100 - (o.entradaPercentual || 0)}% (${fmtBRL(saldoVal)})` : fmtBRL(saldoVal);
+        producaoMsg = `O serviço inclui a criação da arte e a produção. O início do serviço, incluindo a criação da arte, está condicionado à confirmação do pagamento da entrada${usaPercentual ? ` de ${o.entradaPercentual}%` : ''}.`;
+        pagamentoMsg = `Entrada de ${entradaRotulo} para iniciar a produção, incluindo a criação da arte, e saldo de ${saldoRotulo} devido no dia da conclusão e entrega do serviço.`;
+        conclusaoMsg = 'A data de entrega será combinada após a comunicação da conclusão do serviço, que poderá ser realizada por mensagem, foto, áudio, vídeo ou outro meio comprovável. O cliente receberá a confirmação no mesmo dia da comunicação.';
+      }
+    }
+
+    const msg = `*Orçamento ${o.numero} — Rafa Arts Graphics*\n\n${linhas}\n\n${o.desconto > 0 ? `Desconto: ${fmtBRL(o.desconto)}\n` : ''}*Total: ${fmtBRL(o.total)}*\n\n${prazoMsg ? `Prazo: ${prazoMsg}\n\n` : ''}${producaoMsg ? `Produção: ${producaoMsg}\n\n` : ''}${pagamentoMsg ? `Pagamento: ${pagamentoMsg}\n\n` : ''}${conclusaoMsg ? `Conclusão e entrega: ${conclusaoMsg}\n\n` : ''}${o.validade ? `Válido até: ${safeFormat(o.validade, 'dd/MM/yyyy')}` : ''}`;
 
     // Compartilhamento de orçamento: a arte visual também fica anexada no composer do WhatsApp.
     // O envio continua sendo confirmado pelo atendente no próprio chat.
