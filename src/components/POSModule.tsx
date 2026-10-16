@@ -128,6 +128,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
   const [saleCreditApplied, setSaleCreditApplied] = useState<number>(0);
   const [orderObservacoes, setOrderObservacoes] = useState('');
   const [scheduledFor, setScheduledFor] = useState('');
+  // Data/hora retroativa da nota (opcional). Vazio = usa o momento atual, como sempre foi.
+  const [retroDate, setRetroDate] = useState('');
   const [editingCartItemIndex, setEditingCartItemIndex] = useState<number | null>(null);
   const [editingCartItemData, setEditingCartItemData] = useState<any | null>(null);
 
@@ -799,6 +801,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
     setSaleCreditApplied(0);
     setOrderObservacoes('');
     setScheduledFor('');
+    setRetroDate('');
     setDownPayment('');
   };
 
@@ -874,6 +877,21 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
       return;
     }
 
+    // Data retroativa da nota (opcional): precisa ser valida e nao pode estar no futuro.
+    let dataNotaIso = new Date().toISOString();
+    if (retroDate) {
+      const retro = new Date(retroDate);
+      if (isNaN(retro.getTime())) {
+        showAlert('Data da nota inválida.');
+        return;
+      }
+      if (retro.getTime() > Date.now()) {
+        showAlert('A data da nota não pode ser no futuro.');
+        return;
+      }
+      dataNotaIso = retro.toISOString();
+    }
+
     const finalDownPayment = downPayment === '' ? total : Number(downPayment);
     const isPending = finalDownPayment < total;
     const remaining = Math.max(0, total - finalDownPayment);
@@ -929,9 +947,11 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         payments: finalDownPayment > 0 ? [{
           method: paymentMethod,
           value: finalDownPayment,
-          date: new Date().toISOString()
+          date: dataNotaIso
         }] : []
       };
+      // So envia created_at quando a data foi escolhida; senao o banco grava o momento atual como antes.
+      if (retroDate) payload.created_at = dataNotaIso;
 
       // Deduct raw materials (matérias-primas) stock if present in items or product recipes
       const allMateriasPrimasToDeduct: {
@@ -1000,7 +1020,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
         status: isPending ? 'pending' : 'completed',
         scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
         observacoes: orderObservacoes || undefined,
-        createdAt: new Date().toISOString(),
+        createdAt: dataNotaIso,
       };
 
       // Sem internet (ou a gravacao falhou por REDE): a venda nao pode ser barrada nem perdida. Vai para
@@ -2164,6 +2184,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
               {downPayment!==''&&Number(downPayment)<total&&<p className="text-[10px] text-amber-300 font-bold mt-1">Saldo restante de R$ {(total-Number(downPayment)).toFixed(2)} ficará pendente.</p>}
             </div>
             <div><label className="text-[10px] font-bold uppercase text-white/50 block mb-1">Previsão de Entrega (Opcional)</label><input type="datetime-local" value={scheduledFor} onChange={e=>setScheduledFor(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary-500"/></div>
+            <div><label className="text-[10px] font-bold uppercase text-amber-300/80 block mb-1">Data/Hora da Nota — retroativa (Opcional)</label><input type="datetime-local" value={retroDate} max={new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16)} onChange={e=>setRetroDate(e.target.value)} className="w-full bg-white/5 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-400"/>{retroDate&&<p className="text-[10px] text-amber-300 font-bold mt-1">A nota e a entrada serão lançadas em {new Date(retroDate).toLocaleString('pt-BR')}.</p>}</div>
             <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
               <button type="button" className="px-4 py-2 rounded-xl text-xs font-bold text-white/60 hover:text-white hover:bg-white/5" onClick={()=>setIsPaymentModalOpen(false)}>Cancelar</button>
               <button type="button" onClick={handleFinalizeSale} disabled={isSavingSale} className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 border border-primary-500/40 flex items-center gap-1.5">
