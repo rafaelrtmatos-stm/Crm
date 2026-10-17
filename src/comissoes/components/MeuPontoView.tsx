@@ -13,7 +13,9 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const[banco,setBanco]=useState<any[]>([]);
  const[loading,setLoading]=useState(true);
 
- const[weekOffset,setWeekOffset]=useState<number>(-1);
+ // Semana de pagamento do ponto: aos sábados é a semana de 2 ciclos atrás (ex.: sáb 17/10 -> 03/10 a 09/10); de domingo a sexta, a semana passada.
+ const pagamentoOffset=new Date().getDay()===6?-2:-1;
+ const[weekOffset,setWeekOffset]=useState<number>(pagamentoOffset);
  const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => {
    return (localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) as 'pagar' | 'folga') || 'pagar';
  });
@@ -133,8 +135,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
         <span className="text-xs font-black font-mono text-[var(--text-main)] block">
           {formatLabelData(bounds.start)} a {formatLabelData(bounds.end)}
         </span>
-        <span className={`text-[10px] font-black uppercase tracking-wider block ${weekOffset === -1 ? 'text-amber-400' : weekOffset === 0 ? 'text-emerald-400' : 'text-[var(--text-muted)]'}`}>
-          {weekOffset === -1 ? '◀ Semana Passada (Pagamento)' : weekOffset === 0 ? '● Semana Atual' : `${Math.abs(weekOffset)} semanas atrás`}
+        <span className={`text-[10px] font-black uppercase tracking-wider block ${weekOffset === pagamentoOffset ? 'text-amber-400' : weekOffset === 0 ? 'text-emerald-400' : 'text-[var(--text-muted)]'}`}>
+          {weekOffset === pagamentoOffset ? '◀ Semana Passada (Pagamento)' : weekOffset === 0 ? '● Semana Atual' : `${Math.abs(weekOffset)} semanas atrás`}
         </span>
       </div>
 
