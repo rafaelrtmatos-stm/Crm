@@ -18,6 +18,31 @@ export function normalizarTelefoneBR(digitos: string, { assumirBrasil = true }: 
   return digitos;
 }
 
+// Telefone pra EXIBIR em documento (recibo): "+55(93) 99233-2012". Aceita com/sem "+55", com/sem formatacao,
+// e conserta o "55" duplicado ("+55 5593992332012" = DDI + numero gravado ja com 55). Numero que nao parece
+// brasileiro (outro pais, grupo, texto) volta exatamente como veio.
+export function formatarTelefoneExibicao(valor: string | null | undefined): string {
+  const original = String(valor || '').trim();
+  let d = original.replace(/\D/g, '');
+  if (!d) return original;
+  // 55 duplicado: o legitimo "55 + DDD 55 + celular" tem 13 digitos (12 fixo); duplicado tem 15 (14 fixo).
+  if (d.startsWith('5555') && d.length >= 14) d = d.slice(2);
+  let nacional: string;
+  if (d.length === 10 || d.length === 11) {
+    const pareceNanp = d.length === 11 && d.startsWith('1') && d[2] !== '9';
+    if (pareceNanp) return original;
+    nacional = d;
+  } else if ((d.length === 12 || d.length === 13) && d.startsWith('55')) {
+    nacional = d.slice(2);
+  } else {
+    return original;
+  }
+  const ddd = nacional.slice(0, 2);
+  const numero = nacional.slice(2);
+  const corte = numero.length === 9 ? 5 : 4;
+  return `+55(${ddd}) ${numero.slice(0, corte)}-${numero.slice(corte)}`;
+}
+
 // Chave do CONTATO: so digitos + normalizacao BR. Dois leads com a mesma chave sao a mesma pessoa.
 export function chaveDoContato(telefone: string | null | undefined): string {
   return normalizarTelefoneBR((telefone || '').replace(/\D/g, ''));

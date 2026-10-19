@@ -1,5 +1,6 @@
 import type { SaleOrder } from '../types';
 import { supabase } from '../supabase';
+import { formatarTelefoneExibicao } from './phone';
 
 export interface CompanyContactInfo {
   whatsapp: string;
@@ -773,7 +774,7 @@ export async function renderReceiptCanvas({
   ctx.fillText(displayClientName, clientCardX + 22, currentY + 57);
 
   // Telefone / WhatsApp com ícone
-  const phoneText = customerPhone || order.customerPhone || '';
+  const phoneText = formatarTelefoneExibicao(customerPhone || order.customerPhone || '');
   if (phoneText) {
     drawBadgeIcon(ctx, 'whatsapp', clientCardX + 28, currentY + 77, 'rgba(255, 43, 43, 0.15)', RED, 8);
     ctx.fillStyle = TEXT_WHITE;
