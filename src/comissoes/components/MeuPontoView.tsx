@@ -5,8 +5,9 @@ import{getWorkWeekBounds,getDescontosValesBounds}from'../utils/caixaSemanalStora
 import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,detalheFeriado,ehFeriado}from'../../lib/feriados';
 import{PontoJornada,PontoRegistro,analisarDia,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
 import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight}from'lucide-react';
+import{BancoHorasLancamentos}from'../../components/ponto/BancoHorasLancamentos';
 
-export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase:number}>=({colaboradorId,nome,salarioBase})=>{
+export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase:number;canEdit?:boolean}>=({colaboradorId,nome,salarioBase,canEdit=false})=>{
  const[func,setFunc]=useState<any>(null);
  const[registros,setRegistros]=useState<PontoRegistro[]>([]);
  const[jornadas,setJornadas]=useState<PontoJornada[]>([]);
@@ -25,6 +26,13 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  };
 
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
+
+ // Recarrega só o banco de horas depois de lançar/editar/apagar horas (o saldo do card é recalculado).
+ const recarregarBanco=async()=>{
+   if(!func)return;
+   const{data}=await supabase.from('ponto_banco_horas').select('*').eq('funcionario_id',func.id);
+   setBanco(data||[]);
+ };
 
  useEffect(()=>{
    let ok=true;
@@ -168,6 +176,12 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     <div className={card}><WalletCards className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className={`text-2xl ${saldoTotal < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{saldoTotal > 0 ? '+' : ''}{fmtHM(saldoTotal)}</b><p className="text-xs text-[var(--text-muted)]">Banco de horas</p></div>
     <div className={card}><Coffee className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-xl">{weekOffset === 0 ? 'Semana Atual' : 'Histórico'}</b><p className="text-xs text-[var(--text-muted)]">Período selecionado</p></div>
   </div>
+
+  {canEdit&&(
+    <div className={card}>
+      <BancoHorasLancamentos funcionarioId={func.id} onChanged={recarregarBanco}/>
+    </div>
+  )}
 
   {salarioBase>0&&(
     <div className={card}>

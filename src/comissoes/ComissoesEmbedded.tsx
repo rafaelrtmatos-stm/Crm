@@ -505,7 +505,7 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
                 metaPercentual={colaborador.metaPercentual}
               />
             )}
-            {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} />}
+            {activeTab === 'ponto' && <MeuPontoView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} canEdit={isAdmin} />}
             {activeTab === 'salario' && <MeuSalarioView colaboradorId={colaborador.id} nome={colaborador.nome} salarioBase={userSettings.baseSalary} modalidade={userSettings.modalidadeRemuneracao} comissaoPadraoPercentual={userSettings.defaultCommissionRate} metaPercentual={userSettings.metaPercentual} metasValores={userSettings.metasValores} metaValorMinimo={userSettings.metaValorMinimo} metaValorMaximo={userSettings.metaValorMaximo} utilizaPontoEletronico={colaborador.utilizaPontoEletronico} />}
           </>
         )}

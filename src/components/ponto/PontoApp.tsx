@@ -339,6 +339,14 @@ export function PontoApp() {
     showAlert(`Ponto atualizado para ${funcionarioIds.length} funcionário(s).`);
   };
 
+  // Recarrega só o banco de horas (usado depois de lançar/editar/apagar horas no perfil do funcionário).
+  const recarregarBanco = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('ponto_banco_horas')
+      .select('funcionario_id, minutos, tipo, validade');
+    if (!error) setBanco((data || []) as BancoMov[]);
+  }, []);
+
   // ---------------- Ações de Banco de Dados ----------------
   const salvarRegistro = async (fid: string, data: string, h: Partial<PontoRegistro>) => {
     const n = (v?: string | null) => (v ? v : null);
@@ -560,6 +568,7 @@ export function PontoApp() {
                 setEditRegModal({ funcionario_id: funcionarioSelecionado.id, data, reg })
               }
               onEditarJornada={() => setJornadaModalFunc(funcionarioSelecionado)}
+              onBancoAlterado={recarregarBanco}
               onAtualizarFoto={() => {
                 if (funcionarioSelecionado.colaboradores?.telefone_whatsapp) {
                   buscarFoto(

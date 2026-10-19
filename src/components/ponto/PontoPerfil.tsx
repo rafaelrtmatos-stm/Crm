@@ -36,6 +36,7 @@ import {
   somarDias,
 } from '../../lib/pontoCalc';
 import { FuncionarioItem } from './PontoFuncionarios';
+import { BancoHorasLancamentos } from './BancoHorasLancamentos';
 
 interface PontoPerfilProps {
   func: FuncionarioItem;
@@ -47,6 +48,8 @@ interface PontoPerfilProps {
   onEditarRegistro: (data: string, reg: PontoRegistro | null) => void;
   onEditarJornada: () => void;
   onAtualizarFoto: () => void;
+  /** Chamado depois de lançar/editar/apagar horas no banco, para recalcular o saldo. */
+  onBancoAlterado?: () => void | Promise<void>;
 }
 
 export function PontoPerfil({
@@ -59,6 +62,7 @@ export function PontoPerfil({
   onEditarRegistro,
   onEditarJornada,
   onAtualizarFoto,
+  onBancoAlterado,
 }: PontoPerfilProps) {
   const [abaAtiva, setAbaAtiva] = useState<
     'geral' | 'registros' | 'espelho' | 'ajustes' | 'banco' | 'jornada'
@@ -1051,6 +1055,9 @@ export function PontoPerfil({
                 {fmtHM(Math.abs(saldoBancoMinutos))}
               </span>
             </div>
+          </div>
+          <div className="text-white">
+            <BancoHorasLancamentos funcionarioId={func.id} onChanged={onBancoAlterado} />
           </div>
         </div>
       )}
