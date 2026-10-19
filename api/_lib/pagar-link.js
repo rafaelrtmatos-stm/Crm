@@ -87,28 +87,48 @@ const ROTULO_PAGAMENTO = {
   transferencia: 'Transferência', boleto: 'Boleto', crediario: 'Crediário',
 };
 
-function montarMensagemPagamento({ nome, valor, resumo, itens, total, pagamentos, pago }) {
+/** "cleiton gama cardoso" -> "Cleiton" (primeiro nome com inicial maiúscula). */
+function primeiroNome(nome) {
+  const p = String(nome || '').trim().split(/\s+/)[0] || '';
+  if (!p) return 'Cliente';
+  return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+}
+
+/** ISO -> "hh:mm" no horário de Brasília; se não for hoje, "dd/mm hh:mm". Vazio se não houver data válida. */
+function fmtHoraPagamento(iso) {
+  if (iso == null || iso === '') return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const fmt = (data, o) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', ...o }).format(data);
+  const hora = fmt(d, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const diaCompleto = { day: '2-digit', month: '2-digit', year: 'numeric' };
+  if (fmt(d, diaCompleto) === fmt(new Date(), diaCompleto)) return hora;
+  return `${fmt(d, { day: '2-digit', month: '2-digit' })} ${hora}`;
+}
+
+function montarMensagemPagamento({ nome, valor, pedido, itens, total, pagamentos, pago }) {
   const lista = (Array.isArray(pagamentos) ? pagamentos : [])
     .filter((x) => Number(x?.value) > 0)
-    .map((x) => ({ metodo: String(x.method || 'pix'), valor: Number(x.value) }));
+    .map((x) => ({ metodo: String(x.method || 'pix'), valor: Number(x.value), data: x.date }));
   // O que a nota realmente recebeu (down_payment) manda; a soma da lista só vale quando esse valor não veio.
   const somaLista = round2(lista.reduce((a, x) => a + x.valor, 0));
   const totalPago = pago != null && Number.isFinite(Number(pago)) ? round2(Number(pago)) : somaLista;
   const falta = Math.max(0, round2(Number(total) - totalPago));
-  const linhas = [`Olá ${nome}!`, '', `Valor: ${fmtBRL(valor)}`, `Referente a: ${resumo || 'Pedido'}`];
+  const linhas = ['✅ Pagamento confirmado!', '', `Olá, ${primeiroNome(nome)}! Recebemos seu PIX de ${fmtBRL(valor)}`, ''];
+  if (pedido) linhas.push(`Pedido #${String(pedido).slice(-6).toUpperCase()}`);
   const its = (Array.isArray(itens) ? itens : []).filter((i) => i && i.name);
-  if (its.length > 0) {
-    linhas.push('');
-    for (const i of its) {
-      const qtd = Number(i.quantity) || 1;
-      linhas.push(`* ${qtd}x ${i.name} (${fmtBRL((Number(i.price) || 0) * qtd)})`);
-    }
+  for (const i of its) {
+    const qtd = Number(i.quantity) || 1;
+    linhas.push(`* ${qtd}x ${i.name} (${fmtBRL((Number(i.price) || 0) * qtd)})`);
   }
-  linhas.push('', `💰 Total dos Itens: ${fmtBRL(Number(total))}`);
-  for (const x of lista) linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}: ${fmtBRL(x.valor)}`);
-  linhas.push(`✅ Total Pago/Recebido: ${fmtBRL(totalPago)}`);
-  linhas.push(falta > 0.009 ? `🔴 Valor que Falta Pagar: ${fmtBRL(falta)}` : '🟢 Nota quitada!');
-  linhas.push('', 'Obrigado pela preferência!');
+  linhas.push('', `💰 Total do pedido: ${fmtBRL(Number(total))}`);
+  for (const x of lista) {
+    const hora = fmtHoraPagamento(x.data);
+    linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}${hora ? ` (${hora})` : ''}: ${fmtBRL(x.valor)}`);
+  }
+  linhas.push(`✅ Total pago: ${fmtBRL(totalPago)}`);
+  linhas.push(falta > 0.009 ? `🔴 Falta pagar: ${fmtBRL(falta)}` : '🟢 Pedido quitado!');
+  linhas.push('', 'Obrigado pela preferência! Equipe Rafa Arts Graphics agradece.');
   return linhas.join('\n');
 }
 
@@ -125,7 +145,7 @@ async function avisarCliente(link, valor, restante, resultado) {
       } catch { /* usa o nome do link */ }
     }
     const texto = (resultado?.total > 0 && Array.isArray(resultado?.pagamentos))
-      ? montarMensagemPagamento({ nome: nomeCompleto || link.cliente_nome || 'Cliente', valor, resumo: link.resumo, itens: resultado.itens, total: resultado.total, pagamentos: resultado.pagamentos, pago: resultado.pago })
+      ? montarMensagemPagamento({ nome: nomeCompleto || link.cliente_nome || 'Cliente', valor, pedido: link.sale_id, itens: resultado.itens, total: resultado.total, pagamentos: resultado.pagamentos, pago: resultado.pago })
       : [
         '✅ *Pagamento PIX confirmado*',
         `Cliente: ${nomeCompleto || link.cliente_nome || 'Cliente'}`,
