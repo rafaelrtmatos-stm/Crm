@@ -28,7 +28,7 @@ import {
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
 import { analisarDia, hojeStr } from '../../lib/pontoCalc';
-import { resumoExtras } from '../../lib/feriados';
+import { resumoExtras, ehFeriado } from '../../lib/feriados';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -300,14 +300,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
         });
       }
       const extRes = resumoExtras(diasParaExtras, userSettings.baseSalary, tol);
-      const valFer = extRes.valorFeriados;
       const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) || 'pagar';
+      // Feriado sem batida é abonado (sempre pago); o adicional do dobro vai para o salário ou para o banco de horas.
+      const valFer = extRes.valorAbonos + (destinacaoSal === 'pagar' ? extRes.valorFeriados : 0);
       const valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
 
       const valorHora = userSettings.baseSalary > 0 ? userSettings.baseSalary / 220 : 0;
       const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
       const valorDiariaVal = userSettings.baseSalary > 0 ? userSettings.baseSalary / 30 : 0;
-      const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0).length;
+      const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0 && !ehFeriado(d.data)).length;
       const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
       const baseFinal = totalTrab > 0 ? Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR) : calcularSalarioSemanal(userSettings.baseSalary);
       if (ok) setPontoBaseSalaryCalculated(baseFinal);

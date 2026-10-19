@@ -53,7 +53,7 @@ import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
 import { supabase } from '../supabase';
 import { analisarDia, hojeStr } from '../lib/pontoCalc';
-import { resumoExtras } from '../lib/feriados';
+import { resumoExtras, ehFeriado } from '../lib/feriados';
 import { useApp } from '../AppContext';
 import { showAlert, showConfirm } from '../lib/notify';
 import ComissoesEmbedded from './ComissoesEmbedded';
@@ -502,15 +502,16 @@ export default function ComissoesAdminPanel() {
             });
           }
           const extRes = resumoExtras(diasParaExtras, Number(c.salario_base) || 0, tol);
-          const valFer = extRes.valorFeriados;
           const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${c.id}`) || 'pagar';
+          // Feriado sem batida é abonado (sempre pago); o adicional do dobro vai para o salário ou para o banco de horas.
+          const valFer = extRes.valorAbonos + (destinacaoSal === 'pagar' ? extRes.valorFeriados : 0);
           const valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
 
           const salarioMensal = Number(c.salario_base) || 0;
           const valorHora = salarioMensal > 0 ? salarioMensal / 220 : 0;
           const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
           const valorDiariaVal = salarioMensal > 0 ? salarioMensal / 30 : 0;
-          const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0).length;
+          const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0 && !ehFeriado(d.data)).length;
           const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
           const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : (totalTrab > 0 ? Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR) : calcularSalarioSemanal(salarioMensal));
 

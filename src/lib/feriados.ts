@@ -1,6 +1,7 @@
 // Feriados e pontos facultativos para o ponto do funcionário. Funções puras, sem Supabase/React.
 // Datas sempre "YYYY-MM-DD" (data local). Nacionais fixos + móveis (Páscoa) + regionais (lista abaixo).
-// Regras de pagamento: feriado trabalhado = 2× a diária; hora extra = valor da hora × 1,5.
+// Regras de pagamento: feriado trabalhado = dobro das horas trabalhadas (horas normais + adicional de 100%);
+// feriado sem batida = dia abonado (não desconta); hora extra = valor da hora × 1,5.
 // Ponto facultativo só avisa: não dobra o dia.
 import { somarDias } from './pontoCalc';
 
@@ -95,28 +96,74 @@ export interface DiaParaExtras {
   extra: number; // minutos de extra já apurados pelo ponto (fora da tolerância)
 }
 
+/** True quando a data é feriado oficial (ponto facultativo não conta). */
+export function ehFeriado(dateStr: string): boolean {
+  return diaEspecial(dateStr)?.tipo === 'feriado';
+}
+
+export interface DetalheFeriado {
+  trabalhou: boolean;
+  /** Minutos abonados: feriado sem nenhuma batida paga a jornada prevista (não é falta, não desconta). */
+  abonoMin: number;
+  /** Minutos trabalhados (até a carga do dia) que recebem o adicional de 100% (dobro). */
+  adicionalMin: number;
+  /** Minutos além da carga do dia: seguem como hora extra. */
+  extraAlemMin: number;
+}
+
 /**
- * Resumo dos adicionais de uma lista de dias: feriados trabalhados (2× diária) e minutos de hora extra (×1,5).
- * Em feriado trabalhado o dia já é pago em dobro; só entra como hora extra o que passa da carga do dia.
+ * Regra do feriado oficial para um dia (null se o dia não é feriado):
+ * - sem batida: dia abonado (paga a jornada prevista, não conta como falta);
+ * - com batida: as horas trabalhadas (até a carga do dia) valem o dobro. As horas normais já entram no salário
+ *   por hora, então aqui só entra o adicional de 100%. Manhã só = dobro das horas da manhã; dia todo = dobro do dia.
+ */
+export function detalheFeriado(d: DiaParaExtras, tolerancia = 10): DetalheFeriado | null {
+  if (!ehFeriado(d.data)) return null;
+  if (d.trabalhados > 0) {
+    const carga = d.previstos > 0 ? d.previstos : CARGA_DIA_PADRAO_MIN;
+    const alem = d.trabalhados - carga;
+    const extraAlemMin = alem > tolerancia ? alem : 0;
+    return { trabalhou: true, abonoMin: 0, adicionalMin: d.trabalhados - extraAlemMin, extraAlemMin };
+  }
+  return { trabalhou: false, abonoMin: Math.max(0, d.previstos), adicionalMin: 0, extraAlemMin: 0 };
+}
+
+/**
+ * Resumo dos adicionais de uma lista de dias: feriados (abono e adicional de 100%) e minutos de hora extra (×1,5).
+ * `valorFeriados` é só o adicional (as horas trabalhadas já estão no salário por hora); `valorAbonos` é a jornada
+ * dos feriados não trabalhados. `minutosFeriadoAdicional` é o que vai para o banco de horas se o funcionário
+ * escolher banco em vez de pagar.
  */
 export function resumoExtras(dias: DiaParaExtras[], salarioMensal: number, tolerancia = 10) {
   let feriadosTrabalhados = 0;
+  let feriadosAbonados = 0;
   let minutosExtra = 0;
+  let minutosFeriadoAdicional = 0;
+  let minutosAbono = 0;
   for (const d of dias) {
-    const esp = diaEspecial(d.data);
-    if (esp?.tipo === 'feriado' && d.trabalhados > 0) {
-      feriadosTrabalhados += 1;
-      const carga = d.previstos > 0 ? d.previstos : CARGA_DIA_PADRAO_MIN;
-      const alem = d.trabalhados - carga;
-      if (alem > tolerancia) minutosExtra += alem;
+    const det = detalheFeriado(d, tolerancia);
+    if (det) {
+      if (det.trabalhou) {
+        feriadosTrabalhados += 1;
+        minutosFeriadoAdicional += det.adicionalMin;
+        minutosExtra += det.extraAlemMin;
+      } else if (det.abonoMin > 0) {
+        feriadosAbonados += 1;
+        minutosAbono += det.abonoMin;
+      }
     } else {
       minutosExtra += d.extra;
     }
   }
+  const vh = valorHora(salarioMensal);
   return {
     feriadosTrabalhados,
+    feriadosAbonados,
     minutosExtra,
-    valorFeriados: feriadosTrabalhados * valorFeriadoTrabalhado(salarioMensal),
+    minutosFeriadoAdicional,
+    minutosAbono,
+    valorFeriados: (minutosFeriadoAdicional / 60) * vh,
+    valorAbonos: (minutosAbono / 60) * vh,
     valorExtras: (minutosExtra / 60) * valorHoraExtra(salarioMensal),
   };
 }

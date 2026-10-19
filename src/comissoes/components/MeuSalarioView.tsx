@@ -6,7 +6,7 @@ import{calculateDescontosNoPeriodo,getDescontosFromSupabase,calcularSalarioSeman
 import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStorage';
 import{calcularRemuneracaoSemanal}from'../utils/remuneracaoHelper';
 import{analisarDia,hojeStr}from'../../lib/pontoCalc';
-import{resumoExtras}from'../../lib/feriados';
+import{resumoExtras,ehFeriado}from'../../lib/feriados';
 
 export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number;modalidade?:any;comissaoPadraoPercentual?:number;metaPercentual?:number;metasValores?:any[];metaValorMinimo?:number;metaValorMaximo?:number;utilizaPontoEletronico?:boolean}>=({colaboradorId,nome,salarioBase,modalidade='fixo_comissao' as any,comissaoPadraoPercentual=0,metaPercentual=0,metasValores,metaValorMinimo,metaValorMaximo,utilizaPontoEletronico=false})=>{
  const[caixa,setCaixa]=useState<any>(null),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[pagamentos,setPagamentos]=useState<any[]>([]),[loading,setLoading]=useState(true);
@@ -71,7 +71,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
        totalTrab += ax.trabalhados;
        const dow = new Date(dStr + 'T12:00:00').getDay();
        const isWorkingDay = jx ? jx.trabalha : dow !== 0;
-       if (ax.status === 'ausente' && isWorkingDay) {
+       if (ax.status === 'ausente' && isWorkingDay && !ehFeriado(dStr)) {
          faltasCountVal++;
        }
        diasParaExtras.push({
@@ -82,8 +82,9 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
        });
      }
      const extRes = resumoExtras(diasParaExtras, salarioBase, tol);
-     valFer = extRes.valorFeriados;
      const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) || 'pagar';
+     // Feriado sem batida é abonado (sempre pago); o adicional do dobro vai para o salário ou para o banco de horas.
+     valFer = extRes.valorAbonos + (destinacaoSal === 'pagar' ? extRes.valorFeriados : 0);
      valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
    }
 

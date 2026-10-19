@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useState}from'react';
 import{supabase}from'../../supabase';
 import{formatCurrency}from'../utils/storage';
 import{getWorkWeekBounds,getDescontosValesBounds}from'../utils/caixaSemanalStorage';
-import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,valorFeriadoTrabalhado}from'../../lib/feriados';
+import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,detalheFeriado,ehFeriado}from'../../lib/feriados';
 import{PontoJornada,PontoRegistro,analisarDia,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
 import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight}from'lucide-react';
 
@@ -68,7 +68,11 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const prev=semana.reduce((s,d)=>s+minutosPrevistos(d.j),0);
 
  const diferencaSemana=semana.reduce((s,d)=>{
-   if(d.data<=hoje&&d.j&&d.j.trabalha){
+   if(d.data>hoje)return s;
+   // Feriado: nunca gera débito (faltou = abonado). Se o adicional do dobro for para o banco, entra como crédito.
+   const fer=detalheFeriado({data:d.data,trabalhados:d.a.trabalhados,previstos:d.a.previstos,extra:d.a.extra},func?.tolerancia_minutos??10);
+   if(fer)return s+(destinacaoExtra==='folga'?fer.adicionalMin+fer.extraAlemMin:0);
+   if(d.j&&d.j.trabalha){
      return s+(d.a.trabalhados-d.a.previstos);
    }
    return s;
@@ -90,7 +94,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
    return semana.filter(d => {
      const dow = new Date(d.data + 'T12:00:00').getDay();
      const isWorkingDay = d.j ? d.j.trabalha : dow !== 0;
-     return d.a.status === 'ausente' && isWorkingDay;
+     return d.a.status === 'ausente' && isWorkingDay && !ehFeriado(d.data);
    }).length;
  }, [semana]);
 
@@ -101,7 +105,11 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const valorDiariaVal = salarioBase > 0 ? salarioBase / 30 : 0;
  const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
  const salarioLiquidoPonto = Math.max(0, salarioHorasTrabalhadas - descontoDSR);
- const totalSemana=salarioLiquidoPonto+(salarioBase>0?(extras.valorFeriados+extras.valorExtras):0);
+ // Feriado sem batida é abonado (sempre pago). Adicional do dobro e horas extras: pagar ou ir para o banco de horas.
+ const pagaExtras=destinacaoExtra==='pagar';
+ const valorFeriadosPago=pagaExtras?extras.valorFeriados:0;
+ const valorExtrasPago=pagaExtras?extras.valorExtras:0;
+ const totalSemana=salarioLiquidoPonto+(salarioBase>0?(extras.valorAbonos+valorFeriadosPago+valorExtrasPago):0);
 
  const card='bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 shadow-sm';
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Carregando Meu Ponto...</div>;
@@ -152,7 +160,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     </div>
   </div>
 
-  {esp&&<div className={'rounded-2xl border p-4 text-sm '+(esp.tipo==='feriado'?'bg-amber-500/10 border-amber-500/30 text-amber-200':'bg-sky-500/10 border-sky-500/30 text-sky-200')}><b>{esp.tipo==='feriado'?'Hoje é feriado':'Hoje é ponto facultativo'}: {esp.nome}.</b> {esp.tipo==='feriado'?('Se trabalhar hoje, o dia é pago em dobro (2× a diária'+(salarioBase>0?' = '+formatCurrency(valorFeriadoTrabalhado(salarioBase)):'')+').'):'Ponto facultativo não é feriado oficial; ausência sem acordo pode gerar falta.'}</div>}
+  {esp&&<div className={'rounded-2xl border p-4 text-sm '+(esp.tipo==='feriado'?'bg-amber-500/10 border-amber-500/30 text-amber-200':'bg-sky-500/10 border-sky-500/30 text-sky-200')}><b>{esp.tipo==='feriado'?'Hoje é feriado':'Hoje é ponto facultativo'}: {esp.nome}.</b> {esp.tipo==='feriado'?'Se trabalhar hoje, as horas trabalhadas valem o dobro (em dinheiro ou no banco de horas). Se não vier, o dia é abonado e não desconta.':'Ponto facultativo não é feriado oficial; ausência sem acordo pode gerar falta.'}</div>}
   
   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
     <div className={card}><Clock3 className="w-5 h-5 mb-3 text-[var(--accent-red)]"/><b className="text-2xl">{fmtHM(horas)}</b><p className="text-xs text-[var(--text-muted)]">Horas na semana</p></div>
@@ -175,18 +183,32 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
             <b className="text-rose-400">-{formatCurrency(descontoDSR)}</b>
           </div>
         )}
+        {extras.feriadosAbonados>0&&(
+          <div className="flex justify-between">
+            <span className="text-amber-400">Feriado abonado ({extras.feriadosAbonados}×, sem desconto):</span>
+            <b className="text-amber-400">{formatCurrency(extras.valorAbonos)}</b>
+          </div>
+        )}
         {extras.feriadosTrabalhados>0&&(
           <div className="flex justify-between">
-            <span className="text-amber-400">Feriados trabalhados ({extras.feriadosTrabalhados}× em dobro):</span>
-            <b className="text-amber-400">{formatCurrency(extras.valorFeriados)}</b>
+            <span className="text-amber-400">Feriado trabalhado ({extras.feriadosTrabalhados}×, adicional do dobro{pagaExtras?'':' → banco de horas'}) ({fmtHM(extras.minutosFeriadoAdicional)}):</span>
+            <b className="text-amber-400">{formatCurrency(valorFeriadosPago)}</b>
           </div>
         )}
         {extras.minutosExtra>0&&(
           <div className="flex justify-between">
-            <span className="text-sky-400">Horas extras ({fmtHM(extras.minutosExtra)}):</span>
-            <b className="text-sky-400">{formatCurrency(extras.valorExtras)}</b>
+            <span className="text-sky-400">Horas extras ({fmtHM(extras.minutosExtra)}){pagaExtras?'':' → banco de horas'}:</span>
+            <b className="text-sky-400">{formatCurrency(valorExtrasPago)}</b>
           </div>
         )}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-xs text-[var(--text-muted)]">Adicional de feriado e horas extras:</span>
+          <div className="flex gap-1">
+            {(['pagar','folga'] as const).map(v=>(
+              <button key={v} type="button" onClick={()=>handleSetDestinacao(v)} className={'px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer '+(destinacaoExtra===v?'bg-[var(--accent-red)] border-[var(--accent-red)] text-white':'bg-[var(--bg-card-sec)] border-[var(--border-color)] text-[var(--text-muted)]')}>{v==='pagar'?'Pagar':'Banco de horas'}</button>
+            ))}
+          </div>
+        </div>
         <div className="pt-2 border-t border-[var(--border-color)] flex justify-between text-base font-black">
           <span className="text-[var(--text-main)]">Total a Receber na Semana:</span>
           <span className="text-emerald-400">{formatCurrency(totalSemana)}</span>
@@ -195,12 +217,12 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     </div>
   )}
 
-  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th></tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&faltasCount>0)return'Folga perdida por falta';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome:d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td></tr>)}</tbody></table></div></div>
+  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th></tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&faltasCount>0)return'Folga perdida por falta';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome+(e.tipo==='feriado'&&d.a.previstos>0?' (abonado)':''):d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td></tr>)}</tbody></table></div></div>
   
   <div className={card}>
     <h3 className="font-black mb-2">Feriados e Pontos Facultativos do Mês ({mesSelecao}/{anoSelecao})</h3>
     <p className="text-[11px] text-[var(--text-muted)] mb-3">
-      <b>Feriado:</b> Feriado oficial. Se trabalhar, recebe em dobro (2×); se folgar, dia abonado. · <b>Ponto Facultativo:</b> Não é feriado oficial. Ausência sem acordo pode gerar falta; expediente normal.
+      <b>Feriado:</b> Feriado oficial. Se trabalhar, as horas trabalhadas valem o dobro (manhã só = dobro da manhã; dia todo = dobro do dia); se folgar, dia abonado. · <b>Ponto Facultativo:</b> Não é feriado oficial. Ausência sem acordo pode gerar falta; expediente normal.
     </p>
     {feriadosMes.length===0?(
       <p className="text-xs text-[var(--text-muted)] italic">Nenhum feriado ou ponto facultativo registrado para este mês.</p>
