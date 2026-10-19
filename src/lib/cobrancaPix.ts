@@ -44,6 +44,26 @@ export function abreviarNome(nome?: string | null): string {
   return `${partes[0]} ${partes[partes.length - 1][0].toUpperCase()}.`;
 }
 
+/** "cleiton gama cardoso" -> "Cleiton" (primeiro nome com inicial maiúscula). */
+export function primeiroNome(nome?: string | null): string {
+  const p = String(nome || '').trim().split(/\s+/)[0] || '';
+  if (!p) return 'Cliente';
+  return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+}
+
+/** ISO -> "hh:mm" no horário de Brasília; se não for hoje, "dd/mm hh:mm". Vazio se não houver data válida. */
+export function fmtHoraPagamento(iso?: string | number | Date | null): string {
+  if (iso == null || iso === '') return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const fmt = (data: Date, o: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', ...o }).format(data);
+  const hora = fmt(d, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const diaCompleto = { day: '2-digit', month: '2-digit', year: 'numeric' } as const;
+  if (fmt(d, diaCompleto) === fmt(new Date(), diaCompleto)) return hora;
+  return `${fmt(d, { day: '2-digit', month: '2-digit' })} ${hora}`;
+}
+
 /** Itens da nota em uma linha: "2x Banner, Cartão de visita (+2 itens)". */
 export function resumirItens(items: Array<{ name?: string; quantity?: number }> | undefined, max = 3): string {
   const lista = (items || []).filter(i => i && i.name);
@@ -112,42 +132,45 @@ export function montarMensagemPagamento(p: {
   valor: number;
   itens?: Array<{ name?: string; quantity?: number; price?: number }>;
   total: number;
-  pagamentos?: Array<{ method?: string; value?: number }>;
+  pagamentos?: Array<{ method?: string; value?: number; date?: string }>;
   pago?: number;
+  orderId?: string;
 }): string {
-  const nome = String(p.customerName || '').trim() || 'Cliente';
+  const nome = primeiroNome(p.customerName);
   const itens = (p.itens || []).filter(i => i && i.name);
-  let pagamentos = (p.pagamentos || [])
+  let pagamentos: Array<{ metodo: string; valor: number; data?: string }> = (p.pagamentos || [])
     .filter(x => Number(x.value) > 0)
-    .map(x => ({ metodo: String(x.method || 'pix'), valor: Number(x.value) }));
+    .map(x => ({ metodo: String(x.method || 'pix'), valor: Number(x.value), data: x.date }));
   if (pagamentos.length === 0) {
-    // Nota sem lista de pagamentos: o que veio antes do PIX atual é tratado como dinheiro.
+    // Nota sem lista de pagamentos: o que veio antes do PIX atual é tratado como dinheiro (sem hora conhecida).
     const anterior = Math.max(0, Math.round(((p.pago ?? p.valor) - p.valor) * 100) / 100);
     if (anterior > 0.009) pagamentos.push({ metodo: 'dinheiro', valor: anterior });
-    pagamentos.push({ metodo: 'pix', valor: p.valor });
+    pagamentos.push({ metodo: 'pix', valor: p.valor, data: new Date().toISOString() });
   }
   // O que a nota realmente recebeu (down_payment) manda; a soma da lista só vale quando esse valor não foi informado.
   const somaLista = Math.round(pagamentos.reduce((a, x) => a + x.valor, 0) * 100) / 100;
   const totalPago = p.pago != null && Number.isFinite(Number(p.pago)) ? Math.round(Number(p.pago) * 100) / 100 : somaLista;
   const falta = Math.max(0, Math.round((p.total - totalPago) * 100) / 100);
+  const nota = numeroDaNota(p.orderId);
   const linhas = [
-    `Olá ${nome}!`,
+    '✅ Pagamento confirmado!',
     '',
-    `Valor: ${fmtBRL(p.valor)}`,
-    `Referente a: ${resumirItens(p.itens)}`,
+    `Olá, ${nome}! Recebemos seu PIX de ${fmtBRL(p.valor)}`,
+    '',
   ];
-  if (itens.length > 0) {
-    linhas.push('');
-    for (const i of itens) {
-      const qtd = Number(i.quantity) || 1;
-      linhas.push(`* ${qtd}x ${i.name} (${fmtBRL((Number(i.price) || 0) * qtd)})`);
-    }
+  if (nota) linhas.push(`Pedido ${nota}`);
+  for (const i of itens) {
+    const qtd = Number(i.quantity) || 1;
+    linhas.push(`* ${qtd}x ${i.name} (${fmtBRL((Number(i.price) || 0) * qtd)})`);
   }
-  linhas.push('', `💰 Total dos Itens: ${fmtBRL(p.total)}`);
-  for (const x of pagamentos) linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}: ${fmtBRL(x.valor)}`);
-  linhas.push(`✅ Total Pago/Recebido: ${fmtBRL(totalPago)}`);
-  linhas.push(falta > 0.009 ? `🔴 Valor que Falta Pagar: ${fmtBRL(falta)}` : '🟢 Nota quitada!');
-  linhas.push('', 'Obrigado pela preferência!');
+  linhas.push('', `💰 Total do pedido: ${fmtBRL(p.total)}`);
+  for (const x of pagamentos) {
+    const hora = fmtHoraPagamento(x.data);
+    linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}${hora ? ` (${hora})` : ''}: ${fmtBRL(x.valor)}`);
+  }
+  linhas.push(`✅ Total pago: ${fmtBRL(totalPago)}`);
+  linhas.push(falta > 0.009 ? `🔴 Falta pagar: ${fmtBRL(falta)}` : '🟢 Pedido quitado!');
+  linhas.push('', 'Obrigado pela preferência! Equipe Rafa Arts Graphics agradece.');
   return linhas.join('\n');
 }
 
@@ -160,14 +183,14 @@ export async function enviarAvisoPagamentoPix(p: {
   orderId?: string;
   restante?: number;
   total?: number;
-  pagamentos?: Array<{ method?: string; value?: number }>;
+  pagamentos?: Array<{ method?: string; value?: number; date?: string }>;
   pago?: number;
 }): Promise<boolean> {
   const phone = telefoneParaEnvio(p.phone);
   if (!phone) return false;
   let texto: string;
   if (p.total != null && p.total > 0) {
-    texto = montarMensagemPagamento({ customerName: p.customerName, valor: p.valor, itens: p.itens, total: p.total, pagamentos: p.pagamentos, pago: p.pago });
+    texto = montarMensagemPagamento({ customerName: p.customerName, valor: p.valor, itens: p.itens, total: p.total, pagamentos: p.pagamentos, pago: p.pago, orderId: p.orderId });
   } else {
     const linhas = [
       '✅ *Pagamento PIX confirmado*',
