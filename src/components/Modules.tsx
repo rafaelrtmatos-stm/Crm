@@ -6270,6 +6270,8 @@ export const ChatPanel = ({
   // cliente_id (do cadastro vinculado), telefone (últimos 8 dígitos) e nome completo oficial.
   const [clienteVendas, setClienteVendas] = useState<any[]>([]);
   const [isLoadingVendas, setIsLoadingVendas] = useState(false);
+  // Pedido do lead aberto em detalhe dentro da própria conversa (sem ir para o PDV)
+  const [vendaExpandidaId, setVendaExpandidaId] = useState<string | null>(null);
   useEffect(() => {
     let ativo = true;
     const digitosConv = (conversation?.phone || '').replace(/\D/g, '');
@@ -10174,8 +10176,49 @@ export const ChatPanel = ({
                                  {pendente ? `FALTA R$ ${saldo.toFixed(2).replace('.', ',')}` : 'PAGO'}
                                </Badge>
                                <span className="text-xs font-black text-white shrink-0">R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                               <button
+                                 type="button"
+                                 onClick={() => setVendaExpandidaId(prev => prev === venda.id ? null : venda.id)}
+                                 title={vendaExpandidaId === venda.id ? 'Fechar detalhes do pedido' : 'Ver o que foi pedido'}
+                                 className="p-1 rounded-lg text-white/50 hover:text-white hover:bg-white/10 cursor-pointer"
+                               >
+                                 {vendaExpandidaId === venda.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                               </button>
                              </div>
                           </div>
+                          {vendaExpandidaId === venda.id && (
+                            <div className="border-t border-white/5 pt-2 space-y-1">
+                              {(Array.isArray(venda.items) ? venda.items : []).length === 0 && (
+                                <p className="text-[9px] text-white/30">Pedido sem itens detalhados.</p>
+                              )}
+                              {(Array.isArray(venda.items) ? venda.items : []).map((it: any, idx: number) => {
+                                const qtd = Number(it.quantity) || 1;
+                                const preco = Number(it.price) || 0;
+                                const area = Number(it.area) || 0;
+                                const valorItem = area > 0 ? preco * area * qtd : preco * qtd;
+                                return (
+                                  <div key={idx} className="flex items-start justify-between gap-2 text-[10px]">
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-white truncate">{qtd}x {it.name || it.product_name || 'Item'}</p>
+                                      {it.dimensions && <p className="text-[9px] text-white/40">{it.dimensions}</p>}
+                                    </div>
+                                    <span className="font-black text-white/80 shrink-0">R$ {valorItem.toFixed(2).replace('.', ',')}</span>
+                                  </div>
+                                );
+                              })}
+                              <div className="flex justify-between text-[9px] text-white/50 pt-1 border-t border-white/5">
+                                <span>Pago: R$ {(venda.isFullyPaid ? venda.total : (venda.down_payment || 0)).toFixed(2).replace('.', ',')}</span>
+                                <span>Total: R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { setPendingReceiptOpenId?.(venda.id); setRootActiveTab?.('pos'); }}
+                                className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors cursor-pointer"
+                              >
+                                Abrir nota completa
+                              </button>
+                            </div>
+                          )}
                           {(venda.contrato_id || venda.orcamento_id) && (
                             <div className="flex flex-wrap gap-1 pt-1 border-t border-white/5">
                                {venda.contrato_id && (
