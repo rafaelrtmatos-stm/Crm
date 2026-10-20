@@ -17659,7 +17659,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const custoCheio = breakdown.custoTotal;
 
     const lucroPrevisto = total - custoCheio;
-    const lucroRealizadoCaixa = down - custoCheio;
+    // Sem nenhum recebimento ainda não há resultado de caixa (mesma regra do resumo do período).
+    const lucroRealizadoCaixa = down > 0 ? down - custoCheio : 0;
 
     return {
       custoTotal: custoCheio,
@@ -18736,16 +18737,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const emAberto = { count: 0, total: 0 };
 
     noPeriodo.forEach(sale => {
-      const down = sale.downPayment || 0;
       const total = sale.total || 0;
+      // Nota concluída conta como totalmente recebida mesmo sem down_payment gravado (dado antigo).
+      const down = sale.status === 'completed' ? total : (sale.downPayment || 0);
       const isFullyPaid = sale.status === 'completed' || down >= total;
       faturamento += total;
       liquido += down;
-      // Amortiza o custo pela proporcao efetivamente recebida (down/total) — mesma regra de
-      // calcularLucroDaVenda, pra nao abater custo que ainda nao foi pago. Custo = so Lona/
-      // Adesivo (materia-prima) + custos extras manuais lancados na nota (ver src/lib/lucro.ts).
-      const proporcao = (!isFullyPaid && total > 0) ? down / total : undefined;
-      custoTotal += custoTotalDaNota({
+      // Regra da entrada (a mesma de obterRentabilidadeVenda / "Caixa Hoje"): o custo CHEIO da nota é abatido do que já
+      // entrou. Entrada de R$ 100 em nota de custo R$ 100 = lucro R$ 0; entrada menor que o custo = prejuízo, e os
+      // próximos pagamentos entram como lucro. Nota sem nenhum recebimento ainda não abate custo no caixa.
+      if (down > 0) custoTotal += custoTotalDaNota({
         items: sale.items,
         custoPorId: produtosCostMap,
         produtoPorId: produtoPorIdMap,
@@ -18759,7 +18760,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         maquinasPorId: maquinasPorIdMap,
         maquinasPorCategoria: maquinasPorCategoriaMap,
         extraCosts: sale.extraCosts,
-        proporcao,
       });
       if (down > 0 && !isFullyPaid) {
         comEntrada.count += 1;
@@ -18777,7 +18777,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       temCustoRegistrado: custoTotal > 0,
       comEntrada, emAberto,
     };
-  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap, produtoPorIdMap, custoMaquinaM2PorCategoria]);
+  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap, produtoPorIdMap, materiasPrimasAtuaisMap, custoMaquinaM2PorCategoria, custoMaquinaOperacionalM2PorCategoria, custoTintaM2PorCategoria, consumoTintaMlM2PorCategoria, maquinasCadastradas, maquinasPorIdMap, maquinasPorCategoriaMap]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -21321,6 +21321,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
                               maquinasPorId: maquinasPorIdMap,
                               maquinasPorCategoria: maquinasPorCategoriaMap,
+                              // Mesmos custos extras da janela de pagamento (nota em edição), pra o lucro bater.
+                              extraCosts: editingFullOrder ? editingFullOrder.extraCosts : [],
                            });
                            const custoTotal = breakdownNota.custoTotal;
                            const lucro = total - custoTotal;
