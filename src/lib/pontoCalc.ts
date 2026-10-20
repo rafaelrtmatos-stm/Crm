@@ -94,8 +94,36 @@ export function minutosTrabalhados(h: Horarios): number {
   return total;
 }
 
+/** "HH:MM" -> minutos, tratando vazio e 00:00 como "sem horário" (cadastros antigos guardavam 00:00 para almoço/saída ausentes). */
+const minValido = (t?: string | null): number | null => {
+  const m = toMin(t);
+  return m ? m : null;
+};
+
+/** True quando a jornada tem almoço (início e fim do intervalo preenchidos, diferentes de 00:00). */
+export function jornadaTemAlmoco(j?: Pick<PontoJornada, 'inicio_intervalo' | 'fim_intervalo'> | null): boolean {
+  return !!j && minValido(j.inicio_intervalo) !== null && minValido(j.fim_intervalo) !== null;
+}
+
 export function minutosPrevistos(j: PontoJornada | null): number {
-  return j && j.trabalha ? minutosTrabalhados(j) : 0;
+  if (!j || !j.trabalha) return 0;
+  if (jornadaTemAlmoco(j)) return minutosTrabalhados(j);
+  // Sem almoço: entrada → saída. Cadastro antigo (entrada, 12:30 no início do intervalo, saída 00:00) lê o início como saída.
+  const e = toMin(j.entrada);
+  const s = minValido(j.saida) ?? minValido(j.inicio_intervalo);
+  return e !== null && s !== null ? Math.max(0, s - e) : 0;
+}
+
+/**
+ * Jornada sem almoço + registro com entrada e início de intervalo, sem volta e sem saída (ex.: sábado 08:30–12:30
+ * lançado em inicio_intervalo): na conta, o início do intervalo vale como saída. O registro salvo não é alterado.
+ */
+function registroEfetivo<T extends Horarios>(reg: T, jornada: PontoJornada | null): T {
+  if (!jornada || !jornada.trabalha || jornadaTemAlmoco(jornada)) return reg;
+  if (reg.entrada && reg.inicio_intervalo && !reg.fim_intervalo && !reg.saida) {
+    return { ...reg, inicio_intervalo: null, saida: reg.inicio_intervalo };
+  }
+  return reg;
 }
 
 const temBatida = (r?: Horarios | null) => !!r && !!(r.entrada || r.inicio_intervalo || r.fim_intervalo || r.saida);
@@ -113,31 +141,33 @@ export function analisarDia(
   agoraMin: number = 24 * 60,
 ): AnaliseDia {
   const previstos = minutosPrevistos(jornada);
-  const trabalhados = reg ? minutosTrabalhados(reg) : 0;
+  const regE = reg ? registroEfetivo(reg, jornada) : reg;
+  const trabalhados = regE ? minutosTrabalhados(regE) : 0;
   const base = { trabalhados, previstos, atraso: 0, extra: 0 };
   if (data > hoje) return { ...base, status: 'aguardando' };
 
   // Dia fora da jornada: sem batida = folga; com batida, tudo que trabalhou é hora extra.
   if (!jornada || !jornada.trabalha) {
-    if (temBatida(reg)) return { ...base, status: 'presente', extra: trabalhados > tolerancia ? trabalhados : 0 };
+    if (temBatida(regE)) return { ...base, status: 'presente', extra: trabalhados > tolerancia ? trabalhados : 0 };
     return { ...base, status: 'folga' };
   }
 
-  if (!temBatida(reg)) {
+  if (!temBatida(regE)) {
     const entradaPrevista = toMin(jornada.entrada);
     if (data === hoje && (entradaPrevista === null || agoraMin <= entradaPrevista + tolerancia)) return { ...base, status: 'aguardando' };
     return { ...base, status: 'ausente' };
   }
 
   // Dia que já passou com batida faltando (ex.: esqueceu a saída) = incompleto, pra você corrigir.
-  const completo = !!(reg!.entrada && reg!.saida && (!!reg!.inicio_intervalo === !!reg!.fim_intervalo));
+  const completo = !!(regE!.entrada && regE!.saida && (!!regE!.inicio_intervalo === !!regE!.fim_intervalo));
   if (!completo && data < hoje) return { ...base, status: 'incompleto' };
 
   let atraso = 0;
-  const e = toMin(reg!.entrada), pe = toMin(jornada.entrada);
+  const e = toMin(regE!.entrada), pe = toMin(jornada.entrada);
   if (e !== null && pe !== null && e - pe > tolerancia) atraso += e - pe;
-  const f = toMin(reg!.fim_intervalo), pf = toMin(jornada.fim_intervalo);
-  if (f !== null && pf !== null && f - pf > tolerancia) atraso += f - pf;
+  // Volta do almoço só é comparada quando a jornada do dia tem almoço (sábado 08:30–12:30 não tem).
+  const f = toMin(regE!.fim_intervalo), pf = toMin(jornada.fim_intervalo);
+  if (jornadaTemAlmoco(jornada) && f !== null && pf !== null && f - pf > tolerancia) atraso += f - pf;
 
   const saldo = completo ? trabalhados - previstos : 0;
   const extra = saldo > tolerancia ? saldo : 0;

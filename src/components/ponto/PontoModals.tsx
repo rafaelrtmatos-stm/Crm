@@ -430,15 +430,30 @@ export function JornadaEditorModal({
         .filter((x) => x.dia_semana === dow)
         .sort((a, b) => b.vigente_desde.localeCompare(a.vigente_desde));
       const j = cand[0];
+      // Horário salvo: vazio e 00:00 viram campo vazio. O padrão (08:00/12:00/13:00/17:00) só vale quando não há jornada salva ou o dia é de folga,
+      // para não recriar almoço em dia sem almoço (ex.: sábado 08:30–12:30).
+      const hSalvo = (t?: string | null) => {
+        const v = t ? t.slice(0, 5) : '';
+        return v === '00:00' ? '' : v;
+      };
+
+      let ini = j && j.trabalha ? hSalvo(j.inicio_intervalo) : '12:00';
+      const fimInt = j && j.trabalha ? hSalvo(j.fim_intervalo) : '13:00';
+      let sai = j ? hSalvo(j.saida) : '17:00';
+      // Cadastro antigo sem almoço (entrada, 12:30 no início do intervalo, saída 00:00): o 12:30 é a saída.
+      if (j && j.trabalha && !fimInt && !sai && ini) {
+        sai = ini;
+        ini = '';
+      }
 
       return {
         dow,
         nome,
         trabalha: j !== undefined ? j.trabalha : dow !== 0,
-        entrada: j?.entrada?.slice(0, 5) || '08:00',
-        inicio_intervalo: j?.inicio_intervalo?.slice(0, 5) || '12:00',
-        fim_intervalo: j?.fim_intervalo?.slice(0, 5) || '13:00',
-        saida: j?.saida?.slice(0, 5) || '17:00',
+        entrada: j ? hSalvo(j.entrada) || '08:00' : '08:00',
+        inicio_intervalo: ini,
+        fim_intervalo: fimInt,
+        saida: sai || '17:00',
       };
     })
   );

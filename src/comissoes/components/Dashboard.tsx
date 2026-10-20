@@ -310,7 +310,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const valorDiariaVal = userSettings.baseSalary > 0 ? userSettings.baseSalary / 30 : 0;
       const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0 && !ehFeriado(d.data)).length;
       const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
-      const baseFinal = totalTrab > 0 ? Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR) : calcularSalarioSemanal(userSettings.baseSalary);
+      const baseFinal = Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR);
       if (ok) setPontoBaseSalaryCalculated(baseFinal);
     })();
     return () => { ok = false; };

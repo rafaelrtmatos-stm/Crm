@@ -115,7 +115,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    const salarioHorasTrabalhadas = valorHora * (pontoTrabalhadoMinutos / 60);
    const valorDiariaVal = salarioBase > 0 ? salarioBase / 30 : 0;
    const descontoDSR = pontoFaltasCount > 0 ? valorDiariaVal : 0;
-   const baseCalculada = modalidade==='meta'?0: (utilizaPontoEletronico && pontoTrabalhadoMinutos > 0 ? Math.max(0, salarioHorasTrabalhadas + pontoFeriadosValor + pontoExtrasValor - descontoDSR) : salarioSemanal);
+   const baseCalculada = modalidade==='meta'?0: (utilizaPontoEletronico ? Math.max(0, salarioHorasTrabalhadas + pontoFeriadosValor + pontoExtrasValor - descontoDSR) : salarioSemanal);
 
    const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||baseCalculada:baseCalculada;
    const comissao=rem.comissaoEfetiva;
@@ -184,7 +184,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
        <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl p-4">
          <Wallet className="w-5 h-5 mb-3 text-[var(--accent-red)]"/>
          <b className="text-xs lg:text-sm font-mono block">
-           {utilizaPontoEletronico && pontoTrabalhadoMinutos > 0 
+           {utilizaPontoEletronico 
              ? `Salário: ${formatCurrency(salarioBase)}: ${formatCurrency(calc.base)}`
              : `Salário: ${formatCurrency(calc.base)}`}
          </b>
@@ -227,7 +227,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
      <div className="space-y-2 text-sm">
        <div className="flex justify-between"><span>Saldo da semana anterior</span><b className={calc.saldoAnterior < 0 ? "text-rose-500" : "text-emerald-500"}>{formatCurrency(calc.saldoAnterior)}</b></div>
        <div className="flex justify-between">
-         <span>Salário {utilizaPontoEletronico && pontoTrabalhadoMinutos > 0 ? `(Proporcional às horas do ponto)` : ''}</span>
+         <span>Salário {utilizaPontoEletronico ? `(Proporcional às horas do ponto)` : ''}</span>
          <b>{formatCurrency(calc.base)}</b>
        </div>
        <div className="flex justify-between"><span>Comissões</span><b className="text-emerald-500">+{formatCurrency(calc.comissao)}</b></div>

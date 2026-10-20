@@ -3,7 +3,6 @@
 // `pontoWeekOffset` é o offset de getWorkWeekBounds da semana do ponto (a semana ANTERIOR ao ciclo exibido).
 import { supabase } from '../../supabase';
 import { getWorkWeekBounds } from './caixaSemanalStorage';
-import { calcularSalarioSemanal } from './supabaseStorage';
 import { analisarDia, hojeStr } from '../../lib/pontoCalc';
 import { resumoExtras, ehFeriado } from '../../lib/feriados';
 
@@ -74,7 +73,7 @@ export async function calcularPontoSalarioPorColaborador(
       const valorDiariaVal = salarioMensal > 0 ? salarioMensal / 30 : 0;
       const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0 && !ehFeriado(d.data)).length;
       const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
-      const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : (totalTrab > 0 ? Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR) : calcularSalarioSemanal(salarioMensal));
+      const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR);
 
       const valorMinuto = salarioMensal > 0 ? salarioMensal / (220 * 60) : 0;
       const descontoPontoValor = debMin > 0 ? debMin * valorMinuto : 0;
