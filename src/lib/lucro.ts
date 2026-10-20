@@ -829,3 +829,72 @@ export function calcularLucroLiquido(params: {
 }): number {
   return detalharCustoDaNota(params).lucro;
 }
+
+// ---------------------------------------------------------------------------
+// Helpers compartilhados com o Dashboard (mesma base de cálculo das telas de notas)
+// ---------------------------------------------------------------------------
+
+/** Custo extra lançado como comissão / mão de obra (já coberto pelo custo de equipe). */
+export function ehCustoExtraComissao(c: LucroExtraCost | undefined | null): boolean {
+  const d = (c?.description || '').trim().toLowerCase();
+  return d.startsWith('comissão') || d.startsWith('comissao') || d.startsWith('mão de obra') || d.startsWith('mao de obra');
+}
+
+/** Soma dos custos extras, opcionalmente sem as comissões (evita contar a equipe duas vezes). */
+export function somaCustosExtrasSemComissao(extras: LucroExtraCost[] | undefined | null): number {
+  return somaCustosExtras((extras || []).filter(c => !ehCustoExtraComissao(c)));
+}
+
+/** Monta os mesmos mapas de custo de máquina/tinta que a tela de notas (Histórico) usa. */
+export function montarMapasCustoMaquinas(maquinas: Maquina[]) {
+  const custoMaquinaM2PorCategoria: Record<string, number> = {};
+  const custoMaquinaOperacionalM2PorCategoria: Record<string, number> = {};
+  const custoTintaM2PorCategoria: Record<string, number> = {};
+  const consumoTintaMlM2PorCategoria: Record<string, number> = {};
+  const maquinasPorId: Record<string, Maquina> = {};
+  const maquinasPorCategoria: Record<string, Maquina> = {};
+
+  maquinas.forEach(m => {
+    maquinasPorId[m.id] = m;
+    if (m.ativa && m.categoriaProduto && m.categoriaProduto.trim()) {
+      const chave = m.categoriaProduto.trim().toUpperCase();
+      if (!maquinasPorCategoria[chave]) maquinasPorCategoria[chave] = m;
+    }
+  });
+
+  const maquinaPadrao = maquinas.find(m => m.ativa && m.tipo === 'impressao') || maquinas.find(m => m.ativa) || maquinas[0];
+  if (maquinaPadrao) {
+    const calc = calcularCustosMaquina(maquinaPadrao, maquinaPadrao.tarifaKwh);
+    const consumo = Number(maquinaPadrao.tintaConsumoMlM2) > 0 ? Number(maquinaPadrao.tintaConsumoMlM2) : 15;
+    for (const chave of ['PADRAO', 'SUBSTRATO']) {
+      custoMaquinaM2PorCategoria[chave] = calc.custoTotalMaquinaM2;
+      custoMaquinaOperacionalM2PorCategoria[chave] = calc.custoOperacionalM2;
+      custoTintaM2PorCategoria[chave] = calc.custoTintaM2;
+      consumoTintaMlM2PorCategoria[chave] = consumo;
+    }
+  }
+
+  maquinas
+    .filter(m => m.ativa && m.categoriaProduto && m.categoriaProduto.trim())
+    .forEach(m => {
+      const chave = m.categoriaProduto!.trim().toUpperCase();
+      if (custoMaquinaM2PorCategoria[chave] === undefined) {
+        const c = calcularCustosMaquina(m, m.tarifaKwh);
+        custoMaquinaM2PorCategoria[chave] = c.custoTotalMaquinaM2;
+        custoMaquinaOperacionalM2PorCategoria[chave] = c.custoOperacionalM2;
+        custoTintaM2PorCategoria[chave] = c.custoTintaM2;
+        consumoTintaMlM2PorCategoria[chave] = Number(m.tintaConsumoMlM2) > 0 ? Number(m.tintaConsumoMlM2) : 15;
+      }
+    });
+
+  return {
+    maquinas,
+    maquinaPadrao,
+    maquinasPorId,
+    maquinasPorCategoria,
+    custoMaquinaM2PorCategoria,
+    custoMaquinaOperacionalM2PorCategoria,
+    custoTintaM2PorCategoria,
+    consumoTintaMlM2PorCategoria,
+  };
+}
