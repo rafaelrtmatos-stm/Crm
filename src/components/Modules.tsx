@@ -295,7 +295,7 @@ import { getMemoryBlocksSync, detectarEAprenderDoChat, getScriptsRobozinhoSync }
 import { assistWriting, WRITING_ASSIST_ACTIONS, type WritingAssistAction } from '../lib/writingAssistant';
 import { validateCpfCnpj } from '../lib/validators';
 import { buscarClienteDuplicado, montarPayloadMesclagem, buscarClientePorTelefone } from '../lib/clienteDedupe';
-import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, isMaterialLonaAdesivo } from '../lib/lucro';
+import { custoTotalDaNota, calcularLucroLiquido, detalharCustoDaNota, detalharCustosItem, custoMaterialRealItem, custoMaquinaItem, somaCustosExtras, somaCustosExtrasSemComissao, montarMapasCustoMaquinas, isMaterialLonaAdesivo } from '../lib/lucro';
 import { format } from 'date-fns';
 import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 import { getDespesasFixasTotalMensal } from './DespesasFixasModule';
@@ -1564,6 +1564,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   });
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  // Mapas de custo — mesma base das telas de notas (detalharCustoDaNota): matéria-prima, tinta e máquina.
+  const [custoProdutoPorId, setCustoProdutoPorId] = useState<Record<string, number>>({});
+  const [produtoPorIdDash, setProdutoPorIdDash] = useState<Record<string, any>>({});
+  const [materiasPrimasDash, setMateriasPrimasDash] = useState<Record<string, any>>({});
+  const [mapasMaquinasDash, setMapasMaquinasDash] = useState<ReturnType<typeof montarMapasCustoMaquinas> | null>(null);
   // Comissoes lancadas (valor ja calculado com % aplicado) - contam como CUSTO no
   // faturamento/lucro que o ADM ve, ja que e dinheiro que sai pro funcionario.
   // Traz origemNotaId junto: comissoes puxadas de uma nota (tem origem_nota_id) ja foram
@@ -1759,15 +1764,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           );
           const totalPago = pagamentosByColab[c.id] || 0;
 
-          const totalEstimadoBruto = calcularPrevisaoRecebimento({
+          // CUSTO da semana (não "a receber"): não abate o que já foi pago nem soma dívida/crédito de ciclos anteriores,
+          // senão o custo cai a zero quando a equipe é paga e o lucro sobe.
+          const custoSemanaColab = calcularPrevisaoRecebimento({
             salarioBase: remuneracao.salarioBaseEfetivo,
             comissao: remuneracao.comissaoEfetiva,
             descontos: totalDescontos,
-            saldoAnterior,
+            saldoAnterior: 0,
           });
-          const totalEstimado = calcularAReceber(totalEstimadoBruto, totalPago);
 
-          totalEquipe += totalEstimado;
+          totalEquipe += Math.max(0, custoSemanaColab);
         });
 
         if (mounted) {
@@ -1914,6 +1920,19 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             salePrice: row.sale_price, costPrice: row.cost_price, currentStock: row.current_stock,
             minStock: row.min_stock, isService: row.is_service, isActive: row.is_active,
           })));
+          const custoMap: Record<string, number> = {};
+          const prodMap: Record<string, any> = {};
+          (data || []).forEach((p: any) => {
+            custoMap[p.id] = Number(p.cost_price) || 0;
+            prodMap[p.id] = {
+              id: p.id,
+              categoria: p.category || '',
+              larguraRolo: p.largura_rolo ? Number(p.largura_rolo) : undefined,
+              materiasPrimas: Array.isArray(p.materias_primas) ? p.materias_primas : [],
+            };
+          });
+          setCustoProdutoPorId(custoMap);
+          setProdutoPorIdDash(prodMap);
         }
       } catch (err: any) {
         if (isNetworkError(err)) {
@@ -1924,6 +1943,32 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       }
     };
     loadInventory();
+
+    const loadCustosInsumos = async () => {
+      try {
+        const { data: mpData, error: mpError } = await supabase.from('materias_primas').select('id, name, unit, cost_price, largura_material, tipo_calculo_custo');
+        if (!mpError && mpData) {
+          const mpMap: Record<string, any> = {};
+          mpData.forEach((m: any) => {
+            mpMap[m.id] = {
+              id: m.id, name: m.name, unit: m.unit, costPrice: Number(m.cost_price) || 0,
+              larguraMaterial: m.largura_material ? Number(m.largura_material) : undefined,
+              tipoCalculoCusto: m.tipo_calculo_custo,
+            };
+          });
+          setMateriasPrimasDash(mpMap);
+        }
+      } catch (err: any) {
+        console.warn('Aviso matérias-primas Dashboard:', err?.message || err);
+      }
+      try {
+        const maquinas = await fetchMaquinas(currentCompany?.id);
+        setMapasMaquinasDash(montarMapasCustoMaquinas(maquinas));
+      } catch (err: any) {
+        console.warn('Aviso máquinas Dashboard:', err?.message || err);
+      }
+    };
+    loadCustosInsumos();
     const invChannel = supabase.channel('dashboard-produtos').on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' }, () => loadInventory()).subscribe();
     
     return () => { unsubSvc(); supabase.removeChannel(salesChannel); supabase.removeChannel(invChannel); };
@@ -2009,29 +2054,61 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     .filter(ev => { const d = new Date(ev.date); return d >= periodoStart && d <= periodoEnd; })
     .reduce((acc, ev) => acc + ev.value, 0);
 
-  // Custo tambem por evento de pagamento (mesma base do faturamento acima) — cada pagamento
-  // recebido no periodo abate a fatia proporcional do custo do pedido a que pertence, entao
-  // Lucro Liquido = Faturamento - Custo usa exatamente a mesma janela de tempo (pagamentos
-  // recebidos no periodo), eliminando a soma incorreta que misturava "pedidos criados no
-  // periodo" com "dinheiro recebido no periodo".
+  // Custo COMPLETO da nota (matéria-prima de todas as bobinas + tinta + máquina + extras), o mesmo cálculo das telas de
+  // notas (detalharCustoDaNota). Comissões lançadas como custo extra ficam de fora: já entram no custo de equipe.
+  const custoCompletoDaNotaDash = (o: SaleOrder): number => {
+    const m = mapasMaquinasDash;
+    const b = detalharCustoDaNota({
+      items: o.items as any,
+      custoPorId: custoProdutoPorId,
+      produtoPorId: produtoPorIdDash,
+      materiasPrimasAtuais: materiasPrimasDash,
+      custoMaquinaM2PorCategoria: m?.custoMaquinaM2PorCategoria,
+      custoMaquinaOperacionalM2PorCategoria: m?.custoMaquinaOperacionalM2PorCategoria,
+      custoTintaM2PorCategoria: m?.custoTintaM2PorCategoria,
+      consumoTintaMlM2PorCategoria: m?.consumoTintaMlM2PorCategoria,
+      maquinas: m?.maquinas,
+      maquinaPadrao: m?.maquinaPadrao,
+      maquinasPorId: m?.maquinasPorId,
+      maquinasPorCategoria: m?.maquinasPorCategoria,
+    });
+    return b.custoTotal + somaCustosExtrasSemComissao(o.extraCosts);
+  };
+
+  const custoCompletoDoItemDash = (item: any): number => {
+    const m = mapasMaquinasDash;
+    return detalharCustosItem({
+      item,
+      custoPorId: custoProdutoPorId,
+      produtoPorId: produtoPorIdDash,
+      materiasPrimasAtuais: materiasPrimasDash,
+      custoMaquinaM2PorCategoria: m?.custoMaquinaM2PorCategoria,
+      custoMaquinaOperacionalM2PorCategoria: m?.custoMaquinaOperacionalM2PorCategoria,
+      custoTintaM2PorCategoria: m?.custoTintaM2PorCategoria,
+      consumoTintaMlM2PorCategoria: m?.consumoTintaMlM2PorCategoria,
+      maquinas: m?.maquinas,
+      maquinaPadrao: m?.maquinaPadrao,
+      maquinasPorId: m?.maquinasPorId,
+      maquinasPorCategoria: m?.maquinasPorCategoria,
+    }).custoTotal;
+  };
+
+  // Regra da entrada: o custo da nota é abatido do PRIMEIRO recebimento. Entrada de R$ 100 numa nota de custo R$ 100 mostra
+  // lucro R$ 0 no dia; se a entrada for menor que o custo, o dia mostra prejuízo e os próximos recebimentos entram como lucro.
+  const dataPrimeiroRecebimento = (eventos: { date: string; value: number }[]): number | null => {
+    const tempos = eventos.map(ev => new Date(ev.date).getTime()).filter(t => !isNaN(t));
+    return tempos.length ? Math.min(...tempos) : null;
+  };
+
+  // Custo na mesma base do faturamento (pagamentos recebidos no periodo): o custo cheio da nota entra no dia do primeiro
+  // recebimento (ver dataPrimeiroRecebimento). Equipe e despesas fixas entram separadas, sem contar comissao duas vezes.
   const totalCost = realSales
     .filter(o => o.status !== 'canceled')
     .reduce((acc, o) => {
-      const eventos = getRevenueEventsForSale(o);
-      const eventosNoPeriodo = eventos.filter(ev => { const d = new Date(ev.date); return d >= periodoStart && d <= periodoEnd; });
-      if (eventosNoPeriodo.length === 0) return acc;
-      let orderCost = 0;
-      o.items?.forEach(item => {
-        const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-        const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : (item.price || 0) * 0.35;
-        orderCost += item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
-      });
-      const totalRecebidoPedido = eventos.reduce((s, ev) => s + ev.value, 0);
-      const recebidoNoPeriodo = eventosNoPeriodo.reduce((s, ev) => s + ev.value, 0);
-      const fatiaCusto = totalRecebidoPedido > 0 ? orderCost * (recebidoNoPeriodo / totalRecebidoPedido) : 0;
-      return acc + fatiaCusto;
-    }, 0)
-    + comissoesLancadas.filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= periodoStart && d <= periodoEnd; }).reduce((acc, c) => acc + c.valor, 0);
+      const t0 = dataPrimeiroRecebimento(getRevenueEventsForSale(o));
+      if (t0 === null || t0 < periodoStart.getTime() || t0 > periodoEnd.getTime()) return acc;
+      return acc + custoCompletoDaNotaDash(o);
+    }, 0);
 
   // Faturamento = Total emitido de todas as notas do período (misturado: quitadas, com entrada e pendentes)
   const faturamentoTotal = filteredOrders
@@ -2049,11 +2126,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const qtdQuitadas = quitadasOrders.length;
 
   const diasNoPeriodo = Math.max(1, Math.round((periodoEnd.getTime() - periodoStart.getTime()) / (1000 * 60 * 60 * 24)));
-  const despesasFixasProporcional = (despesasFixasBaseMensal / 30) * Math.min(30, diasNoPeriodo);
+  const despesasFixasProporcional = (despesasFixasBaseMensal / 30) * diasNoPeriodo;
 
   // Funcionários = Soma do que os colaboradores ativos têm a receber (conforme exibido em cada card individual)
   const custoFuncionarios = totalEstimadoFuncionarios > 0
-    ? totalEstimadoFuncionarios
+    ? (totalEstimadoFuncionarios / 7) * diasNoPeriodo
     : comissoesLancadas
         .filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= periodoStart && d <= periodoEnd; })
         .reduce((acc, c) => acc + c.valor, 0);
@@ -2063,34 +2140,25 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const breakevenPoint = contributionMargin > 0 ? (custoFixoTotalProporcional / contributionMargin) : custoFixoTotalProporcional / 0.65;
 
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
-  const roiPercent = totalCost > 0 ? Math.max(0, ((totalRevenue - totalCost) / totalCost) * 100) : 210;
+  const roiPercent = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 210;
 
   // Lucro Bruto e Lucro Líquido Real
-  const lucroBrutoSemDescontos = Math.max(0, totalRevenue - totalCost);
-  const netProfit = Math.max(0, totalRevenue - totalCost - despesasFixasProporcional - custoFuncionarios);
+  const lucroBrutoSemDescontos = totalRevenue - totalCost;
+  const netProfit = totalRevenue - totalCost - despesasFixasProporcional - custoFuncionarios;
   const margemLiquidaReal = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(0) : '0';
 
   const calcularCustoInsumosOrders = (orders: SaleOrder[]) => {
     return orders
       .filter(o => o.status !== 'canceled')
-      .reduce((acc, o) => {
-        let orderCost = 0;
-        o.items?.forEach(item => {
-          const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-          const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : (item.price || 0) * 0.35;
-          orderCost += item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity;
-        });
-        orderCost += somaCustosExtras(o.extraCosts);
-        return acc + orderCost;
-      }, 0);
+      .reduce((acc, o) => acc + custoCompletoDaNotaDash(o), 0);
   };
 
   const custoInsumosFaturamento = calcularCustoInsumosOrders(filteredOrders);
-  const lucroLiquidoFaturamento = Math.max(0, faturamentoTotal - custoInsumosFaturamento - despesasFixasProporcional - custoFuncionarios);
+  const lucroLiquidoFaturamento = faturamentoTotal - custoInsumosFaturamento - despesasFixasProporcional - custoFuncionarios;
   const margemFaturamento = faturamentoTotal > 0 ? (lucroLiquidoFaturamento / faturamentoTotal) * 100 : 0;
 
   const custoInsumosQuitadas = calcularCustoInsumosOrders(quitadasOrders);
-  const lucroLiquidoQuitada = Math.max(0, receitaQuitadas - custoInsumosQuitadas - despesasFixasProporcional - custoFuncionarios);
+  const lucroLiquidoQuitada = receitaQuitadas - custoInsumosQuitadas - despesasFixasProporcional - custoFuncionarios;
   const margemQuitada = receitaQuitadas > 0 ? (lucroLiquidoQuitada / receitaQuitadas) * 100 : 0;
 
   const totalSalesCount = filteredOrders.length;
@@ -2289,21 +2357,11 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [buscaClienteAnalise, setBuscaClienteAnalise] = useState('');
 
   const analiseDetalhada = useMemo(() => {
-    const custoDoPedido = (o: SaleOrder) => {
-      const custoMaterial = (o.items || []).reduce((total, item) => {
-        if (!isMaterialLonaAdesivo(item.name)) return total;
-        const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-        const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : 0;
-        return total + (item.area ? unitCost * item.area * item.quantity : unitCost * item.quantity);
-      }, 0);
-      let c = custoMaterial + somaCustosExtras(o.extraCosts);
-      if (o.status === 'pending' && o.total > 0) c *= (o.downPayment || 0) / o.total;
-      return c;
-    };
+    // Custo completo da nota (matéria-prima, tinta, máquina e extras sem comissão) — mesma regra das telas de notas.
+    const custoDoPedido = (o: SaleOrder) => custoCompletoDaNotaDash(o);
 
     const custoComissoesNoPeriodo = (desde: Date, ate: Date) => {
       return comissoesLancadas
-        .filter(c => !c.origemNotaId)
         .filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= desde && d <= ate; })
         .reduce((acc, c) => acc + c.valor, 0);
     };
@@ -2356,8 +2414,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     // Custo de produção das notas do período + comissões lançadas
     const custo = vendasNaoCanceladas
       .filter(o => {
-        const d = new Date(o.createdAt);
-        return !isNaN(d.getTime()) && d >= inicioPeriodo && d <= fimPeriodo;
+        const t0 = dataPrimeiroRecebimento(getRevenueEventsForSale(o));
+        return t0 !== null && t0 >= inicioPeriodo.getTime() && t0 <= fimPeriodo.getTime();
       })
       .reduce((acc, o) => acc + custoDoPedido(o), 0)
       + custoComissoesNoPeriodo(inicioPeriodo, fimPeriodo);
@@ -2367,7 +2425,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       return !isNaN(d.getTime()) && d >= inicioPeriodo && d <= fimPeriodo;
     }).length;
 
-    const lucro = Math.max(0, faturamento - custo);
+    const lucro = faturamento - custo;
     const margemLucro = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
     const ticketMedio = count > 0 ? faturamento / count : 0;
     const mediaDiariaPeriodo = faturamento / diasNoPeriodo;
@@ -2397,17 +2455,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           const itemVal = item.area ? (item.price || 0) * item.area * itemQty : (item.price || 0) * itemQty;
           produtosMap[item.name].total += itemVal;
 
-          if (isMaterialLonaAdesivo(item.name)) {
-            const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-            const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : 0;
-            const itemCost = item.area ? unitCost * item.area * itemQty : unitCost * itemQty;
-            produtosMap[item.name].cost += itemCost;
-          }
+          produtosMap[item.name].cost += custoCompletoDoItemDash(item);
         });
       });
 
     const produtosCalculados = Object.values(produtosMap).map(p => {
-      const itemLucro = Math.max(0, p.total - p.cost);
+      const itemLucro = p.total - p.cost;
       const margem = p.total > 0 ? (itemLucro / p.total) * 100 : 0;
       const pctTotal = faturamento > 0 ? (p.total / faturamento) * 100 : 0;
       return {
@@ -2477,21 +2530,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       })
       .map(o => {
         const custoVenda = custoDoPedido(o);
-        const lucroVenda = Math.max(0, o.total - custoVenda);
+        const lucroVenda = o.total - custoVenda;
         // Servicos (itens) da nota, com valor/custo/lucro de cada um. Mesmo fator da nota pendente (so custo proporcional ao pago).
-        const fatorCusto = (o.status === 'pending' && o.total > 0) ? (o.downPayment || 0) / o.total : 1;
+        const fatorCusto = 1;
         const itensDetalhe = (o.items || []).map(item => {
           const qtd = item.quantity || 1;
           const valor = item.area ? (item.price || 0) * item.area * qtd : (item.price || 0) * qtd;
-          let custoItem = 0;
-          if (isMaterialLonaAdesivo(item.name)) {
-            const invItem = inventory.find(i => i.id === item.productId || i.name?.toLowerCase() === item.name?.toLowerCase());
-            const unitCost = invItem && typeof invItem.costPrice === 'number' ? invItem.costPrice : 0;
-            custoItem = (item.area ? unitCost * item.area * qtd : unitCost * qtd) * fatorCusto;
-          }
+          const custoItem = custoCompletoDoItemDash(item) * fatorCusto;
           return { nome: item.name, qtd, valor, custo: custoItem, lucro: valor - custoItem };
         });
-        const custoExtras = somaCustosExtras(o.extraCosts) * fatorCusto;
+        const custoExtras = somaCustosExtrasSemComissao(o.extraCosts) * fatorCusto;
         const somaItens = itensDetalhe.reduce((acc, it) => acc + it.valor, 0);
         return {
           ...o,
@@ -2518,21 +2566,23 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     vendasNaoCanceladas.forEach(o => {
       const eventos = getRevenueEventsForSale(o);
       const custoPedido = custoDoPedido(o);
-      const totalRecebidoPedido = eventos.reduce((acc, ev) => acc + ev.value, 0);
-      eventos.forEach(ev => {
+      const t0Pedido = dataPrimeiroRecebimento(eventos);
+      let custoJaLancado = false;
+      [...eventos].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(ev => {
         const d = new Date(ev.date);
+        const ehPrimeiro = !custoJaLancado && t0Pedido !== null && d.getTime() === t0Pedido;
+        if (ehPrimeiro) custoJaLancado = true;
         if (isNaN(d.getTime()) || d < inicioPeriodo || d > fimPeriodo) return;
         const key = analisePeriodo === 'hoje'
           ? `${String(Math.min(20, Math.max(8, Math.floor(d.getHours() / 2) * 2))).padStart(2, '0')}h`
           : (analisePeriodo === 'ano' || diasNoPeriodo > 60) ? format(d, 'MM/yyyy') : format(d, 'dd/MM');
         if (!porBucket[key]) porBucket[key] = { faturamento: 0, custo: 0 };
         porBucket[key].faturamento += ev.value;
-        const fatiaCusto = totalRecebidoPedido > 0 ? custoPedido * (ev.value / totalRecebidoPedido) : 0;
-        porBucket[key].custo += fatiaCusto;
+        if (ehPrimeiro) porBucket[key].custo += custoPedido;
       });
     });
 
-    comissoesLancadas.filter(c => !c.origemNotaId).forEach(c => {
+    comissoesLancadas.forEach(c => {
       const d = new Date(`${c.data}T00:00:00`);
       if (isNaN(d.getTime()) || d < inicioPeriodo || d > fimPeriodo) return;
       const key = analisePeriodo === 'hoje'
@@ -2547,7 +2597,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       const horas = ['08h', '10h', '12h', '14h', '16h', '18h', '20h'];
       horas.forEach(h => {
         const v = porBucket[h] || { faturamento: 0, custo: 0 };
-        linhaGrafico.push({ day: h, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+        linhaGrafico.push({ day: h, faturamento: v.faturamento, lucro: v.faturamento - v.custo });
       });
     } else if (analisePeriodo === 'ano' || diasNoPeriodo > 60) {
       const curr = new Date(inicioPeriodo.getFullYear(), inicioPeriodo.getMonth(), 1);
@@ -2556,7 +2606,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         const key = format(curr, 'MM/yyyy');
         const label = format(curr, 'MM/yy');
         const v = porBucket[key] || { faturamento: 0, custo: 0 };
-        linhaGrafico.push({ day: label, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+        linhaGrafico.push({ day: label, faturamento: v.faturamento, lucro: v.faturamento - v.custo });
         curr.setMonth(curr.getMonth() + 1);
       }
     } else {
@@ -2566,7 +2616,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         if (d > fimPeriodo) break;
         const key = format(d, 'dd/MM');
         const v = porBucket[key] || { faturamento: 0, custo: 0 };
-        linhaGrafico.push({ day: key, faturamento: v.faturamento, lucro: Math.max(0, v.faturamento - v.custo) });
+        linhaGrafico.push({ day: key, faturamento: v.faturamento, lucro: v.faturamento - v.custo });
       }
     }
 
@@ -2585,7 +2635,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       fimPeriodo,
       diasNoPeriodo
     };
-  }, [realSales, inventory, analisePeriodo, analiseCustomRange, comissoesLancadas, analiseSemanaOffset, despesasFixasBaseMensal]);
+  }, [realSales, inventory, analisePeriodo, analiseCustomRange, comissoesLancadas, analiseSemanaOffset, despesasFixasBaseMensal, custoProdutoPorId, produtoPorIdDash, materiasPrimasDash, mapasMaquinasDash]);
 
   const addWidget = (type: WidgetType) => {
     const newWidget: DashboardWidget = {
@@ -17609,7 +17659,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const custoCheio = breakdown.custoTotal;
 
     const lucroPrevisto = total - custoCheio;
-    const lucroRealizadoCaixa = down - custoCheio;
+    // Sem nenhum recebimento ainda não há resultado de caixa (mesma regra do resumo do período).
+    const lucroRealizadoCaixa = down > 0 ? down - custoCheio : 0;
 
     return {
       custoTotal: custoCheio,
@@ -18686,16 +18737,16 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     const emAberto = { count: 0, total: 0 };
 
     noPeriodo.forEach(sale => {
-      const down = sale.downPayment || 0;
       const total = sale.total || 0;
+      // Nota concluída conta como totalmente recebida mesmo sem down_payment gravado (dado antigo).
+      const down = sale.status === 'completed' ? total : (sale.downPayment || 0);
       const isFullyPaid = sale.status === 'completed' || down >= total;
       faturamento += total;
       liquido += down;
-      // Amortiza o custo pela proporcao efetivamente recebida (down/total) — mesma regra de
-      // calcularLucroDaVenda, pra nao abater custo que ainda nao foi pago. Custo = so Lona/
-      // Adesivo (materia-prima) + custos extras manuais lancados na nota (ver src/lib/lucro.ts).
-      const proporcao = (!isFullyPaid && total > 0) ? down / total : undefined;
-      custoTotal += custoTotalDaNota({
+      // Regra da entrada (a mesma de obterRentabilidadeVenda / "Caixa Hoje"): o custo CHEIO da nota é abatido do que já
+      // entrou. Entrada de R$ 100 em nota de custo R$ 100 = lucro R$ 0; entrada menor que o custo = prejuízo, e os
+      // próximos pagamentos entram como lucro. Nota sem nenhum recebimento ainda não abate custo no caixa.
+      if (down > 0) custoTotal += custoTotalDaNota({
         items: sale.items,
         custoPorId: produtosCostMap,
         produtoPorId: produtoPorIdMap,
@@ -18709,7 +18760,6 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         maquinasPorId: maquinasPorIdMap,
         maquinasPorCategoria: maquinasPorCategoriaMap,
         extraCosts: sale.extraCosts,
-        proporcao,
       });
       if (down > 0 && !isFullyPaid) {
         comEntrada.count += 1;
@@ -18727,7 +18777,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
       temCustoRegistrado: custoTotal > 0,
       comEntrada, emAberto,
     };
-  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap, produtoPorIdMap, custoMaquinaM2PorCategoria]);
+  }, [allSalesHistory, historyDateFrom, historyDateTo, produtosCostMap, produtoPorIdMap, materiasPrimasAtuaisMap, custoMaquinaM2PorCategoria, custoMaquinaOperacionalM2PorCategoria, custoTintaM2PorCategoria, consumoTintaMlM2PorCategoria, maquinasCadastradas, maquinasPorIdMap, maquinasPorCategoriaMap]);
 
   const handleToggleSelectAll = () => {
     setSelectedSaleIds(prev => {
@@ -21271,6 +21321,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                               maquinaPadrao: maquinasCadastradas.find(m => m.ativa && m.tipo === 'impressao') || maquinasCadastradas.find(m => m.ativa),
                               maquinasPorId: maquinasPorIdMap,
                               maquinasPorCategoria: maquinasPorCategoriaMap,
+                              // Mesmos custos extras da janela de pagamento (nota em edição), pra o lucro bater.
+                              extraCosts: editingFullOrder ? editingFullOrder.extraCosts : [],
                            });
                            const custoTotal = breakdownNota.custoTotal;
                            const lucro = total - custoTotal;

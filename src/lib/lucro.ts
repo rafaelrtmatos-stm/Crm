@@ -99,6 +99,13 @@ const REGEX_MATERIAL_LONA_ADESIVO = /lona|adesivo/i;
 const REGEX_SUBSTRATO = /substrato/i;
 const REGEX_ETIQUETA = /etiqueta/i;
 const CUSTO_MAQUINA_SUBSTRATO_POR_METRO = 5.98;
+// Unidade de bobina/rolo: só "m", "mt", "metro(s)", "m linear", "rolo(s)". Não casa "ml", "cm", "mm"...
+const REGEX_UNIDADE_SUBSTRATO = /^\s*(m|mt|mts|metro|metros|m\s*linear|metro\s*linear|rolo|rolos)\s*$/i;
+const REGEX_NOME_SUBSTRATO = /lona|adesivo|vinil|papel|banner|frontlight|backlight/i;
+
+function ehMateriaSubstrato(mp: { unit?: string; name?: string }): boolean {
+  return REGEX_UNIDADE_SUBSTRATO.test(mp.unit || '') || REGEX_NOME_SUBSTRATO.test(mp.name || '');
+}
 
 export function isMaterialLonaAdesivo(nomeProduto: string | undefined | null): boolean {
   return !!nomeProduto && REGEX_MATERIAL_LONA_ADESIVO.test(nomeProduto);
@@ -106,7 +113,7 @@ export function isMaterialLonaAdesivo(nomeProduto: string | undefined | null): b
 
 export function obterConsumoItem(item: LucroSaleItem): number {
   const qtd = item.quantity || 1;
-  if (typeof item.consumoEstoque === 'number' && item.consumoEstoque > 0) return item.consumoEstoque;
+  if (typeof item.consumoEstoque === 'number' && item.consumoEstoque > 0) return item.consumoEstoque * qtd;
   if (typeof item.area === 'number' && item.area > 0) return item.area * qtd;
 
   if (item.dimensions) {
@@ -352,20 +359,21 @@ export function custoSubstratoItem(
   // o cálculo DEVE ser: (custo da matéria prima) x consumo (ex: 2,10m linear)
   const consumos = Array.isArray(item.materiasPrimasConsumidas) ? item.materiasPrimasConsumidas : [];
   if (consumos.length > 0) {
-    const mpSubstrato = consumos.find(c => /m|rolo/i.test(c.unit || '') || /lona|adesivo|vinil|papel|banner|frontlight|backlight/i.test(c.name || ''));
+    const mpSubstrato = consumos.find(ehMateriaSubstrato);
     if (mpSubstrato) {
       const materialAtual = (mpSubstrato as any).materiaPrimaId && materiasPrimasAtuais
         ? materiasPrimasAtuais[(mpSubstrato as any).materiaPrimaId]
         : undefined;
       const custo = Number(materialAtual?.costPrice ?? mpSubstrato.costPrice ?? 0);
       const total = Number(mpSubstrato.totalCost);
-      return Number.isFinite(total) && total > 0 ? total : (Number(mpSubstrato.quantity) || 1) * consumo * custo;
+      // `quantity` guardada na nota já é o total consumido (mesmo valor baixado do estoque).
+      return Number.isFinite(total) && total > 0 ? total : (Number(mpSubstrato.quantity) || 0) * custo;
     }
   }
 
   const materiaisProd = produtoAtual?.materiasPrimas || item.materiasPrimas || [];
   if (materiaisProd.length > 0) {
-    const mpSubstrato = materiaisProd.find(m => /m|rolo/i.test(m.unit || '') || /lona|adesivo|vinil|papel|banner|frontlight|backlight/i.test(m.name || ''));
+    const mpSubstrato = materiaisProd.find(ehMateriaSubstrato);
     if (mpSubstrato) {
       const materialAtual = (mpSubstrato as any).materiaPrimaId && materiasPrimasAtuais
         ? materiasPrimasAtuais[(mpSubstrato as any).materiaPrimaId]
@@ -404,12 +412,12 @@ export function custoMateriaPrimaItem(
   const consumo = obterConsumoItem(item);
 
   if (consumos.length > 0) {
-    const deduzirSubstrato = custoSubstratoJaCalculado > 0;
+    // Só a bobina já contada em custoSubstratoItem (a primeira) é pulada; as demais
+    // (ex.: laminação transparente) entram no custo.
+    const substratoContado = custoSubstratoJaCalculado > 0 ? consumos.find(ehMateriaSubstrato) : undefined;
 
     return consumos.reduce((sum, mp) => {
-      if (deduzirSubstrato && (/m|rolo/i.test(mp.unit || '') || /lona|adesivo|vinil|papel|banner/i.test(mp.name || ''))) {
-        return sum;
-      }
+      if (mp === substratoContado) return sum;
       const materialAtual = (mp as any).materiaPrimaId && materiasPrimasAtuais
         ? materiasPrimasAtuais[(mp as any).materiaPrimaId]
         : undefined;
@@ -417,19 +425,17 @@ export function custoMateriaPrimaItem(
       const total = Number(mp.totalCost);
       return sum + (Number.isFinite(total) && total > 0
         ? total
-        : (Number(mp.quantity) || 1) * consumo * custo);
+        : (Number(mp.quantity) || 0) * custo);
     }, 0);
   }
 
   const materiais = produtoAtual?.materiasPrimas || item.materiasPrimas || [];
 
   if (Array.isArray(materiais) && materiais.length > 0) {
-    const deduzirSubstrato = custoSubstratoJaCalculado > 0;
+    const substratoContado = custoSubstratoJaCalculado > 0 ? materiais.find(ehMateriaSubstrato) : undefined;
 
     return materiais.reduce((sum, mp) => {
-      if (deduzirSubstrato && (/m|rolo/i.test(mp.unit || '') || /lona|adesivo|vinil|papel|banner/i.test(mp.name || ''))) {
-        return sum;
-      }
+      if (mp === substratoContado) return sum;
       const materialAtual = mp.materiaPrimaId && materiasPrimasAtuais
         ? materiasPrimasAtuais[mp.materiaPrimaId]
         : undefined;
@@ -822,4 +828,73 @@ export function calcularLucroLiquido(params: {
   proporcao?: number;
 }): number {
   return detalharCustoDaNota(params).lucro;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers compartilhados com o Dashboard (mesma base de cálculo das telas de notas)
+// ---------------------------------------------------------------------------
+
+/** Custo extra lançado como comissão / mão de obra (já coberto pelo custo de equipe). */
+export function ehCustoExtraComissao(c: LucroExtraCost | undefined | null): boolean {
+  const d = (c?.description || '').trim().toLowerCase();
+  return d.startsWith('comissão') || d.startsWith('comissao') || d.startsWith('mão de obra') || d.startsWith('mao de obra');
+}
+
+/** Soma dos custos extras, opcionalmente sem as comissões (evita contar a equipe duas vezes). */
+export function somaCustosExtrasSemComissao(extras: LucroExtraCost[] | undefined | null): number {
+  return somaCustosExtras((extras || []).filter(c => !ehCustoExtraComissao(c)));
+}
+
+/** Monta os mesmos mapas de custo de máquina/tinta que a tela de notas (Histórico) usa. */
+export function montarMapasCustoMaquinas(maquinas: Maquina[]) {
+  const custoMaquinaM2PorCategoria: Record<string, number> = {};
+  const custoMaquinaOperacionalM2PorCategoria: Record<string, number> = {};
+  const custoTintaM2PorCategoria: Record<string, number> = {};
+  const consumoTintaMlM2PorCategoria: Record<string, number> = {};
+  const maquinasPorId: Record<string, Maquina> = {};
+  const maquinasPorCategoria: Record<string, Maquina> = {};
+
+  maquinas.forEach(m => {
+    maquinasPorId[m.id] = m;
+    if (m.ativa && m.categoriaProduto && m.categoriaProduto.trim()) {
+      const chave = m.categoriaProduto.trim().toUpperCase();
+      if (!maquinasPorCategoria[chave]) maquinasPorCategoria[chave] = m;
+    }
+  });
+
+  const maquinaPadrao = maquinas.find(m => m.ativa && m.tipo === 'impressao') || maquinas.find(m => m.ativa) || maquinas[0];
+  if (maquinaPadrao) {
+    const calc = calcularCustosMaquina(maquinaPadrao, maquinaPadrao.tarifaKwh);
+    const consumo = Number(maquinaPadrao.tintaConsumoMlM2) > 0 ? Number(maquinaPadrao.tintaConsumoMlM2) : 15;
+    for (const chave of ['PADRAO', 'SUBSTRATO']) {
+      custoMaquinaM2PorCategoria[chave] = calc.custoTotalMaquinaM2;
+      custoMaquinaOperacionalM2PorCategoria[chave] = calc.custoOperacionalM2;
+      custoTintaM2PorCategoria[chave] = calc.custoTintaM2;
+      consumoTintaMlM2PorCategoria[chave] = consumo;
+    }
+  }
+
+  maquinas
+    .filter(m => m.ativa && m.categoriaProduto && m.categoriaProduto.trim())
+    .forEach(m => {
+      const chave = m.categoriaProduto!.trim().toUpperCase();
+      if (custoMaquinaM2PorCategoria[chave] === undefined) {
+        const c = calcularCustosMaquina(m, m.tarifaKwh);
+        custoMaquinaM2PorCategoria[chave] = c.custoTotalMaquinaM2;
+        custoMaquinaOperacionalM2PorCategoria[chave] = c.custoOperacionalM2;
+        custoTintaM2PorCategoria[chave] = c.custoTintaM2;
+        consumoTintaMlM2PorCategoria[chave] = Number(m.tintaConsumoMlM2) > 0 ? Number(m.tintaConsumoMlM2) : 15;
+      }
+    });
+
+  return {
+    maquinas,
+    maquinaPadrao,
+    maquinasPorId,
+    maquinasPorCategoria,
+    custoMaquinaM2PorCategoria,
+    custoMaquinaOperacionalM2PorCategoria,
+    custoTintaM2PorCategoria,
+    consumoTintaMlM2PorCategoria,
+  };
 }
