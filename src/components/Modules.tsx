@@ -300,9 +300,10 @@ import { format } from 'date-fns';
 import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 import { getDespesasFixasTotalMensal } from './DespesasFixasModule';
 import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
-import { calculateDescontosNoPeriodo } from '../comissoes/utils/supabaseStorage';
+import { calculateDescontosNoPeriodo, calcularSalarioSemanal } from '../comissoes/utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
+import { calcularPontoSalarioPorColaborador } from '../comissoes/utils/pontoSalario';
 import { calcularPrevisaoRecebimento, calcularAReceber } from '../comissoes/utils/previsaoRecebimento';
 import { DashboardMetasCard } from './DashboardMetasCard';
 import { fetchAllRows } from '../lib/fetchAllRows';
@@ -1632,7 +1633,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const semanaFolhaOffset = (period === '7 dias' || period === 'Semana') ? semanaOffset : 0;
   const [totalEstimadoFuncionarios, setTotalEstimadoFuncionarios] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('rpro_equipe_total_estimado');
+      const cached = localStorage.getItem('rpro_dash_custo_equipe_semana');
       if (cached) return Number(cached) || 0;
     }
     return 0;
@@ -1646,9 +1647,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         // No sábado, o Dashboard mostra o ciclo encerrado na sexta-feira.
         // De domingo a sexta, mostra o ciclo atual em apuração.
         const isSaturday = new Date().getDay() === 6;
-        const { start, end } = semanaFolhaOffset !== 0
-          ? getWorkWeekBounds(semanaFolhaOffset)
-          : getWorkWeekBounds(isSaturday ? -1 : 0);
+        const offsetCicloExibido = semanaFolhaOffset !== 0 ? semanaFolhaOffset : (isSaturday ? -1 : 0);
+        const { start, end } = getWorkWeekBounds(offsetCicloExibido);
         const descBounds = getDescontosValesBounds(start, end);
 
         const [colabsRes, servicosRes, descontosRes, pagamentosRes, caixasRes, vendasRes] = await Promise.all([
@@ -1661,7 +1661,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             .select('colaborador_id, valor')
             .gte('data', descBounds.start).lte('data', descBounds.end),
           supabase.from('comissoes_caixas_semanais')
-            .select('colaborador_id, saldo_anterior, saldo_final, status')
+            .select('colaborador_id, saldo_anterior, saldo_final, status, salario_base, total_descontos')
             .eq('semana_inicio', start).eq('semana_fim', end),
           supabase.from('vendas')
             .select('total, status, down_payment, created_at')
@@ -1669,6 +1669,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         ]);
 
         const colabs = colabsRes.data || [];
+        // Ponto eletrônico (semana anterior ao ciclo): horas, DSR, feriado, hora extra e banco de horas — mesma função da aba Funcionários.
+        let pontoSalarioMap: Record<string, { base: number; debitoVal: number }> = {};
+        try {
+          pontoSalarioMap = await calcularPontoSalarioPorColaborador(colabs, offsetCicloExibido - 1);
+        } catch (err: any) {
+          console.warn('Aviso ponto no custo de equipe do Dashboard:', err?.message || err);
+        }
         const servicos = servicosRes.data || [];
         const descontos = descontosRes.data || [];
         const pagamentos = pagamentosRes.data || [];
@@ -1756,13 +1763,27 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           );
 
           const caixa = caixasByColab[c.id];
-          const saldoAnterior = Number(caixa?.saldo_anterior) || 0;
-          const totalDescontos = calculateDescontosNoPeriodo(
-            descontosByColab[c.id] || [],
-            descBounds.start,
-            descBounds.end
-          );
-          const totalPago = pagamentosByColab[c.id] || 0;
+          const caixaFechado = caixa?.status === 'fechado';
+
+          // Salário semanal: com ponto eletrônico usa as horas trabalhadas; caixa fechado tem prioridade (snapshot congelado).
+          if (modalidade !== 'meta' && modalidade !== 'faturamento_geral') {
+            const salarioBaseCadastrado = pontoSalarioMap[c.id]
+              ? pontoSalarioMap[c.id].base
+              : calcularSalarioSemanal(Number(c.salario_base) || 0);
+            const salarioBaseFechado = caixa?.salario_base;
+            remuneracao.salarioBaseEfetivo = caixaFechado && salarioBaseFechado != null
+              ? Number(salarioBaseFechado)
+              : salarioBaseCadastrado;
+          }
+
+          // Descontos: caixa fechado usa o total congelado; aberto = lançamentos do ciclo + débito do ponto.
+          const totalDescontos = caixaFechado && caixa?.total_descontos != null
+            ? Number(caixa.total_descontos)
+            : calculateDescontosNoPeriodo(
+                descontosByColab[c.id] || [],
+                descBounds.start,
+                descBounds.end
+              ) + (pontoSalarioMap[c.id]?.debitoVal || 0);
 
           // CUSTO da semana (não "a receber"): não abate o que já foi pago nem soma dívida/crédito de ciclos anteriores,
           // senão o custo cai a zero quando a equipe é paga e o lucro sobe.
@@ -1779,13 +1800,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         if (mounted) {
           setTotalEstimadoFuncionarios(totalEquipe);
           // O cache offline guarda so a semana atual; semanas navegadas nao sobrescrevem
-          if (semanaFolhaOffset === 0) localStorage.setItem('rpro_equipe_total_estimado', String(totalEquipe));
+          if (semanaFolhaOffset === 0) localStorage.setItem('rpro_dash_custo_equipe_semana', String(totalEquipe));
         }
       } catch (err) {
         // Mantém o último cache somente como fallback de indisponibilidade.
         console.warn('Dashboard: falha ao revalidar total de funcionários:', err);
         if (mounted && semanaFolhaOffset === 0) {
-          const cached = localStorage.getItem('rpro_equipe_total_estimado');
+          const cached = localStorage.getItem('rpro_dash_custo_equipe_semana');
           if (cached) setTotalEstimadoFuncionarios(Number(cached) || 0);
         }
       }
