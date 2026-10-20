@@ -1500,6 +1500,11 @@ export function getSemanaSabSex(offset = 0): { start: Date; end: Date } {
   return { start, end };
 }
 
+// Lucro com sinal: negativo aparece como "-R$ 12,00" (e em vermelho via classeLucro) em vez de R$ 0 ou verde.
+const formatarLucroBRL = (v: number, casas = 2) =>
+  `${v < 0 ? '-' : ''}R$ ${Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}`;
+const classeLucro = (v: number, classePositivo: string) => (v < 0 ? 'text-rose-400' : classePositivo);
+
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab, setIsMessagePopupOpen }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void, setIsMessagePopupOpen?: (open: boolean) => void }) => {
   const { setPendingReceivablesFilter, setPendingQuitadasFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
@@ -3704,12 +3709,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       </div>
                       <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
                          <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro Bruto</p>
-                         <p className="text-base font-black text-emerald-400">R$ {analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                         <p className={cn("text-base font-black", classeLucro(analiseDetalhada.periodo.lucro, "text-emerald-400"))}>{formatarLucroBRL(analiseDetalhada.periodo.lucro)}</p>
                          <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Antes das despesas • Margem: {analiseDetalhada.periodo.margemLucro.toFixed(1)}%</p>
                       </div>
                       <div className={cn("p-3 rounded-xl border", analiseDetalhada.periodo.lucroLiquido >= 0 ? "bg-teal-500/10 border-teal-500/20" : "bg-rose-500/10 border-rose-500/30")}>
                          <p className={cn("text-[8px] font-black uppercase tracking-widest mb-1", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>Lucro Líquido</p>
-                         <p className={cn("text-base font-black", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>R$ {analiseDetalhada.periodo.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                         <p className={cn("text-base font-black", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>{formatarLucroBRL(analiseDetalhada.periodo.lucroLiquido)}</p>
                          <p className="text-[8px] text-white/50 mt-0.5 font-bold">Após despesas fixas (R$ {analiseDetalhada.periodo.despesasFixas.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}) • Margem: {analiseDetalhada.periodo.margemLiquida.toFixed(1)}%</p>
                       </div>
                       <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
@@ -3720,7 +3725,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <div className="p-3 bg-white/5 rounded-xl border border-white/10">
                          <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária</p>
                          <p className="text-base font-black text-white">R$ {analiseDetalhada.mediaDiariaPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400 mt-0.5 font-bold">Lucro/dia: R$ {analiseDetalhada.mediaLucroDiario.toFixed(2)}</p>
+                         <p className={cn("text-[8px] mt-0.5 font-bold", classeLucro(analiseDetalhada.mediaLucroDiario, "text-emerald-400"))}>Lucro/dia: {formatarLucroBRL(analiseDetalhada.mediaLucroDiario)}</p>
                       </div>
                       <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
                          <p className="text-[8px] font-black uppercase text-purple-300 tracking-widest mb-1">Ticket Médio</p>
@@ -3978,7 +3983,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right hidden sm:block">
                                       <span className="text-[8px] font-bold text-emerald-400/60 uppercase block">Lucro Estimado</span>
-                                      <span className="text-xs font-black text-emerald-300">R$ {prod.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                      <span className={cn("text-xs font-black", classeLucro(prod.lucro, "text-emerald-300"))}>{formatarLucroBRL(prod.lucro)}</span>
                                    </div>
                                 </div>
                              </div>
@@ -4141,8 +4146,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                           <p className="text-sm font-black text-white">R$ {fmt(totalNotas)}</p>
                         </div>
                         <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-400/70">Lucro das notas</p>
-                          <p className="text-sm font-black text-emerald-400">R$ {fmt(totalLucro)}</p>
+                          <p className={cn("text-[8px] font-black uppercase tracking-widest", totalLucro < 0 ? "text-rose-400/70" : "text-emerald-400/70")}>Lucro das notas</p>
+                          <p className={cn("text-sm font-black", classeLucro(totalLucro, "text-emerald-400"))}>{formatarLucroBRL(totalLucro)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -4187,7 +4192,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                               </div>
                               <div className="flex items-center gap-3 shrink-0">
                                 <div className="text-right">
-                                  <p className="text-[8px] font-bold text-emerald-400/80">Lucro: R$ {fmt(nota.lucroVenda)}</p>
+                                  <p className={cn("text-[8px] font-bold", nota.lucroVenda < 0 ? "text-rose-400" : "text-emerald-400/80")}>Lucro: {formatarLucroBRL(nota.lucroVenda)}</p>
                                   <p className="text-xs font-black text-white">R$ {fmt(nota.total || 0)}</p>
                                 </div>
                                 <button
@@ -4209,7 +4214,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                     <span className="text-white/80 font-bold truncate">{it.qtd}x {it.nome}</span>
                                     <span className="shrink-0 tabular-nums">
                                       <span className="text-white font-black">R$ {fmt(it.valor)}</span>
-                                      <span className="text-emerald-400/80 font-bold ml-2">Lucro R$ {fmt(it.lucro)}</span>
+                                      <span className={cn("font-bold ml-2", it.lucro < 0 ? "text-rose-400" : "text-emerald-400/80")}>Lucro {formatarLucroBRL(it.lucro)}</span>
                                     </span>
                                   </div>
                                 ))}
@@ -4329,7 +4334,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right shrink-0 flex items-center gap-3">
                                       <div className="text-right">
-                                         <span className="text-[8px] text-emerald-400/70 font-bold block">Lucro: R$ {venda.lucroVenda.toFixed(2)}</span>
+                                         <span className={cn("text-[8px] font-bold block", venda.lucroVenda < 0 ? "text-rose-400" : "text-emerald-400/70")}>Lucro: {formatarLucroBRL(venda.lucroVenda)}</span>
                                          <p className="text-xs font-black text-white">R$ {venda.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                       </div>
                                       <ArrowRight className="w-3 h-3 text-white/20" />
