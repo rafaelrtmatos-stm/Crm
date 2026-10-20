@@ -13,6 +13,7 @@ import {
 import { supabase } from '../../supabase';
 import { useApp } from '../../AppContext';
 import { showAlert } from '../../lib/notify';
+import { salvarRegistroPonto } from '../../lib/pontoRegistroSalvar';
 import {
   PontoJornada,
   PontoRegistro,
@@ -349,31 +350,7 @@ export function PontoApp() {
 
   // ---------------- Ações de Banco de Dados ----------------
   const salvarRegistro = async (fid: string, data: string, h: Partial<PontoRegistro>) => {
-    const n = (v?: string | null) => (v ? v : null);
-    // Dia que veio do relógio e foi corrigido continua "importacao" + editado_manual (o corte da importação
-    // depende disso); dia que não existia é criado à mão ("manual").
-    const { data: atual } = await supabase
-      .from('ponto_registros')
-      .select('origem')
-      .eq('funcionario_id', fid)
-      .eq('data', data)
-      .maybeSingle();
-    const origem = atual?.origem === 'importacao' ? 'importacao' : 'manual';
-    const { error } = await supabase.from('ponto_registros').upsert(
-      {
-        funcionario_id: fid,
-        data,
-        entrada: n(h.entrada),
-        inicio_intervalo: n(h.inicio_intervalo),
-        fim_intervalo: n(h.fim_intervalo),
-        saida: n(h.saida),
-        observacao: n(h.observacao),
-        origem,
-        editado_manual: true,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'funcionario_id,data' }
-    );
+    const { error } = await salvarRegistroPonto(fid, data, h);
     if (error) {
       showAlert(`Erro ao salvar registro de ponto: ${error.message}`);
       return;

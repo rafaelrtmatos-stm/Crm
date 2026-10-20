@@ -4,8 +4,11 @@ import{formatCurrency}from'../utils/storage';
 import{getWorkWeekBounds,getDescontosValesBounds}from'../utils/caixaSemanalStorage';
 import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,detalheFeriado,ehFeriado}from'../../lib/feriados';
 import{PontoJornada,PontoRegistro,analisarDia,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
-import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight}from'lucide-react';
+import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight,Pencil}from'lucide-react';
 import{BancoHorasLancamentos}from'../../components/ponto/BancoHorasLancamentos';
+import{RegistroModal}from'../../components/ponto/PontoModals';
+import{salvarRegistroPonto}from'../../lib/pontoRegistroSalvar';
+import{showAlert}from'../../lib/notify';
 
 export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase:number;canEdit?:boolean}>=({colaboradorId,nome,salarioBase,canEdit=false})=>{
  const[func,setFunc]=useState<any>(null);
@@ -13,6 +16,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const[jornadas,setJornadas]=useState<PontoJornada[]>([]);
  const[banco,setBanco]=useState<any[]>([]);
  const[loading,setLoading]=useState(true);
+ const[editReg,setEditReg]=useState<{funcionario_id:string;data:string;reg:PontoRegistro|null}|null>(null);
+ const[reloadKey,setReloadKey]=useState(0);
 
  // Semana de pagamento do ponto: aos sábados é a semana de 2 ciclos atrás (ex.: sáb 17/10 -> 03/10 a 09/10); de domingo a sexta, a semana passada.
  const pagamentoOffset=new Date().getDay()===6?-2:-1;
@@ -55,7 +60,16 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
      setLoading(false);
    })();
    return()=>{ok=false};
- },[colaboradorId,bounds.start,bounds.end]);
+ },[colaboradorId,bounds.start,bounds.end,reloadKey]);
+
+ // Admin corrige as batidas do dia (mesma gravação do Registro de Ponto no Controle de Ponto) e recarrega a semana.
+ const salvarRegistro=async(fid:string,data:string,h:Partial<PontoRegistro>)=>{
+   const{error}=await salvarRegistroPonto(fid,data,h);
+   if(error){showAlert(`Erro ao salvar registro de ponto: ${error.message}`);return;}
+   setEditReg(null);
+   setReloadKey(k=>k+1);
+   showAlert('Registro de ponto salvo com sucesso.');
+ };
 
  const rMap=useMemo(()=>new Map(registros.map(r=>[r.data,r])),[registros]);
  const semana=useMemo(()=>{
@@ -231,7 +245,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     </div>
   )}
 
-  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th></tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&faltasCount>0)return'Folga perdida por falta';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome+(e.tipo==='feriado'&&d.a.previstos>0?' (abonado)':''):d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td></tr>)}</tbody></table></div></div>
+  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th>{canEdit&&<th className="text-right">Editar</th>}</tr></thead><tbody>{semana.map(d=><tr key={d.data} className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}{d.r?.editado_manual&&<span title="Editado manualmente" className="ml-1 text-emerald-400">✎</span>}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&faltasCount>0)return'Folga perdida por falta';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome+(e.tipo==='feriado'&&d.a.previstos>0?' (abonado)':''):d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td>{canEdit&&<td className="text-right"><button type="button" title="Editar registro" onClick={()=>setEditReg({funcionario_id:func.id,data:d.data,reg:d.r||null})} className="p-1 rounded-lg text-[var(--text-muted)] hover:text-emerald-400 hover:bg-[var(--bg-card-sec)] cursor-pointer"><Pencil className="w-3.5 h-3.5"/></button></td>}</tr>)}</tbody></table></div></div>
   
   <div className={card}>
     <h3 className="font-black mb-2">Feriados e Pontos Facultativos do Mês ({mesSelecao}/{anoSelecao})</h3>
@@ -249,5 +263,6 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
       </ul>
     )}
   </div>
+  {canEdit&&editReg&&<RegistroModal ctx={editReg} onClose={()=>setEditReg(null)} onSave={salvarRegistro}/>}
  </div>
 };
