@@ -28313,6 +28313,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          pix={pixConfig}
          companyId={currentCompany?.id || 'rafa-arts'}
          onClose={() => setCobrancaOrder(null)}
+         onConversaAberta={() => { setViewingReceiptSale(null); setReceiptOpenedFromProduction(false); }}
        />
      )}
 

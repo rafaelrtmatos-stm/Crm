@@ -8,7 +8,7 @@ import {
   PixConfigLite,
   OpcaoCobranca,
   criarLinkPagamento,
-  enviarCobrancaPix,
+  prepararCobrancaPix,
   montarTextoLinkPagamento,
   fmtBRL,
   fmtValidade,
@@ -17,7 +17,7 @@ import {
 } from '../lib/cobrancaPix';
 
 // "Cobrar saldo via PIX": a partir de uma nota já salva, prepara a cobrança para o cliente (WhatsApp)
-//  - MENSAGEM: QR Code (imagem) + PIX copia e cola, com o valor escolhido (50%, total ou outro); ou
+//  - MENSAGEM: QR Code (imagem) + PIX copia e cola na caixa de mensagem da conversa (sem envio automático); ou
 //  - LINK: página pública /pagar/:token em que o próprio cliente escolhe entre as opções marcadas — o texto vai para a
 //    CAIXA DE MENSAGEM da conversa (como recibo/orçamento), sem envio automático.
 
@@ -27,10 +27,12 @@ interface Props {
   pix: PixConfigLite;
   companyId: string;
   onClose: () => void;
+  /** Chamado depois que link/QR foram colocados na caixa de mensagem (ex.: PDV fecha a nota aberta e limpa o retorno). */
+  onConversaAberta?: () => void;
 }
 
-export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, pix, companyId, onClose }) => {
-  const { openWhatsAppChat } = useApp();
+export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, pix, companyId, onClose, onConversaAberta }) => {
+  const { openWhatsAppChat, setPendingReceiptAttachment } = useApp();
   const pago = order.downPayment ?? order.receivedValue ?? (order.status === 'completed' ? order.total : 0);
   const restante = Math.max(0, Number((order.total - pago).toFixed(2)));
   const padrao = useMemo(() => opcoesPadrao(restante), [restante]);
@@ -76,21 +78,25 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     return true;
   };
 
+  // QR + copia e cola: gera a imagem e deixa imagem + legenda (com o copia e cola ao final) na CAIXA DE MENSAGEM da conversa.
+  // Nada é enviado sozinho: quem manda é o usuário, clicando em enviar no chat.
   const enviarMensagem = async () => {
     if (enviando || !validar()) return;
     setEnviando(true);
     try {
-      const r = await enviarCobrancaPix({
-        phone: telefone,
+      const r = await prepararCobrancaPix({
         customerName: order.customerName,
         itens: order.items,
         orderId: order.id,
         valor: opcoesParaEnviar[0].valor_centavos / 100,
         pix,
       });
-      if (!r.ok) { showAlert(`Não foi possível enviar a cobrança: ${r.erro || 'erro no envio'}`); return; }
-      showAlert('Cobrança enviada no WhatsApp do cliente!');
+      if (r.ok === false) { showAlert(`Não foi possível preparar a cobrança: ${r.erro}`); return; }
+      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone });
       onClose();
+      onConversaAberta?.();
+      await openWhatsAppChat(telefone, order.customerName || 'Cliente', '');
+      showAlert('QR e copia e cola estão na caixa de mensagem — revise e envie.');
     } finally {
       setEnviando(false);
     }
@@ -119,6 +125,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
       if (!link.ok || !link.url) { showAlert(`Não foi possível criar o link: ${link.erro || 'erro desconhecido'}`); return; }
       const texto = montarTextoLinkPagamento({ customerName: order.customerName, itens: order.items, opcoes: opcoesParaEnviar, url: link.url, expiraEm: link.expiraEm });
       onClose();
+      onConversaAberta?.();
       await openWhatsAppChat(telefone, order.customerName || 'Cliente', texto);
       showAlert('Link criado! O texto está na caixa de mensagem da conversa — revise e envie.');
     } finally {
@@ -149,7 +156,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     (ativo ? 'bg-primary-500/20 text-primary-200 border-primary-500/50' : 'bg-white/[0.03] text-white/60 border-white/10 hover:bg-white/[0.08]');
 
   return (
-    <Modal isOpen onClose={onClose} title="Cobrar saldo via PIX" size="sm" className="w-full max-w-[calc(100vw-24px)] sm:max-w-md mx-auto rounded-[22px] p-3 sm:p-4">
+    <Modal isOpen onClose={onClose} zIndex={70} title="Cobrar saldo via PIX" size="sm" className="w-full max-w-[calc(100vw-24px)] sm:max-w-md mx-auto rounded-[22px] p-3 sm:p-4">
       <div className="space-y-3">
         <div className="p-3 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
           <div>
@@ -241,7 +248,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
             className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 border border-primary-500/40 flex items-center gap-1.5 disabled:opacity-50"
           >
             <MessageSquare size={15} />
-            <span>{enviando ? (modo === 'mensagem' ? 'Enviando...' : 'Criando link...') : (modo === 'mensagem' ? 'Enviar no WhatsApp' : 'Colocar link na conversa')}</span>
+            <span>{enviando ? (modo === 'mensagem' ? 'Preparando...' : 'Criando link...') : (modo === 'mensagem' ? 'Colocar na conversa' : 'Colocar link na conversa')}</span>
           </button>
         </div>
       </div>
