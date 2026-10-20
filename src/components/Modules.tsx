@@ -15078,7 +15078,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingReceiptReturnTab, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -18068,12 +18068,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [receiptOpenedFromProduction, setReceiptOpenedFromProduction] = useState(false);
+  // Aba para onde voltar ao fechar a nota aberta de fora do PDV (conversa, Serviços...). Padrão: Serviços.
+  const [receiptReturnTab, setReceiptReturnTab] = useState<string>('production');
 
   const handleCloseReceiptViewer = () => {
     setViewingReceiptSale(null);
     if (receiptOpenedFromProduction) {
       setReceiptOpenedFromProduction(false);
-      setRootActiveTab('production');
+      setRootActiveTab(receiptReturnTab || 'production');
     }
   };
 
@@ -18082,7 +18084,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setAllowExtraPaymentEntry(false);
     if (receiptOpenedFromProduction) {
       setReceiptOpenedFromProduction(false);
-      setRootActiveTab('production');
+      setRootActiveTab(receiptReturnTab || 'production');
     }
   };
 
@@ -18096,7 +18098,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Nao precisa trocar de sub-aba: o recibo e um modal que aparece por cima de qualquer uma delas.
   useEffect(() => {
     if (!pendingReceiptOpenId) return;
-    openReceiptById(pendingReceiptOpenId).then(() => setReceiptOpenedFromProduction(true));
+    const abaDeOrigem = pendingReceiptReturnTab || 'production';
+    openReceiptById(pendingReceiptOpenId).then(() => { setReceiptReturnTab(abaDeOrigem); setReceiptOpenedFromProduction(true); });
     setPendingReceiptOpenId(null);
   }, [pendingReceiptOpenId]);
 
@@ -18933,6 +18936,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  // false enquanto o PDV ainda carrega chave PIX, formas de pagamento e taxas (ex.: nota aberta direto da conversa).
+  const [configPdvCarregada, setConfigPdvCarregada] = useState(false);
   const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'; beneficiaryName: string; city: string; bank?: string } | null>(null);
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
@@ -19518,7 +19523,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setPixConfig(null);
       }
     };
-    load();
+    load().catch(err => console.warn('Falha ao carregar configurações do PDV:', err?.message || err)).finally(() => setConfigPdvCarregada(true));
     const channel = supabase
       .channel('pos-configuracoes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
@@ -25635,7 +25640,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          setSelectedCustomer(null);
          if (receiptOpenedFromProduction) {
            setReceiptOpenedFromProduction(false);
-           setRootActiveTab('production');
+           setRootActiveTab(receiptReturnTab || 'production');
          }
        }} 
        title={lastFinalizedOrder?.status === 'pending' ? 'Entrada Salva / Nota Aberta 📝' : 'Venda Finalizada 🎉'}
@@ -28534,15 +28539,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    size="sm"
                    icon={CheckCircle2}
                    className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-sm"
+                   disabled={!configPdvCarregada}
                    onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
                  >
-                   Quitar
+                   {configPdvCarregada ? 'Quitar' : 'Carregando…'}
                  </Button>
                )}
-               {isPending && pixConfig && sale.status !== 'canceled' && (
+               {isPending && (pixConfig || !configPdvCarregada) && sale.status !== 'canceled' && (
                  <Button
                    variant="secondary"
                    size="sm"
+                   disabled={!pixConfig}
                    icon={QrCode}
                    className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 border-primary-500/30"
                    onClick={() => setCobrancaOrder(sale)}

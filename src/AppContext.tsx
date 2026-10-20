@@ -39,6 +39,7 @@ export interface AppContextType {
   openWhatsAppChat: (phone: string, name: string, prefillMessage?: string) => Promise<void>;
   pendingReceiptOpenId: string | null;
   setPendingReceiptOpenId: (id: string | null) => void;
+  pendingReceiptReturnTab?: string | null;
   pendingHistoryClientFilter: { clienteId: string; clienteName: string } | null;
   setPendingHistoryClientFilter: (v: { clienteId: string; clienteName: string } | null) => void;
   pendingHistoryProductSearch: string | null;
