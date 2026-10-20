@@ -2161,9 +2161,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         .filter(c => { const d = new Date(`${c.data}T00:00:00`); return d >= periodoStart && d <= periodoEnd; })
         .reduce((acc, c) => acc + c.valor, 0);
 
-  const contributionMargin = totalRevenue > 0 ? (Math.max(0, totalRevenue - totalCost) / totalRevenue) : 0.65;
+  // Margem de contribuição REAL: pode ser zero ou negativa (custo das notas acima da receita) — não zerar, senão esconde o prejuízo.
+  // A divisão já é protegida por totalRevenue > 0; sem receita não há margem apurável e usa 65% só como referência.
+  const contributionMargin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue) : 0.65;
   const custoFixoTotalProporcional = despesasFixasProporcional + custoFuncionarios;
-  const breakevenPoint = contributionMargin > 0 ? (custoFixoTotalProporcional / contributionMargin) : custoFixoTotalProporcional / 0.65;
+  // Margem <= 0: não existe ponto de equilíbrio (cada venda aumenta o prejuízo) -> null, tratado na exibição.
+  const breakevenPoint: number | null = contributionMargin > 0 ? (custoFixoTotalProporcional / contributionMargin) : null;
 
   const avgMarkup = totalCost > 0 ? (totalRevenue / totalCost) : 3.1;
   const roiPercent = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 210;
@@ -2907,8 +2910,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             },
             { 
               label: 'Pto Equilíbrio', 
-              val: `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, 
-              diff: `${Math.min(100, Math.round((totalRevenue / (breakevenPoint || 1)) * 100))}% atingido`, 
+              val: breakevenPoint === null ? 'Inalcançável' : `R$ ${breakevenPoint.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`, 
+              diff: breakevenPoint === null ? 'Margem negativa: custo acima da receita' : `${Math.min(100, Math.round((totalRevenue / (breakevenPoint || 1)) * 100))}% atingido`, 
               color: 'text-purple-400', 
               borderHover: 'hover:border-purple-500/40',
               glow: 'bg-purple-500/10',

@@ -178,7 +178,8 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
   // 1. Apuração das vendas e lucro líquido real para cada período
   const { realizado, breakeven, metaAlvo, custoFixoPeriodo, lucroRealizado, lucroProjetadoMeta } = useMemo(() => {
     const now = new Date();
-    const margin = contributionMargin > 0 ? contributionMargin : 0.65;
+    // Margem real, inclusive zero ou negativa: não trocar por um valor padrão, senão o prejuízo some.
+    const margin = contributionMargin;
 
     let faturamentoPeriodo = 0;
     let custoPeriodo = custoTotalFixoMensal;
@@ -239,7 +240,8 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
       metaPeriodo = metas.mensal;
     }
 
-    const be = custoPeriodo / margin;
+    // Margem <= 0: não há ponto de equilíbrio alcançável.
+    const be: number | null = margin > 0 ? custoPeriodo / margin : null;
     const lReal = (faturamentoPeriodo * margin) - custoPeriodo;
     const lProj = (metaPeriodo * margin) - custoPeriodo;
 
@@ -254,13 +256,13 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
   }, [tab, realSales, custoTotalFixoMensal, contributionMargin, metas]);
 
   // Status e cálculos de progresso
-  const isAbaixoBreakeven = realizado < breakeven;
+  const isAbaixoBreakeven = breakeven === null || realizado < breakeven;
   const isMetaBatida = realizado >= metaAlvo;
 
   // Escala da barra visual: o máximo entre a meta, o breakeven e o realizado
-  const escalaMaxima = Math.max(metaAlvo * 1.1, breakeven * 1.2, realizado * 1.05, 1);
+  const escalaMaxima = Math.max(metaAlvo * 1.1, (breakeven ?? 0) * 1.2, realizado * 1.05, 1);
   const progressoPercentual = Math.min(100, Math.max(0, (realizado / escalaMaxima) * 100));
-  const breakevenPosPercentual = Math.min(95, Math.max(5, (breakeven / escalaMaxima) * 100));
+  const breakevenPosPercentual = breakeven === null ? null : Math.min(95, Math.max(5, (breakeven / escalaMaxima) * 100));
   const metaPosPercentual = Math.min(98, Math.max(10, (metaAlvo / escalaMaxima) * 100));
 
   const percentualMetaAtingido = metaAlvo > 0 ? (realizado / metaAlvo) * 100 : 0;
@@ -346,12 +348,14 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
             <AlertTriangle size={13} className="text-rose-400" />
           </div>
           <p className="text-xl sm:text-2xl font-black text-rose-400 font-mono">
-            R$ {breakeven.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {breakeven === null ? 'Inalcançável' : `R$ ${breakeven.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </p>
           <p className="text-[9px] text-rose-300/80 font-bold">
-            {isAbaixoBreakeven 
-              ? `Faltam R$ ${(breakeven - realizado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} para cobrir custos` 
-              : `✓ Superado em +R$ ${(realizado - breakeven).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+            {breakeven === null
+              ? 'Margem de contribuição negativa: o custo das notas supera a receita'
+              : isAbaixoBreakeven 
+                ? `Faltam R$ ${(breakeven - realizado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} para cobrir custos` 
+                : `✓ Superado em +R$ ${(realizado - breakeven).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           </p>
         </div>
 
@@ -434,16 +438,18 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
             <div className="absolute inset-0 bg-white/20 animate-pulse" />
           </div>
 
-          {/* Marcador Vermelho: Ponto de Equilíbrio */}
-          <div
-            className="absolute top-0 bottom-0 w-1 bg-rose-500 z-20 shadow-md shadow-rose-500/80"
-            style={{ left: `${breakevenPosPercentual}%` }}
-            title={`Ponto de Equilíbrio: R$ ${breakeven.toFixed(2)}`}
-          >
-            <span className="absolute -top-5 -translate-x-1/2 text-[8px] font-black uppercase tracking-wider text-rose-400 whitespace-nowrap bg-slate-950/90 px-1 py-0.5 rounded border border-rose-500/40">
-              🔴 P. Equilíbrio
-            </span>
-          </div>
+          {/* Marcador Vermelho: Ponto de Equilíbrio (some quando a margem é negativa e não há equilíbrio) */}
+          {breakeven !== null && breakevenPosPercentual !== null && (
+            <div
+              className="absolute top-0 bottom-0 w-1 bg-rose-500 z-20 shadow-md shadow-rose-500/80"
+              style={{ left: `${breakevenPosPercentual}%` }}
+              title={`Ponto de Equilíbrio: R$ ${breakeven.toFixed(2)}`}
+            >
+              <span className="absolute -top-5 -translate-x-1/2 text-[8px] font-black uppercase tracking-wider text-rose-400 whitespace-nowrap bg-slate-950/90 px-1 py-0.5 rounded border border-rose-500/40">
+                🔴 P. Equilíbrio
+              </span>
+            </div>
+          )}
 
           {/* Marcador Verde: Meta Alvo */}
           <div
@@ -481,8 +487,8 @@ export const DashboardMetasCard: React.FC<DashboardMetasCardProps> = ({
             </span>
             <span className="text-[9px] font-bold text-white/40">Após Insumos, Luz, Aluguel e Salários</span>
           </div>
-          <p className="text-base sm:text-lg font-black text-emerald-300 font-mono">
-            R$ {lucroProjetadoMeta.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <p className={cn("text-base sm:text-lg font-black font-mono", lucroProjetadoMeta < 0 ? "text-rose-400" : "text-emerald-300")}>
+            {lucroProjetadoMeta < 0 ? '-' : ''}R$ {Math.abs(lucroProjetadoMeta).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[9px] text-white/50 font-medium">
             Descontando <strong className="text-white/80">R$ {custoFixoPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> de custos fixos + folha de colaboradores do período.
