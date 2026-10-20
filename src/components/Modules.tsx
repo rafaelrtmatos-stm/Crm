@@ -277,6 +277,7 @@ import { enviarAvisoPagamentoPix } from '../lib/cobrancaPix';
 import { verificarPagamentosLinks } from '../lib/verificarPagamentosLinks';
 import { EVENTO_PAGAMENTO_LINK, modaisParaFechar, tocarSomDeDinheiro } from '../lib/pagamentoRecebido';
 import { EnviarCobrancaModal } from './EnviarCobrancaModal';
+import { NotaNaConversaModal } from './NotaNaConversaModal';
 import { PixPaymentModal } from './PixPaymentModal';
 import { PagadorPixBloco } from './PagadorPixBloco';
 import { PixQrImage } from './PixQrImage';
@@ -4750,6 +4751,8 @@ export const ChatPanel = ({
   const isUserAdmin = Boolean(user?.isAdmin || (user?.role as any) === 'admin' || (user?.role as any) === 'master');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [isQuickRepliesModalOpen, setIsQuickRepliesModalOpen] = useState(false);
+  // Nota/orçamento aberto por cima da conversa (sem trocar de aba)
+  const [notaNaConversa, setNotaNaConversa] = useState<{ tipo: 'venda' | 'orcamento'; id: string } | null>(null);
   const [quickRepliesSearch, setQuickRepliesSearch] = useState('');
   const quickRepliesBtnRef = useRef<HTMLButtonElement>(null);
   const [quickRepliesPos, setQuickRepliesPos] = useState<{ bottom: number; left: number }>({ bottom: 80, left: 16 });
@@ -10439,9 +10442,9 @@ export const ChatPanel = ({
                 onSaveOrderInfo={handleSaveOrderInfo}
                 isSavingOrderInfo={isSavingOrderInfo}
                 onStartSale={handleStartSale}
-                onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenVenda={(id) => setNotaNaConversa({ tipo: 'venda', id })}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
-                onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenOrcamento={(id) => setNotaNaConversa({ tipo: 'orcamento', id })}
               />
             </motion.div>
           </div>
@@ -10512,9 +10515,9 @@ export const ChatPanel = ({
                 onSaveOrderInfo={handleSaveOrderInfo}
                 isSavingOrderInfo={isSavingOrderInfo}
                 onStartSale={handleStartSale}
-                onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenVenda={(id) => setNotaNaConversa({ tipo: 'venda', id })}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
-                onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenOrcamento={(id) => setNotaNaConversa({ tipo: 'orcamento', id })}
               />
             </motion.div>
           ) : (
@@ -10578,9 +10581,9 @@ export const ChatPanel = ({
                 onSaveOrderInfo={handleSaveOrderInfo}
                 isSavingOrderInfo={isSavingOrderInfo}
                 onStartSale={handleStartSale}
-                onOpenVenda={(id) => { setPendingReceiptOpenId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenVenda={(id) => setNotaNaConversa({ tipo: 'venda', id })}
                 onOpenContrato={(id) => { setPendingOpenContratoId?.(id); setRootActiveTab?.('pos'); }}
-                onOpenOrcamento={(id) => { setPendingOpenOrcamentoId?.(id); setRootActiveTab?.('pos'); }}
+                onOpenOrcamento={(id) => setNotaNaConversa({ tipo: 'orcamento', id })}
               />
             </motion.div>
           )
@@ -10610,6 +10613,23 @@ export const ChatPanel = ({
             />
           </div>
         </Modal>
+      )}
+
+      {notaNaConversa && (
+        <NotaNaConversaModal
+          tipo={notaNaConversa.tipo}
+          id={notaNaConversa.id}
+          companyId={currentCompany?.id || 'rafa-arts'}
+          mapVendaRow={mapVendaRow}
+          mapOrcamentoRow={mapOrcamentoRow}
+          onClose={() => setNotaNaConversa(null)}
+          onAbrirNoPdv={() => {
+            const alvo = notaNaConversa;
+            setNotaNaConversa(null);
+            if (alvo.tipo === 'venda') setPendingReceiptOpenId?.(alvo.id); else setPendingOpenOrcamentoId?.(alvo.id);
+            setRootActiveTab?.('pos');
+          }}
+        />
       )}
     </div>
   );
