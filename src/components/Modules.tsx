@@ -2160,6 +2160,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const custoInsumosQuitadas = calcularCustoInsumosOrders(quitadasOrders);
   const lucroLiquidoQuitada = receitaQuitadas - custoInsumosQuitadas - despesasFixasProporcional - custoFuncionarios;
   const margemQuitada = receitaQuitadas > 0 ? (lucroLiquidoQuitada / receitaQuitadas) * 100 : 0;
+  // Lucro negativo aparece como prejuízo: sinal antes do R$ e cor vermelha.
+  const fmtLucroBRL = (v: number) => `${v < 0 ? '-' : ''}R$ ${Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const totalSalesCount = filteredOrders.length;
   const pendingEntries = realSales.filter(o => o.status === 'pending');
@@ -2897,9 +2899,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             },
             { 
               label: 'Lucro — Faturamento', 
-              val: `R$ ${lucroLiquidoFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              val: fmtLucroBRL(lucroLiquidoFaturamento), 
               diff: `Margem: ${margemFaturamento.toFixed(1)}%`, 
-              color: 'text-emerald-300 font-black', 
+              color: lucroLiquidoFaturamento < 0 ? 'text-rose-400 font-black' : 'text-emerald-300 font-black', 
               borderHover: 'hover:border-emerald-400 border-emerald-500/30 bg-emerald-500/5',
               glow: 'bg-emerald-500/20',
               action: () => setExpandedLucroFat(prev => !prev),
@@ -2907,9 +2909,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             },
             { 
               label: 'Lucro — Receita Quitada', 
-              val: `R$ ${lucroLiquidoQuitada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+              val: fmtLucroBRL(lucroLiquidoQuitada), 
               diff: `Margem: ${margemQuitada.toFixed(1)}%`, 
-              color: 'text-teal-300 font-black', 
+              color: lucroLiquidoQuitada < 0 ? 'text-rose-400 font-black' : 'text-teal-300 font-black', 
               borderHover: 'hover:border-teal-400 border-teal-500/30 bg-teal-500/5',
               glow: 'bg-teal-500/20',
               action: () => setExpandedLucroQuit(prev => !prev),
@@ -2933,7 +2935,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                <div className="flex flex-col items-start gap-0.5 mt-auto">
                   {item.label === 'Lucro — Faturamento' ? (
                     <>
-                      <h5 className="text-xs sm:text-sm font-black text-emerald-300 leading-tight font-mono whitespace-nowrap">{item.val}</h5>
+                      <h5 className={cn("text-xs sm:text-sm font-black leading-tight font-mono whitespace-nowrap", lucroLiquidoFaturamento < 0 ? "text-rose-400" : "text-emerald-300")}>{item.val}</h5>
                       <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
                         {item.diff}
                       </span>
@@ -2949,7 +2951,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                     </>
                   ) : item.label === 'Lucro — Receita Quitada' ? (
                     <>
-                      <h5 className="text-xs sm:text-sm font-black text-teal-300 leading-tight font-mono whitespace-nowrap">{item.val}</h5>
+                      <h5 className={cn("text-xs sm:text-sm font-black leading-tight font-mono whitespace-nowrap", lucroLiquidoQuitada < 0 ? "text-rose-400" : "text-teal-300")}>{item.val}</h5>
                       <span className={cn("text-[8px] sm:text-[8.5px] font-bold leading-tight whitespace-nowrap", item.color)}>
                         {item.diff}
                       </span>
