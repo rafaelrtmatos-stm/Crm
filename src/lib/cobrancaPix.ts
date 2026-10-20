@@ -262,6 +262,56 @@ export async function enviarCobrancaPix(p: {
   return r2.ok ? { ok: true } : { ok: false, erro: r2.erro };
 }
 
+/** Legenda da cobrança PIX (QR + copia e cola). Usada no envio direto e no rascunho da caixa de mensagem. */
+function montarLegendaCobrancaPix(p: {
+  customerName?: string | null;
+  itens?: Array<{ name?: string; quantity?: number }>;
+  orderId?: string;
+  valor: number;
+}, instrucao: string): string {
+  const nota = numeroDaNota(p.orderId);
+  return [
+    '💳 *Cobrança via PIX*',
+    `Olá, ${abreviarNome(p.customerName)}! Segue o pagamento referente a: ${resumirItens(p.itens)}`,
+    `Valor: ${fmtBRL(p.valor)}${nota ? ` · Nota ${nota}` : ''}`,
+    '',
+    instrucao,
+  ].join('\n');
+}
+
+/**
+ * Prepara a cobrança PIX SEM enviar nada: gera o QR (PNG) e a legenda para cair na CAIXA DE MENSAGEM da conversa
+ * (setPendingReceiptAttachment + openWhatsAppChat), como recibo/orçamento. O copia e cola vai ao final da legenda,
+ * na mesma mensagem da imagem. Quem envia é o usuário.
+ */
+export async function prepararCobrancaPix(p: {
+  customerName?: string | null;
+  itens?: Array<{ name?: string; quantity?: number }>;
+  orderId?: string;
+  valor: number;
+  pix: PixConfigLite;
+}): Promise<{ ok: true; file: File; previewUrl: string; legenda: string; payload: string } | { ok: false; erro: string }> {
+  try {
+    const payload = buildPixPayload({
+      key: p.pix.key,
+      keyType: p.pix.keyType,
+      beneficiaryName: p.pix.beneficiaryName,
+      city: p.pix.city,
+      amount: Number(p.valor.toFixed(2)),
+    });
+    const QRCode = (await import('qrcode')).default;
+    const dataUrl = await QRCode.toDataURL(payload, { margin: 2, width: 600, errorCorrectionLevel: 'M' });
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], 'pix.png', { type: 'image/png' });
+    const previewUrl = URL.createObjectURL(blob);
+    const base = montarLegendaCobrancaPix(p, 'Pague lendo o QR Code acima ou use o PIX copia e cola abaixo:');
+    const legenda = `${base}\n\n${payload}`;
+    return { ok: true, file, previewUrl, legenda, payload };
+  } catch (e) {
+    return { ok: false, erro: e instanceof Error ? e.message : 'não foi possível gerar o QR Code' };
+  }
+}
+
 const tokenAleatorio = (): string => {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);

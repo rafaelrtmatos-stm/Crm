@@ -221,7 +221,7 @@ export const PixPaymentModal: React.FC<PixPaymentModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md" onClick={fechar} />
 
       <div
