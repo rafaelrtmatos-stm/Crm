@@ -938,7 +938,13 @@ export default function App() {
       showAlert('Não foi possível abrir a conversa no Funil de Atendimento.');
     }
   };
-  const [pendingReceiptOpenId, setPendingReceiptOpenId] = useState<string | null>(null);
+  const [pendingReceiptOpenId, setPendingReceiptOpenIdRaw] = useState<string | null>(null);
+  // Aba de onde a nota foi aberta (conversa, Serviços, Contatos...). Ao fechar a nota o PDV volta pra ela.
+  const [pendingReceiptReturnTab, setPendingReceiptReturnTab] = useState<string | null>(null);
+  const setPendingReceiptOpenId = (id: string | null) => {
+    if (id) setPendingReceiptReturnTab(activeTab && activeTab !== 'pos' ? activeTab : null);
+    setPendingReceiptOpenIdRaw(id);
+  };
   const [pendingHistoryClientFilter, setPendingHistoryClientFilter] = useState<{ clienteId: string; clienteName: string } | null>(null);
   const [pendingHistoryProductSearch, setPendingHistoryProductSearch] = useState<string | null>(null);
   const [pendingReceivablesFilter, setPendingReceivablesFilter] = useState(false);
@@ -3097,6 +3103,7 @@ export default function App() {
     openWhatsAppChat,
     pendingReceiptOpenId,
     setPendingReceiptOpenId,
+    pendingReceiptReturnTab,
     pendingHistoryClientFilter,
     setPendingHistoryClientFilter,
     pendingHistoryProductSearch,

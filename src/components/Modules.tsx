@@ -300,9 +300,10 @@ import { format } from 'date-fns';
 import { leadLastMessageDate, formatListTime } from '../lib/leadTime';
 import { getDespesasFixasTotalMensal } from './DespesasFixasModule';
 import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
-import { calculateDescontosNoPeriodo } from '../comissoes/utils/supabaseStorage';
+import { calculateDescontosNoPeriodo, calcularSalarioSemanal } from '../comissoes/utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
+import { calcularPontoSalarioPorColaborador } from '../comissoes/utils/pontoSalario';
 import { calcularPrevisaoRecebimento, calcularAReceber } from '../comissoes/utils/previsaoRecebimento';
 import { DashboardMetasCard } from './DashboardMetasCard';
 import { fetchAllRows } from '../lib/fetchAllRows';
@@ -1499,6 +1500,11 @@ export function getSemanaSabSex(offset = 0): { start: Date; end: Date } {
   return { start, end };
 }
 
+// Lucro com sinal: negativo aparece como "-R$ 12,00" (e em vermelho via classeLucro) em vez de R$ 0 ou verde.
+const formatarLucroBRL = (v: number, casas = 2) =>
+  `${v < 0 ? '-' : ''}R$ ${Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}`;
+const classeLucro = (v: number, classePositivo: string) => (v < 0 ? 'text-rose-400' : classePositivo);
+
 export const DashboardModule = ({ user, currentCompany, companies = [], pendingOrders = [], setActiveTab, setIsMessagePopupOpen }: { user: AppUser | null, currentCompany: Company | null, companies?: Company[], pendingOrders?: SaleOrder[], setActiveTab?: (tab: any) => void, setIsMessagePopupOpen?: (open: boolean) => void }) => {
   const { setPendingReceivablesFilter, setPendingQuitadasFilter, setPendingGoToHistorico, setPendingGoToServicos, setPendingHistoryProductSearch, setPendingReceiptOpenId } = React.useContext(AppContext)!;
   const [isEditMode, setIsEditMode] = useState(false);
@@ -1632,7 +1638,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const semanaFolhaOffset = (period === '7 dias' || period === 'Semana') ? semanaOffset : 0;
   const [totalEstimadoFuncionarios, setTotalEstimadoFuncionarios] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('rpro_equipe_total_estimado');
+      const cached = localStorage.getItem('rpro_dash_custo_equipe_semana');
       if (cached) return Number(cached) || 0;
     }
     return 0;
@@ -1646,9 +1652,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         // No sábado, o Dashboard mostra o ciclo encerrado na sexta-feira.
         // De domingo a sexta, mostra o ciclo atual em apuração.
         const isSaturday = new Date().getDay() === 6;
-        const { start, end } = semanaFolhaOffset !== 0
-          ? getWorkWeekBounds(semanaFolhaOffset)
-          : getWorkWeekBounds(isSaturday ? -1 : 0);
+        const offsetCicloExibido = semanaFolhaOffset !== 0 ? semanaFolhaOffset : (isSaturday ? -1 : 0);
+        const { start, end } = getWorkWeekBounds(offsetCicloExibido);
         const descBounds = getDescontosValesBounds(start, end);
 
         const [colabsRes, servicosRes, descontosRes, pagamentosRes, caixasRes, vendasRes] = await Promise.all([
@@ -1661,7 +1666,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
             .select('colaborador_id, valor')
             .gte('data', descBounds.start).lte('data', descBounds.end),
           supabase.from('comissoes_caixas_semanais')
-            .select('colaborador_id, saldo_anterior, saldo_final, status')
+            .select('colaborador_id, saldo_anterior, saldo_final, status, salario_base, total_descontos')
             .eq('semana_inicio', start).eq('semana_fim', end),
           supabase.from('vendas')
             .select('total, status, down_payment, created_at')
@@ -1669,6 +1674,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         ]);
 
         const colabs = colabsRes.data || [];
+        // Ponto eletrônico (semana anterior ao ciclo): horas, DSR, feriado, hora extra e banco de horas — mesma função da aba Funcionários.
+        let pontoSalarioMap: Record<string, { base: number; debitoVal: number }> = {};
+        try {
+          pontoSalarioMap = await calcularPontoSalarioPorColaborador(colabs, offsetCicloExibido - 1);
+        } catch (err: any) {
+          console.warn('Aviso ponto no custo de equipe do Dashboard:', err?.message || err);
+        }
         const servicos = servicosRes.data || [];
         const descontos = descontosRes.data || [];
         const pagamentos = pagamentosRes.data || [];
@@ -1756,13 +1768,27 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
           );
 
           const caixa = caixasByColab[c.id];
-          const saldoAnterior = Number(caixa?.saldo_anterior) || 0;
-          const totalDescontos = calculateDescontosNoPeriodo(
-            descontosByColab[c.id] || [],
-            descBounds.start,
-            descBounds.end
-          );
-          const totalPago = pagamentosByColab[c.id] || 0;
+          const caixaFechado = caixa?.status === 'fechado';
+
+          // Salário semanal: com ponto eletrônico usa as horas trabalhadas; caixa fechado tem prioridade (snapshot congelado).
+          if (modalidade !== 'meta' && modalidade !== 'faturamento_geral') {
+            const salarioBaseCadastrado = pontoSalarioMap[c.id]
+              ? pontoSalarioMap[c.id].base
+              : calcularSalarioSemanal(Number(c.salario_base) || 0);
+            const salarioBaseFechado = caixa?.salario_base;
+            remuneracao.salarioBaseEfetivo = caixaFechado && salarioBaseFechado != null
+              ? Number(salarioBaseFechado)
+              : salarioBaseCadastrado;
+          }
+
+          // Descontos: caixa fechado usa o total congelado; aberto = lançamentos do ciclo + débito do ponto.
+          const totalDescontos = caixaFechado && caixa?.total_descontos != null
+            ? Number(caixa.total_descontos)
+            : calculateDescontosNoPeriodo(
+                descontosByColab[c.id] || [],
+                descBounds.start,
+                descBounds.end
+              ) + (pontoSalarioMap[c.id]?.debitoVal || 0);
 
           // CUSTO da semana (não "a receber"): não abate o que já foi pago nem soma dívida/crédito de ciclos anteriores,
           // senão o custo cai a zero quando a equipe é paga e o lucro sobe.
@@ -1779,13 +1805,13 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         if (mounted) {
           setTotalEstimadoFuncionarios(totalEquipe);
           // O cache offline guarda so a semana atual; semanas navegadas nao sobrescrevem
-          if (semanaFolhaOffset === 0) localStorage.setItem('rpro_equipe_total_estimado', String(totalEquipe));
+          if (semanaFolhaOffset === 0) localStorage.setItem('rpro_dash_custo_equipe_semana', String(totalEquipe));
         }
       } catch (err) {
         // Mantém o último cache somente como fallback de indisponibilidade.
         console.warn('Dashboard: falha ao revalidar total de funcionários:', err);
         if (mounted && semanaFolhaOffset === 0) {
-          const cached = localStorage.getItem('rpro_equipe_total_estimado');
+          const cached = localStorage.getItem('rpro_dash_custo_equipe_semana');
           if (cached) setTotalEstimadoFuncionarios(Number(cached) || 0);
         }
       }
@@ -3683,12 +3709,12 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       </div>
                       <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
                          <p className="text-[8px] font-black uppercase text-emerald-400 tracking-widest mb-1">Lucro Bruto</p>
-                         <p className="text-base font-black text-emerald-400">R$ {analiseDetalhada.periodo.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                         <p className={cn("text-base font-black", classeLucro(analiseDetalhada.periodo.lucro, "text-emerald-400"))}>{formatarLucroBRL(analiseDetalhada.periodo.lucro)}</p>
                          <p className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">Antes das despesas • Margem: {analiseDetalhada.periodo.margemLucro.toFixed(1)}%</p>
                       </div>
                       <div className={cn("p-3 rounded-xl border", analiseDetalhada.periodo.lucroLiquido >= 0 ? "bg-teal-500/10 border-teal-500/20" : "bg-rose-500/10 border-rose-500/30")}>
                          <p className={cn("text-[8px] font-black uppercase tracking-widest mb-1", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>Lucro Líquido</p>
-                         <p className={cn("text-base font-black", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>R$ {analiseDetalhada.periodo.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                         <p className={cn("text-base font-black", analiseDetalhada.periodo.lucroLiquido >= 0 ? "text-teal-300" : "text-rose-300")}>{formatarLucroBRL(analiseDetalhada.periodo.lucroLiquido)}</p>
                          <p className="text-[8px] text-white/50 mt-0.5 font-bold">Após despesas fixas (R$ {analiseDetalhada.periodo.despesasFixas.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}) • Margem: {analiseDetalhada.periodo.margemLiquida.toFixed(1)}%</p>
                       </div>
                       <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
@@ -3699,7 +3725,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                       <div className="p-3 bg-white/5 rounded-xl border border-white/10">
                          <p className="text-[8px] font-black uppercase text-white/40 tracking-widest mb-1">Média Diária</p>
                          <p className="text-base font-black text-white">R$ {analiseDetalhada.mediaDiariaPeriodo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                         <p className="text-[8px] text-emerald-400 mt-0.5 font-bold">Lucro/dia: R$ {analiseDetalhada.mediaLucroDiario.toFixed(2)}</p>
+                         <p className={cn("text-[8px] mt-0.5 font-bold", classeLucro(analiseDetalhada.mediaLucroDiario, "text-emerald-400"))}>Lucro/dia: {formatarLucroBRL(analiseDetalhada.mediaLucroDiario)}</p>
                       </div>
                       <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
                          <p className="text-[8px] font-black uppercase text-purple-300 tracking-widest mb-1">Ticket Médio</p>
@@ -3957,7 +3983,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right hidden sm:block">
                                       <span className="text-[8px] font-bold text-emerald-400/60 uppercase block">Lucro Estimado</span>
-                                      <span className="text-xs font-black text-emerald-300">R$ {prod.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                      <span className={cn("text-xs font-black", classeLucro(prod.lucro, "text-emerald-300"))}>{formatarLucroBRL(prod.lucro)}</span>
                                    </div>
                                 </div>
                              </div>
@@ -4120,8 +4146,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                           <p className="text-sm font-black text-white">R$ {fmt(totalNotas)}</p>
                         </div>
                         <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-400/70">Lucro das notas</p>
-                          <p className="text-sm font-black text-emerald-400">R$ {fmt(totalLucro)}</p>
+                          <p className={cn("text-[8px] font-black uppercase tracking-widest", totalLucro < 0 ? "text-rose-400/70" : "text-emerald-400/70")}>Lucro das notas</p>
+                          <p className={cn("text-sm font-black", classeLucro(totalLucro, "text-emerald-400"))}>{formatarLucroBRL(totalLucro)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -4166,7 +4192,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                               </div>
                               <div className="flex items-center gap-3 shrink-0">
                                 <div className="text-right">
-                                  <p className="text-[8px] font-bold text-emerald-400/80">Lucro: R$ {fmt(nota.lucroVenda)}</p>
+                                  <p className={cn("text-[8px] font-bold", nota.lucroVenda < 0 ? "text-rose-400" : "text-emerald-400/80")}>Lucro: {formatarLucroBRL(nota.lucroVenda)}</p>
                                   <p className="text-xs font-black text-white">R$ {fmt(nota.total || 0)}</p>
                                 </div>
                                 <button
@@ -4188,7 +4214,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                     <span className="text-white/80 font-bold truncate">{it.qtd}x {it.nome}</span>
                                     <span className="shrink-0 tabular-nums">
                                       <span className="text-white font-black">R$ {fmt(it.valor)}</span>
-                                      <span className="text-emerald-400/80 font-bold ml-2">Lucro R$ {fmt(it.lucro)}</span>
+                                      <span className={cn("font-bold ml-2", it.lucro < 0 ? "text-rose-400" : "text-emerald-400/80")}>Lucro {formatarLucroBRL(it.lucro)}</span>
                                     </span>
                                   </div>
                                 ))}
@@ -4308,7 +4334,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                                    </div>
                                    <div className="text-right shrink-0 flex items-center gap-3">
                                       <div className="text-right">
-                                         <span className="text-[8px] text-emerald-400/70 font-bold block">Lucro: R$ {venda.lucroVenda.toFixed(2)}</span>
+                                         <span className={cn("text-[8px] font-bold block", venda.lucroVenda < 0 ? "text-rose-400" : "text-emerald-400/70")}>Lucro: {formatarLucroBRL(venda.lucroVenda)}</span>
                                          <p className="text-xs font-black text-white">R$ {venda.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                       </div>
                                       <ArrowRight className="w-3 h-3 text-white/20" />
@@ -6270,6 +6296,8 @@ export const ChatPanel = ({
   // cliente_id (do cadastro vinculado), telefone (últimos 8 dígitos) e nome completo oficial.
   const [clienteVendas, setClienteVendas] = useState<any[]>([]);
   const [isLoadingVendas, setIsLoadingVendas] = useState(false);
+  // Pedido do lead aberto em detalhe dentro da própria conversa (sem ir para o PDV)
+  const [vendaExpandidaId, setVendaExpandidaId] = useState<string | null>(null);
   useEffect(() => {
     let ativo = true;
     const digitosConv = (conversation?.phone || '').replace(/\D/g, '');
@@ -10174,8 +10202,49 @@ export const ChatPanel = ({
                                  {pendente ? `FALTA R$ ${saldo.toFixed(2).replace('.', ',')}` : 'PAGO'}
                                </Badge>
                                <span className="text-xs font-black text-white shrink-0">R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                               <button
+                                 type="button"
+                                 onClick={() => setVendaExpandidaId(prev => prev === venda.id ? null : venda.id)}
+                                 title={vendaExpandidaId === venda.id ? 'Fechar detalhes do pedido' : 'Ver o que foi pedido'}
+                                 className="p-1 rounded-lg text-white/50 hover:text-white hover:bg-white/10 cursor-pointer"
+                               >
+                                 {vendaExpandidaId === venda.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                               </button>
                              </div>
                           </div>
+                          {vendaExpandidaId === venda.id && (
+                            <div className="border-t border-white/5 pt-2 space-y-1">
+                              {(Array.isArray(venda.items) ? venda.items : []).length === 0 && (
+                                <p className="text-[9px] text-white/30">Pedido sem itens detalhados.</p>
+                              )}
+                              {(Array.isArray(venda.items) ? venda.items : []).map((it: any, idx: number) => {
+                                const qtd = Number(it.quantity) || 1;
+                                const preco = Number(it.price) || 0;
+                                const area = Number(it.area) || 0;
+                                const valorItem = area > 0 ? preco * area * qtd : preco * qtd;
+                                return (
+                                  <div key={idx} className="flex items-start justify-between gap-2 text-[10px]">
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-white truncate">{qtd}x {it.name || it.product_name || 'Item'}</p>
+                                      {it.dimensions && <p className="text-[9px] text-white/40">{it.dimensions}</p>}
+                                    </div>
+                                    <span className="font-black text-white/80 shrink-0">R$ {valorItem.toFixed(2).replace('.', ',')}</span>
+                                  </div>
+                                );
+                              })}
+                              <div className="flex justify-between text-[9px] text-white/50 pt-1 border-t border-white/5">
+                                <span>Pago: R$ {(venda.isFullyPaid ? venda.total : (venda.down_payment || 0)).toFixed(2).replace('.', ',')}</span>
+                                <span>Total: R$ {(venda.total || 0).toFixed(2).replace('.', ',')}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { setPendingReceiptOpenId?.(venda.id); setRootActiveTab?.('pos'); }}
+                                className="text-[8px] font-black uppercase px-2 py-1 rounded-full bg-primary-500/20 text-primary-300 hover:bg-primary-500/30 transition-colors cursor-pointer"
+                              >
+                                Abrir nota completa
+                              </button>
+                            </div>
+                          )}
                           {(venda.contrato_id || venda.orcamento_id) && (
                             <div className="flex flex-wrap gap-1 pt-1 border-t border-white/5">
                                {venda.contrato_id && (
@@ -15078,7 +15147,7 @@ const EntregaCountdown = ({ scheduledFor, delivered, onEdit, onDeliver, onDelete
 };
 
 export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany: Company | null, addPendingOrder: (order: SaleOrder) => void }) => {
-  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
+  const { isRegisterOpen, setIsRegisterOpen, user, setActiveTab: setRootActiveTab, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptOpenId, setPendingReceiptOpenId, pendingReceiptReturnTab, pendingHistoryClientFilter, setPendingHistoryClientFilter, pendingHistoryProductSearch, setPendingHistoryProductSearch, prefilledCustomer, setPrefilledCustomer, pendingReceivablesFilter, setPendingReceivablesFilter, pendingQuitadasFilter, setPendingQuitadasFilter, pendingGoToHistorico, setPendingGoToHistorico, pendingGoToServicos, setPendingGoToServicos, pendingOpenContratoId, setPendingOpenContratoId, pendingOpenOrcamentoId, setPendingOpenOrcamentoId, pendingOpenNotaNoPdv, setPendingOpenNotaNoPdv, setPendingReceiptAttachment } = React.useContext(AppContext)!;
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => localStorage.getItem('rpro_sound_alerts_enabled') !== 'false');
   const setSoundAlertsEnabled = (v: boolean) => {
     setSoundAlertsEnabledState(v);
@@ -18068,12 +18137,14 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   };
 
   const [receiptOpenedFromProduction, setReceiptOpenedFromProduction] = useState(false);
+  // Aba para onde voltar ao fechar a nota aberta de fora do PDV (conversa, Serviços...). Padrão: Serviços.
+  const [receiptReturnTab, setReceiptReturnTab] = useState<string>('production');
 
   const handleCloseReceiptViewer = () => {
     setViewingReceiptSale(null);
     if (receiptOpenedFromProduction) {
       setReceiptOpenedFromProduction(false);
-      setRootActiveTab('production');
+      setRootActiveTab(receiptReturnTab || 'production');
     }
   };
 
@@ -18082,7 +18153,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
     setAllowExtraPaymentEntry(false);
     if (receiptOpenedFromProduction) {
       setReceiptOpenedFromProduction(false);
-      setRootActiveTab('production');
+      setRootActiveTab(receiptReturnTab || 'production');
     }
   };
 
@@ -18096,7 +18167,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   // Nao precisa trocar de sub-aba: o recibo e um modal que aparece por cima de qualquer uma delas.
   useEffect(() => {
     if (!pendingReceiptOpenId) return;
-    openReceiptById(pendingReceiptOpenId).then(() => setReceiptOpenedFromProduction(true));
+    const abaDeOrigem = pendingReceiptReturnTab || 'production';
+    openReceiptById(pendingReceiptOpenId).then(() => { setReceiptReturnTab(abaDeOrigem); setReceiptOpenedFromProduction(true); });
     setPendingReceiptOpenId(null);
   }, [pendingReceiptOpenId]);
 
@@ -18933,6 +19005,8 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  // false enquanto o PDV ainda carrega chave PIX, formas de pagamento e taxas (ex.: nota aberta direto da conversa).
+  const [configPdvCarregada, setConfigPdvCarregada] = useState(false);
   const [pixConfig, setPixConfig] = useState<{ key: string; keyType?: 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'; beneficiaryName: string; city: string; bank?: string } | null>(null);
   const [isPixQrModalOpen, setIsPixQrModalOpen] = useState(false);
   const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(null);
@@ -19518,7 +19592,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
         setPixConfig(null);
       }
     };
-    load();
+    load().catch(err => console.warn('Falha ao carregar configurações do PDV:', err?.message || err)).finally(() => setConfigPdvCarregada(true));
     const channel = supabase
       .channel('pos-configuracoes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, load)
@@ -25635,7 +25709,7 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
          setSelectedCustomer(null);
          if (receiptOpenedFromProduction) {
            setReceiptOpenedFromProduction(false);
-           setRootActiveTab('production');
+           setRootActiveTab(receiptReturnTab || 'production');
          }
        }} 
        title={lastFinalizedOrder?.status === 'pending' ? 'Entrada Salva / Nota Aberta 📝' : 'Venda Finalizada 🎉'}
@@ -28534,15 +28608,17 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
                    size="sm"
                    icon={CheckCircle2}
                    className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-emerald-500 hover:bg-emerald-400 text-slate-900 border-none shadow-sm"
+                   disabled={!configPdvCarregada}
                    onClick={() => { setViewingReceiptSale(null); openSettlePayment(sale); }}
                  >
-                   Quitar
+                   {configPdvCarregada ? 'Quitar' : 'Carregando…'}
                  </Button>
                )}
-               {isPending && pixConfig && sale.status !== 'canceled' && (
+               {isPending && (pixConfig || !configPdvCarregada) && sale.status !== 'canceled' && (
                  <Button
                    variant="secondary"
                    size="sm"
+                   disabled={!pixConfig}
                    icon={QrCode}
                    className="flex-1 min-w-[100px] text-[9px] uppercase tracking-wider font-black h-9 sm:h-10 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 border-primary-500/30"
                    onClick={() => setCobrancaOrder(sale)}
