@@ -10,6 +10,7 @@
 // nunca re-somar o histórico inteiro do colaborador (ver fecharCaixa/avancarCaixaSeNecessario).
 
 import { supabase } from '../../supabase';
+import { PONTO_DATA_INICIO } from '../../lib/pontoCalc';
 import { ServiceItem, MetaValorItem } from '../types';
 import { Desconto, calculateDescontosNoPeriodo, ModalidadeRemuneracao } from './supabaseStorage';
 import { calcularRemuneracaoSemanal } from './remuneracaoHelper';
@@ -388,7 +389,7 @@ export function calcularResumoCaixa(
   services: ServiceItem[],
   descontos: Desconto[],
   pagamentos: Pagamento[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null> }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO');
@@ -413,11 +414,14 @@ export function calcularResumoCaixa(
   const descBounds = getDescontosValesBounds(caixa.semanaInicio, caixa.semanaFim);
   const totalDescontos = calculateDescontosNoPeriodo(descontos, descBounds.start, descBounds.end);
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-  const saldoSemana = remuneracao.totalBruto - totalDescontos - totalPago;
+  // Quem usa ponto eletrônico: o salário vem do ponto da semana (horas trabalhadas - DSR), no lugar do fixo.
+  const salarioBaseUsado = extra?.salarioBaseOverride != null ? Math.max(0, extra.salarioBaseOverride) : remuneracao.salarioBaseEfetivo;
+  const totalBruto = remuneracao.totalBruto - remuneracao.salarioBaseEfetivo + salarioBaseUsado;
+  const saldoSemana = totalBruto - totalDescontos - totalPago;
   const saldoFinal = caixa.saldoAnterior + saldoSemana;
 
   return {
-    salarioBase: remuneracao.salarioBaseEfetivo,
+    salarioBase: salarioBaseUsado,
     totalComissao: remuneracao.comissaoEfetiva,
     totalDescontos,
     totalPago,
@@ -440,7 +444,7 @@ export function calcularResumoNoIntervalo(
   pagamentos: Pagamento[],
   inicio: string,
   fim: string,
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null> }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO');
@@ -675,7 +679,7 @@ export async function avancarCaixaSeNecessario(
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null> }
 ): Promise<WeeklyCaixa> {
   let caixa = caixaInicial;
   const hoje = getTodayISO();
@@ -687,13 +691,60 @@ export async function avancarCaixaSeNecessario(
   while (caixa.status === 'aberto' && addDaysISO(caixa.semanaFim, 1) < hoje && guard < 260) {
     guard++;
     const pagamentosDaSemana = await getPagamentosDoCaixa(caixa.id);
-    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, extra);
+    const baseDoPonto = extra?.baseDaSemana ? await extra.baseDaSemana(caixa) : null;
+    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, { ...extra, salarioBaseOverride: baseDoPonto });
     const proximo = await fecharCaixa(caixa, resumo);
     if (!proximo) break; // não trava a tela numa semana antiga se o fechamento falhar
     caixa = proximo;
   }
 
   return caixa;
+}
+
+/**
+ * Reprocessa as semanas FECHADAS desde o início do ponto usando o salário do ponto (horas - DSR), e
+ * refaz a cadeia: o saldo final de cada semana vira o saldo anterior da seguinte, até a semana aberta.
+ * Comissão, descontos e pagamentos são relidos dos dados atuais.
+ */
+export async function recalcularSemanasComPonto(
+  colaboradorId: string,
+  salarioBase: number,
+  services: ServiceItem[],
+  descontos: Desconto[],
+  extra: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; baseDaSemana: (c: WeeklyCaixa) => Promise<number | null> }
+): Promise<{ semanas: number; ok: boolean }> {
+  const { data: rows } = await supabase
+    .from('comissoes_caixas_semanais')
+    .select('*')
+    .eq('colaborador_id', colaboradorId)
+    .gte('semana_fim', PONTO_DATA_INICIO)
+    .order('semana_inicio', { ascending: true });
+  if (!rows || rows.length === 0) return { semanas: 0, ok: true };
+
+  let ok = true;
+  let semanas = 0;
+  let carry = Number(rows[0].saldo_anterior) || 0;
+  for (let i = 0; i < rows.length; i++) {
+    const caixa = mapCaixaRow(rows[i]);
+    if (i > 0) caixa.saldoAnterior = carry;
+    const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+    if (i > 0) patch.saldo_anterior = Number(carry.toFixed(2));
+    if (caixa.status === 'fechado') {
+      const pagamentos = await getPagamentosDoCaixa(caixa.id);
+      const base = await extra.baseDaSemana(caixa);
+      const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentos, { ...extra, salarioBaseOverride: base });
+      patch.salario_base = resumo.salarioBase;
+      patch.total_comissao = resumo.totalComissao;
+      patch.total_descontos = resumo.totalDescontos;
+      patch.total_pago = resumo.totalPago;
+      patch.saldo_final = Number(resumo.saldoFinal.toFixed(2));
+      carry = Number(resumo.saldoFinal.toFixed(2));
+      semanas++;
+    }
+    const { error } = await supabase.from('comissoes_caixas_semanais').update(patch).eq('id', caixa.id);
+    if (error) { console.error('Erro ao recalcular semana:', error); ok = false; }
+  }
+  return { semanas, ok };
 }
 
 // --- Agregação por Período (Semana / Mês / Ano) ---

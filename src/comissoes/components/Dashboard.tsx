@@ -28,6 +28,7 @@ import {
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
 import { analisarDia, hojeStr, limitarInicioPonto } from '../../lib/pontoCalc';
+import { getBasePontoDaSemana } from '../utils/caixaPonto';
 import { resumoExtras, ehFeriado } from '../../lib/feriados';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
@@ -223,6 +224,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+        baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
       });
       if (cancelled) return;
       setCaixa(atualizado);

@@ -37,11 +37,13 @@ import {
   deletePagamento,
   calcularResumoCaixa,
   calcularResumoPorPeriodo,
+  recalcularSemanasComPonto,
   PeriodoVisualizacao,
   getWorkWeekBounds,
   getDescontosValesBounds,
   addDaysISO,
 } from '../utils/caixaSemanalStorage';
+import { getBasePontoDaSemana } from '../utils/caixaPonto';
 import { supabase } from '../../supabase';
 import { formatDateBR } from '../utils/storage';
 import { showAlert, showConfirm } from '../../lib/notify';
@@ -216,6 +218,9 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
   const [savingPagamento, setSavingPagamento] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  // Salário da semana aberta vindo do ponto (horas - DSR). null = não usa ponto: segue o salário fixo.
+  const [basePontoAberto, setBasePontoAberto] = useState<number | null>(null);
+  const [recalculando, setRecalculando] = useState(false);
   // ✅ Seletor de visualização do Caixa: Semana / Mês / Ano
   const [periodoVisualizacao, setPeriodoVisualizacao] = useState<PeriodoVisualizacao>('semana');
   // ✅ Navegação entre semanas/meses/anos: 0 = atual, -1 = anterior, 1 = seguinte...
@@ -239,6 +244,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
       const atualizado = await avancarCaixaSeNecessario(c, baseSalary, services, descontos, {
         modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao',
         metaPercentual,
+        baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
       });
       if (cancelled) return;
       setCaixa(atualizado);
@@ -268,6 +274,28 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
     };
   }, [colaboradorId]);
 
+  // Salário da semana aberta pelo ponto (mesmo valor do Meu Ponto).
+  useEffect(() => {
+    if (!caixa) { setBasePontoAberto(null); return; }
+    let cancelled = false;
+    getBasePontoDaSemana(colaboradorId, caixa.semanaInicio, caixa.semanaFim).then((b) => { if (!cancelled) setBasePontoAberto(b); });
+    return () => { cancelled = true; };
+  }, [caixa?.id, colaboradorId, reloadToken]);
+
+  // Reprocessa as semanas fechadas desde 03/10 com o salário do ponto e refaz a cadeia de saldos.
+  const handleRecalcularSemanas = async () => {
+    if (!(await showConfirm('Recalcular as semanas já fechadas com o salário do ponto (horas trabalhadas - DSR)?\n\nO saldo de cada semana é refeito e passa como Saldo Anterior para a seguinte. Pagamentos já feitos não mudam.'))) return;
+    setRecalculando(true);
+    const r = await recalcularSemanasComPonto(colaboradorId, baseSalary, services, descontos, {
+      modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao',
+      metaPercentual,
+      baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
+    });
+    setRecalculando(false);
+    showAlert(r.ok ? `${r.semanas} semana(s) recalculada(s).` : 'Algumas semanas não puderam ser recalculadas. Tente novamente.');
+    setReloadToken((t) => t + 1);
+  };
+
   // ✅ Pagamentos vinculados à semana atual aberta
   const pagamentosCaixaAberto = useMemo(
     () => (caixa ? pagamentos.filter((p) => p.caixaId === caixa.id) : []),
@@ -277,8 +305,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   // ✅ Resumo da semana atual (a do caixa aberto) -- alimenta o saldo acumulado
   // (dívida/crédito), que continua aparecendo sempre, independente do período visualizado.
   const resumoCaixa = useMemo(
-    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto, { modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao', metaPercentual }) : null),
-    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto, modalidadeRemuneracao, metaPercentual]
+    () => (caixa ? calcularResumoCaixa(caixa, baseSalary, services, descontos, pagamentosCaixaAberto, { modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao', metaPercentual, salarioBaseOverride: basePontoAberto }) : null),
+    [caixa, baseSalary, services, descontos, pagamentosCaixaAberto, modalidadeRemuneracao, metaPercentual, basePontoAberto]
   );
 
   // ✅ Resumo agregado conforme o período escolhido (Semana / Mês / Ano): semana atual calcula
@@ -626,7 +654,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
             </div>
             <div className="p-2.5 rounded-lg bg-[var(--bg-card-sec)] border border-[var(--border-color)]">
               <span className="text-[var(--text-muted)] block mb-1">
-                {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : modalidadeRemuneracao === 'meta' ? 'Fixo' : 'Salário Base'}
+                {modalidadeRemuneracao === 'fixo' ? 'Salário Fixo' : modalidadeRemuneracao === 'meta' ? 'Fixo' : 'Salário'}
               </span>
               <span className="font-bold font-mono text-[var(--text-main)]">
                 {modalidadeRemuneracao === 'meta' ? 'R$ 0,00' : formatCurrency(resumoPorPeriodo.salarioBase)}
@@ -674,6 +702,16 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
             <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
               <Banknote size={13} /> Pagamentos feitos n{periodoVisualizacao === 'semana' ? 'essa semana' : periodoVisualizacao === 'mes' ? 'esse mês' : 'esse ano'}
             </span>
+            {isAdmin && basePontoAberto !== null && !showPagamentoForm && (
+              <button
+                onClick={handleRecalcularSemanas}
+                disabled={recalculando}
+                className="flex items-center gap-1 text-[10px] font-black uppercase text-[var(--text-muted)] hover:text-primary-300 disabled:opacity-50"
+                title="Refaz as semanas fechadas com o salário do ponto"
+              >
+                {recalculando ? 'Recalculando...' : 'Recalcular semanas'}
+              </button>
+            )}
             {isAdmin && !showPagamentoForm && caixa && (
               <button
                 onClick={abrirFormPagamento}
