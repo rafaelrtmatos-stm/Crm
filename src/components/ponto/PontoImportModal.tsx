@@ -3,6 +3,7 @@ import { Upload, AlertTriangle, UserCheck, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../lib/notify';
 import { hojeStr, jornadaPadrao } from '../../lib/pontoCalc';
+import { getJornadaPadraoEmpresa } from '../../lib/pontoSetores';
 import {
   EstadoFuncionario,
   LeituraArquivo,
@@ -173,7 +174,7 @@ export function PontoImportModal({
       }
       await supabase
         .from('ponto_jornadas')
-        .insert(jornadaPadrao().map((j) => ({ ...j, funcionario_id: data.id, vigente_desde: '2000-01-01' })));
+        .insert(((await getJornadaPadraoEmpresa()) ?? jornadaPadrao()).map((j) => ({ ...j, funcionario_id: data.id, vigente_desde: '2000-01-01' })));
       await onFuncionarioCriado();
     } finally {
       setAssociando(null);

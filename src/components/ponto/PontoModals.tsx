@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Save, AlertTriangle, UserX, Clock, Coffee, LogIn, LogOut, Zap, Users, Sparkles, Check } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../lib/notify';
+import { getJornadaPadraoEmpresa } from '../../lib/pontoSetores';
 import {
   PontoJornada,
   PontoRegistro,
@@ -123,7 +124,7 @@ export function NovoFuncModal({
     await supabase
       .from('ponto_jornadas')
       .insert(
-        jornadaPadrao().map((j) => ({ ...j, funcionario_id: data.id, vigente_desde: '2000-01-01' }))
+        ((await getJornadaPadraoEmpresa()) ?? jornadaPadrao()).map((j) => ({ ...j, funcionario_id: data.id, vigente_desde: '2000-01-01' }))
       );
     showAlert('Funcionário cadastrado com sucesso!');
     onSaved();

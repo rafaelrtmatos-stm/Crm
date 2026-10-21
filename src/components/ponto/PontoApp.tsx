@@ -37,6 +37,7 @@ import {
   ColaboradorOption,
 } from './PontoFuncionarios';
 import { PontoPerfil } from './PontoPerfil';
+import { PontoSetores } from './PontoSetores';
 import { PontoImportModal } from './PontoImportModal';
 import { rotuloOrigem } from '../../lib/pontoImport';
 import {
@@ -924,6 +925,7 @@ export function PontoApp() {
 
               {/* TAB: CONFIGURAÇÕES (Funcionários Ativos, Inativos, Não Vinculados) */}
               {currentTab === 'configuracoes' && (
+                <div className="space-y-6">
                 <PontoConfigFuncionarios
                   todosFuncionarios={funcs}
                   colaboradoresDisponiveis={colabs}
@@ -935,6 +937,8 @@ export function PontoApp() {
                   onVincularColaborador={vincularColaborador}
                   onNovoFuncionario={() => setNovoModalOpen(true)}
                 />
+                  <PontoSetores funcionarios={funcs} onAplicado={carregar} />
+                </div>
               )}
             </>
           )}
