@@ -27,7 +27,7 @@ import {
 } from '../utils/caixaSemanalStorage';
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
-import { analisarDia, hojeStr } from '../../lib/pontoCalc';
+import { analisarDia, hojeStr, limitarInicioPonto } from '../../lib/pontoCalc';
 import { resumoExtras, ehFeriado } from '../../lib/feriados';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
@@ -277,7 +277,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const pFuncId = f.id;
       const tol = f.tolerancia_minutos ?? 10;
       const [rRes, jRes] = await Promise.all([
-        supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', pointWeekBounds.start).lte('data', pointWeekBounds.end),
+        supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', limitarInicioPonto(pointWeekBounds.start)).lte('data', pointWeekBounds.end),
         supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
       ]);
       if (!ok) return;

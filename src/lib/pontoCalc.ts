@@ -132,6 +132,11 @@ const temBatida = (r?: Horarios | null) => !!r && !!(r.entrada || r.inicio_inter
  * Analisa um dia. `agoraMin` (minutos desde 00:00) só importa quando o dia é hoje: sem batida e já passou
  * da entrada + tolerância = ausente; antes disso = aguardando.
  */
+/** Início da contagem do ponto: primeiro sábado de outubro/2026 (03/10), começo da primeira semana do sistema. */
+export const PONTO_DATA_INICIO = '2026-10-03';
+/** Nunca deixa uma consulta de ponto começar antes de PONTO_DATA_INICIO. */
+export const limitarInicioPonto = (d: string): string => (d < PONTO_DATA_INICIO ? PONTO_DATA_INICIO : d);
+
 export function analisarDia(
   reg: PontoRegistro | null | undefined,
   jornada: PontoJornada | null,
@@ -140,6 +145,8 @@ export function analisarDia(
   tolerancia: number,
   agoraMin: number = 24 * 60,
 ): AnaliseDia {
+  // Antes do início do sistema o ponto não existe: sem previsto, sem falta, sem débito, sem extra.
+  if (data < PONTO_DATA_INICIO) return { trabalhados: 0, previstos: 0, atraso: 0, extra: 0, status: 'folga' };
   const previstos = minutosPrevistos(jornada);
   const regE = reg ? registroEfetivo(reg, jornada) : reg;
   const trabalhados = regE ? minutosTrabalhados(regE) : 0;

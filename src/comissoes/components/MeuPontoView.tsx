@@ -3,7 +3,7 @@ import{supabase}from'../../supabase';
 import{formatCurrency}from'../utils/storage';
 import{getWorkWeekBounds,getDescontosValesBounds}from'../utils/caixaSemanalStorage';
 import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,detalheFeriado,ehFeriado}from'../../lib/feriados';
-import{PontoJornada,PontoRegistro,analisarDia,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
+import{PontoJornada,PontoRegistro,analisarDia,limitarInicioPonto,PONTO_DATA_INICIO,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
 import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight,Pencil}from'lucide-react';
 import{BancoHorasLancamentos}from'../../components/ponto/BancoHorasLancamentos';
 import{RegistroModal}from'../../components/ponto/PontoModals';
@@ -47,7 +47,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
      setFunc(f||null);
      if(f){
        const [rRes,jRes,bRes]=await Promise.all([
-         supabase.from('ponto_registros').select('*').eq('funcionario_id',f.id).gte('data',bounds.start).lte('data',bounds.end),
+         supabase.from('ponto_registros').select('*').eq('funcionario_id',f.id).gte('data',limitarInicioPonto(bounds.start)).lte('data',bounds.end),
          supabase.from('ponto_jornadas').select('*').eq('funcionario_id',f.id),
          supabase.from('ponto_banco_horas').select('*').eq('funcionario_id',f.id)
        ]);
@@ -154,6 +154,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
       <button
         type="button"
         onClick={()=>setWeekOffset(v=>v-1)}
+        disabled={bounds.start<=PONTO_DATA_INICIO}
         className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[var(--bg-card-sec)] hover:bg-[var(--border-color)] text-[var(--text-main)] text-xs font-bold transition-all cursor-pointer"
         title="Semana anterior"
       >

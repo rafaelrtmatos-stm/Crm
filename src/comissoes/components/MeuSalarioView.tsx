@@ -5,7 +5,7 @@ import{formatCurrency}from'../utils/storage';
 import{calculateDescontosNoPeriodo,getDescontosFromSupabase,calcularSalarioSemanal}from'../utils/supabaseStorage';
 import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStorage';
 import{calcularRemuneracaoSemanal}from'../utils/remuneracaoHelper';
-import{analisarDia,hojeStr}from'../../lib/pontoCalc';
+import{analisarDia,hojeStr,limitarInicioPonto}from'../../lib/pontoCalc';
 import{resumoExtras,ehFeriado}from'../../lib/feriados';
 
 export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number;modalidade?:any;comissaoPadraoPercentual?:number;metaPercentual?:number;metasValores?:any[];metaValorMinimo?:number;metaValorMaximo?:number;utilizaPontoEletronico?:boolean}>=({colaboradorId,nome,salarioBase,modalidade='fixo_comissao' as any,comissaoPadraoPercentual=0,metaPercentual=0,metasValores,metaValorMinimo,metaValorMaximo,utilizaPontoEletronico=false})=>{
@@ -50,7 +50,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
      const tol = res[4].data.tolerancia_minutos ?? 10;
      const [bRes, rRes, jRes] = await Promise.all([
        supabase.from('ponto_banco_horas').select('minutos, tipo').eq('funcionario_id', pFuncId).gte('data', bounds.start).lte('data', bounds.end),
-       supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', bounds.start).lte('data', bounds.end),
+       supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', limitarInicioPonto(bounds.start)).lte('data', bounds.end),
        supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
      ]);
      

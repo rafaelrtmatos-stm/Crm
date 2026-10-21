@@ -7,6 +7,8 @@
 //     e tudo até a data de corte (último dia já importado daquele funcionário) também.
 //  3. Só entram dias NOVOS, depois da data de corte. Duplicidade nunca gera registro novo.
 //  4. ID sem funcionário cadastrado NÃO cria funcionário: fica "não identificado" até o admin associar.
+import { PONTO_DATA_INICIO } from './pontoCalc';
+
 
 export interface Marcacao {
   enNo: string; // ID do relógio normalizado (sem zeros à esquerda)
@@ -222,6 +224,7 @@ export function montarPlano(
       total += limpas.length;
 
       if (!func) continue; // não identificado: só conta, não monta registro
+      if (data < PONTO_DATA_INICIO) { preservados++; continue; } // antes do início do sistema: ignora
       // Passado é intocável: até a data de corte, ou dia que já existe (inclusive corrigido à mão).
       if ((estado.corte !== null && data <= estado.corte) || estado.dias.has(data)) {
         preservados++;

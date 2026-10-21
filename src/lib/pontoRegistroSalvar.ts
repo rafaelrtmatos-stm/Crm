@@ -2,13 +2,14 @@
 // Usado pelo Controle de Ponto (PontoApp) e pelo Meu Ponto (admin editando o painel do colaborador),
 // para o resultado ser idêntico nos dois lugares.
 import { supabase } from '../supabase';
-import { PontoRegistro } from './pontoCalc';
+import { PontoRegistro, PONTO_DATA_INICIO } from './pontoCalc';
 
 export async function salvarRegistroPonto(
   fid: string,
   data: string,
   h: Partial<PontoRegistro>
 ): Promise<{ error: { message: string } | null }> {
+  if (data < PONTO_DATA_INICIO) return { error: { message: 'O ponto só é registrado a partir de 03/10/2026.' } };
   const n = (v?: string | null) => (v ? v : null);
   // Dia que veio do relógio e foi corrigido continua "importacao" + editado_manual (o corte da importação
   // depende disso); dia que não existia é criado à mão ("manual").

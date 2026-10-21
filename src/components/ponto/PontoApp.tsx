@@ -19,6 +19,7 @@ import {
   PontoRegistro,
   StatusDia,
   analisarDia,
+  limitarInicioPonto,
   fmtHM,
   hhmm,
   hojeStr,
@@ -110,7 +111,7 @@ export function PontoApp() {
     setLoading(true);
     setErro(null);
     try {
-      const desde = somarDias(hojeStr(), -62);
+      const desde = limitarInicioPonto(somarDias(hojeStr(), -62));
 
       // Carregar todas as tabelas em paralelo
       const [fResp, cResp, jResp, rResp, bResp] = await Promise.all([

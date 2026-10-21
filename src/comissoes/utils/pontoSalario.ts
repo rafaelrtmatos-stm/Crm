@@ -3,7 +3,7 @@
 // `pontoWeekOffset` é o offset de getWorkWeekBounds da semana do ponto (a semana ANTERIOR ao ciclo exibido).
 import { supabase } from '../../supabase';
 import { getWorkWeekBounds } from './caixaSemanalStorage';
-import { analisarDia, hojeStr } from '../../lib/pontoCalc';
+import { analisarDia, hojeStr, limitarInicioPonto } from '../../lib/pontoCalc';
 import { resumoExtras, ehFeriado } from '../../lib/feriados';
 
 export async function calcularPontoSalarioPorColaborador(
@@ -34,7 +34,7 @@ export async function calcularPontoSalarioPorColaborador(
       const pointBounds = getWorkWeekBounds(pontoWeekOffset);
       const [bRes, rRes, jRes] = await Promise.all([
         supabase.from('ponto_banco_horas').select('minutos, tipo').eq('funcionario_id', pFuncId).gte('data', pointBounds.start).lte('data', pointBounds.end),
-        supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', pointBounds.start).lte('data', pointBounds.end),
+        supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', limitarInicioPonto(pointBounds.start)).lte('data', pointBounds.end),
         supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
       ]);
 
