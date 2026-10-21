@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Save, AlertTriangle, UserX, Clock, Coffee, LogIn, LogOut, Zap, Users, Sparkles, Check } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../lib/notify';
@@ -531,6 +531,57 @@ export function JornadaEditorModal({
     showAlert('Horários aplicados de Segunda a Sábado!');
   };
 
+  // --- Atalhos: dia sem intervalo, copiar um dia para outros, sábado só manhã e modelos salvos (setores) ---
+  const semIntervalo = (i: number) =>
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, inicio_intervalo: '', fim_intervalo: '' } : r)));
+
+  const copiarDia = (i: number, alvo: string) => {
+    if (!alvo) return;
+    const o = rows[i];
+    const dias = alvo === 'seg-sex' ? [1, 2, 3, 4, 5] : alvo === 'seg-sab' ? [1, 2, 3, 4, 5, 6] : [0, 1, 2, 3, 4, 5, 6];
+    setRows((prev) =>
+      prev.map((r) =>
+        dias.includes(r.dow) && r.dow !== o.dow
+          ? { ...r, trabalha: o.trabalha, entrada: o.entrada, inicio_intervalo: o.inicio_intervalo, fim_intervalo: o.fim_intervalo, saida: o.saida }
+          : r
+      )
+    );
+    showAlert(`Horário de ${o.nome} copiado (${alvo === 'seg-sex' ? 'Seg a Sex' : alvo === 'seg-sab' ? 'Seg a Sáb' : 'todos os dias'}).`);
+  };
+
+  // Sábado só de manhã: sem tarde e sem almoço. A batida das 12:30 conta como saída (dia completo).
+  const sabadoSoManha = () =>
+    setRows((prev) =>
+      prev.map((r) => (r.dow === 6 ? { ...r, trabalha: true, entrada: r.entrada || '08:00', inicio_intervalo: '', fim_intervalo: '', saida: '12:30' } : r))
+    );
+
+  const [modelos, setModelos] = useState<{ id: string; nome: string; padrao: boolean; dias: any[] }[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: st, error } = await supabase.from('ponto_setores').select('id,nome,padrao').order('nome');
+        if (error || !st || st.length === 0) return;
+        const { data: jd } = await supabase.from('ponto_setor_jornadas').select('*');
+        setModelos(st.map((x: any) => ({ id: x.id, nome: x.nome, padrao: !!x.padrao, dias: (jd || []).filter((d: any) => d.setor_id === x.id) })));
+      } catch {}
+    })();
+  }, []);
+
+  const usarModelo = (id: string) => {
+    const m = modelos.find((x) => x.id === id);
+    if (!m) return;
+    const h = (t?: string | null) => (t ? String(t).slice(0, 5) : '');
+    setRows((prev) =>
+      prev.map((r) => {
+        const d = m.dias.find((x: any) => x.dia_semana === r.dow);
+        return d && d.trabalha
+          ? { ...r, trabalha: true, entrada: h(d.entrada), inicio_intervalo: h(d.inicio_intervalo), fim_intervalo: h(d.fim_intervalo), saida: h(d.saida) }
+          : { ...r, trabalha: false };
+      })
+    );
+    showAlert(`Modelo "${m.nome}" carregado na grade. Revise e clique em salvar.`);
+  };
+
   const aplicarPresetCLT44 = () => {
     setRows((prev) =>
       prev.map((r) => {
@@ -741,6 +792,31 @@ export function JornadaEditorModal({
           </div>
         </div>
 
+        {/* Atalhos: sábado só manhã e modelos salvos (setores / padrão da empresa) */}
+        <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={sabadoSoManha}
+            className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-white/80 hover:text-emerald-300 border border-white/10 text-[11px] font-bold transition-all cursor-pointer"
+            title="Sábado 08:00 às 12:30, sem intervalo: a batida das 12:30 conta como saída"
+          >
+            Sábado só manhã (até 12:30)
+          </button>
+          {modelos.length > 0 && (
+            <label className="flex items-center gap-1.5 text-[11px] text-white/60 font-bold">
+              Preencher a partir de um modelo:
+              <select
+                defaultValue=""
+                onChange={(e) => { if (e.target.value) usarModelo(e.target.value); e.target.value = ''; }}
+                className="bg-slate-950/60 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
+              >
+                <option value="">Escolher…</option>
+                {modelos.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.padrao ? ' (padrão da empresa)' : ''}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+
         {/* Bloco 1: Presets Rápidos com 1 Clique */}
         <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-2.5">
           <div className="flex items-center justify-between">
@@ -887,7 +963,7 @@ export function JornadaEditorModal({
 
         {/* Tabela dos 7 Dias com Ajustes Finos Individuais */}
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-xs min-w-[500px]">
+          <table className="w-full text-xs min-w-[640px]">
             <thead>
               <tr className="text-white/40 font-semibold border-b border-white/10 text-left">
                 <th className="pb-2 pr-3">Dia da Semana</th>
@@ -897,6 +973,7 @@ export function JornadaEditorModal({
                 <th className="pb-2 pr-3">Fim int.</th>
                 <th className="pb-2 pr-3">Saída</th>
                 <th className="pb-2 text-right">Carga Dia</th>
+                <th className="pb-2 pl-3 text-right">Atalhos</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -937,6 +1014,29 @@ export function JornadaEditorModal({
                       ) : (
                         <span className="text-white/30 font-normal">Folga</span>
                       )}
+                    </td>
+                    <td className="py-2.5 pl-3 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        disabled={!r.trabalha}
+                        onClick={() => semIntervalo(i)}
+                        className="mr-1.5 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-20 text-[10px] font-bold text-white/70 border border-white/10 cursor-pointer"
+                        title="Dia sem almoço: limpa o início e o fim do intervalo"
+                      >
+                        Sem intervalo
+                      </button>
+                      <select
+                        defaultValue=""
+                        disabled={!r.trabalha}
+                        onChange={(e) => { copiarDia(i, e.target.value); e.target.value = ''; }}
+                        className="bg-slate-950/60 border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-white/80 disabled:opacity-20"
+                        title="Copia o horário deste dia para outros dias"
+                      >
+                        <option value="">Copiar para…</option>
+                        <option value="seg-sex">Seg a Sex</option>
+                        <option value="seg-sab">Seg a Sáb</option>
+                        <option value="todos">Todos os dias</option>
+                      </select>
                     </td>
                   </tr>
                 );

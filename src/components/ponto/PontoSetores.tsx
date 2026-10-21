@@ -76,6 +76,18 @@ export function PontoSetores({ funcionarios, onAplicado }: { funcionarios: Funci
 
   const setLinha = (dow: number, patch: Partial<Linha>) => setLinhas((ls) => ls.map((l) => (l.dow === dow ? { ...l, ...patch } : l)));
 
+  const semIntervalo = (dow: number) => setLinha(dow, { inicio_intervalo: '', fim_intervalo: '' });
+
+  const copiarDia = (dow: number, alvo: string) => {
+    if (!alvo) return;
+    const o = linhas.find((l) => l.dow === dow)!;
+    const dias = alvo === 'seg-sex' ? [1, 2, 3, 4, 5] : alvo === 'seg-sab' ? [1, 2, 3, 4, 5, 6] : [0, 1, 2, 3, 4, 5, 6];
+    setLinhas((ls) => ls.map((l) => (dias.includes(l.dow) && l.dow !== dow ? { ...l, trabalha: o.trabalha, entrada: o.entrada, inicio_intervalo: o.inicio_intervalo, fim_intervalo: o.fim_intervalo, saida: o.saida } : l)));
+  };
+
+  // Sábado só de manhã: sem tarde e sem almoço. A batida das 12:30 conta como saída (dia completo).
+  const sabadoSoManha = () => setLinha(6, { trabalha: true, entrada: linhas.find((l) => l.dow === 6)?.entrada || '08:00', inicio_intervalo: '', fim_intervalo: '', saida: '12:30' });
+
   const salvar = async () => {
     if (!nome.trim()) { showAlert('Informe o nome do setor.'); return; }
     for (const l of linhas) {
@@ -207,9 +219,13 @@ export function PontoSetores({ funcionarios, onAplicado }: { funcionarios: Funci
             </label>
           </div>
 
+          <div>
+            <button type="button" onClick={sabadoSoManha} className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-white/80 hover:text-emerald-300 border border-white/10 text-[11px] font-bold cursor-pointer" title="Sábado 08:00 às 12:30, sem intervalo: a batida das 12:30 conta como saída">Sábado só manhã (até 12:30)</button>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead><tr className="text-white/50 text-[10px] uppercase"><th className="text-left py-1">Dia</th><th>Trabalha</th><th>Entrada</th><th>Início intervalo</th><th>Fim intervalo</th><th>Saída</th></tr></thead>
+              <thead><tr className="text-white/50 text-[10px] uppercase"><th className="text-left py-1">Dia</th><th>Trabalha</th><th>Entrada</th><th>Início intervalo</th><th>Fim intervalo</th><th>Saída</th><th>Atalhos</th></tr></thead>
               <tbody>
                 {DIAS.map(({ dow, nome: dn }) => {
                   const l = linhas.find((x) => x.dow === dow)!;
@@ -220,6 +236,15 @@ export function PontoSetores({ funcionarios, onAplicado }: { funcionarios: Funci
                       {(['entrada', 'inicio_intervalo', 'fim_intervalo', 'saida'] as const).map((k) => (
                         <td key={k}><input type="time" disabled={!l.trabalha} value={l[k]} onChange={(e) => setLinha(dow, { [k]: e.target.value } as Partial<Linha>)} className={inputCls} /></td>
                       ))}
+                      <td className="whitespace-nowrap">
+                        <button type="button" disabled={!l.trabalha} onClick={() => semIntervalo(dow)} className="mr-1.5 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-20 text-[10px] font-bold text-white/70 border border-white/10 cursor-pointer" title="Dia sem almoço">Sem intervalo</button>
+                        <select defaultValue="" disabled={!l.trabalha} onChange={(e) => { copiarDia(dow, e.target.value); e.target.value = ''; }} className="bg-slate-950/60 border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-white/80 disabled:opacity-20" title="Copia o horário deste dia para outros dias">
+                          <option value="">Copiar para…</option>
+                          <option value="seg-sex">Seg a Sex</option>
+                          <option value="seg-sab">Seg a Sáb</option>
+                          <option value="todos">Todos os dias</option>
+                        </select>
+                      </td>
                     </tr>
                   );
                 })}
