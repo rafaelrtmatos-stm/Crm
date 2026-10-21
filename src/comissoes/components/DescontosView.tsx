@@ -37,7 +37,6 @@ import {
   deletePagamento,
   calcularResumoCaixa,
   calcularResumoPorPeriodo,
-  recalcularSemanasComPonto,
   sincronizarSalarioPontoFechadas,
   PeriodoVisualizacao,
   getWorkWeekBounds,
@@ -221,7 +220,8 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const [reloadToken, setReloadToken] = useState(0);
   // Salário da semana aberta vindo do ponto (horas - DSR). null = não usa ponto: segue o salário fixo.
   const [basePontoAberto, setBasePontoAberto] = useState<number | null>(null);
-  const [recalculando, setRecalculando] = useState(false);
+  // Sobe a cada mudança no ponto (tempo real) pra refazer o salário do Caixa automaticamente.
+  const [pontoTick, setPontoTick] = useState(0);
   // ✅ Seletor de visualização do Caixa: Semana / Mês / Ano
   const [periodoVisualizacao, setPeriodoVisualizacao] = useState<PeriodoVisualizacao>('semana');
   // ✅ Navegação entre semanas/meses/anos: 0 = atual, -1 = anterior, 1 = seguinte...
@@ -248,17 +248,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
         baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
       });
       if (cancelled) return;
-      // Admin: corrige sozinho o salário das semanas fechadas pelo ponto (semana anterior) e refaz os saldos.
-      let caixaFinal = atualizado;
-      if (isAdmin) {
-        const corrigidas = await sincronizarSalarioPontoFechadas(colaboradorId, (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim));
-        if (corrigidas > 0) {
-          const refeito = await getOrCreateCaixaAberto(colaboradorId);
-          if (refeito) caixaFinal = refeito;
-        }
-        if (cancelled) return;
-      }
-      setCaixa(caixaFinal);
+      setCaixa(atualizado);
       setLoadingCaixa(false);
       getPagamentosDoColaborador(colaboradorId).then((list) => { if (!cancelled) setPagamentos(list); });
       getHistoricoCaixasFechados(colaboradorId).then((list) => { if (!cancelled) setHistoricoCaixas(list); });
@@ -285,27 +275,48 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
     };
   }, [colaboradorId]);
 
-  // Salário da semana aberta pelo ponto (mesmo valor do Meu Ponto).
+  // Salário do Caixa pelo ponto, em tempo real: a semana aberta usa o ponto da semana anterior e, para o admin,
+  // as semanas fechadas são corrigidas sozinhas (salário + cadeia de saldos) sempre que o ponto muda.
   useEffect(() => {
     if (!caixa) { setBasePontoAberto(null); return; }
     let cancelled = false;
-    getBasePontoDaSemana(colaboradorId, caixa.semanaInicio, caixa.semanaFim).then((b) => { if (!cancelled) setBasePontoAberto(b); });
+    (async () => {
+      if (isAdmin) {
+        const corrigidas = await sincronizarSalarioPontoFechadas(colaboradorId, (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim));
+        if (corrigidas > 0 && !cancelled) {
+          const refeito = await getOrCreateCaixaAberto(colaboradorId);
+          if (refeito && !cancelled) setCaixa(refeito);
+          getHistoricoCaixasFechados(colaboradorId).then((list) => { if (!cancelled) setHistoricoCaixas(list); });
+        }
+      }
+      const b = await getBasePontoDaSemana(colaboradorId, caixa.semanaInicio, caixa.semanaFim);
+      if (!cancelled) setBasePontoAberto(b);
+    })();
     return () => { cancelled = true; };
-  }, [caixa?.id, colaboradorId, reloadToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caixa?.id, colaboradorId, reloadToken, pontoTick, isAdmin]);
 
-  // Reprocessa as semanas fechadas desde 03/10 com o salário do ponto e refaz a cadeia de saldos.
-  const handleRecalcularSemanas = async () => {
-    if (!(await showConfirm('Recalcular as semanas já fechadas com o salário do ponto (horas trabalhadas - DSR)?\n\nO saldo de cada semana é refeito e passa como Saldo Anterior para a seguinte. Pagamentos já feitos não mudam.'))) return;
-    setRecalculando(true);
-    const r = await recalcularSemanasComPonto(colaboradorId, baseSalary, services, descontos, {
-      modalidadeRemuneracao: (modalidadeRemuneracao as ModalidadeRemuneracao) || 'fixo_comissao',
-      metaPercentual,
-      baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
-    });
-    setRecalculando(false);
-    showAlert((r.ok ? `${r.semanas} semana(s) recalculada(s):` : 'Algumas semanas não puderam ser recalculadas. Tente novamente. Resultado:') + '\n\n' + r.detalhes.join('\n'));
-    setReloadToken((t) => t + 1);
-  };
+  // Tempo real: qualquer mudança nos registros/banco de horas do ponto (ou voltar para a aba) refaz o salário.
+  useEffect(() => {
+    if (!colaboradorId) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const disparar = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setPontoTick((t) => t + 1), 800);
+    };
+    const channel = supabase
+      .channel(`caixa-ponto-${colaboradorId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_registros' }, disparar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_banco_horas' }, disparar)
+      .subscribe();
+    const aoVoltar = () => { if (document.visibilityState === 'visible') disparar(); };
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', aoVoltar);
+      supabase.removeChannel(channel);
+    };
+  }, [colaboradorId]);
 
   // ✅ Pagamentos vinculados à semana atual aberta
   const pagamentosCaixaAberto = useMemo(
@@ -713,16 +724,6 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
             <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
               <Banknote size={13} /> Pagamentos feitos n{periodoVisualizacao === 'semana' ? 'essa semana' : periodoVisualizacao === 'mes' ? 'esse mês' : 'esse ano'}
             </span>
-            {isAdmin && basePontoAberto !== null && !showPagamentoForm && (
-              <button
-                onClick={handleRecalcularSemanas}
-                disabled={recalculando}
-                className="flex items-center gap-1 text-[10px] font-black uppercase text-[var(--text-muted)] hover:text-primary-300 disabled:opacity-50"
-                title="Refaz as semanas fechadas com o salário do ponto"
-              >
-                {recalculando ? 'Recalculando...' : 'Recalcular semanas'}
-              </button>
-            )}
             {isAdmin && !showPagamentoForm && caixa && (
               <button
                 onClick={abrirFormPagamento}

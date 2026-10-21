@@ -702,56 +702,6 @@ export async function avancarCaixaSeNecessario(
 }
 
 /**
- * Reprocessa as semanas FECHADAS desde o início do ponto usando o salário do ponto (horas - DSR), e
- * refaz a cadeia: o saldo final de cada semana vira o saldo anterior da seguinte, até a semana aberta.
- * Comissão, descontos e pagamentos são relidos dos dados atuais.
- */
-export async function recalcularSemanasComPonto(
-  colaboradorId: string,
-  salarioBase: number,
-  services: ServiceItem[],
-  descontos: Desconto[],
-  extra: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; baseDaSemana: (c: WeeklyCaixa) => Promise<number | null> }
-): Promise<{ semanas: number; ok: boolean; detalhes: string[] }> {
-  const { data: rows } = await supabase
-    .from('comissoes_caixas_semanais')
-    .select('*')
-    .eq('colaborador_id', colaboradorId)
-    .gte('semana_fim', PONTO_DATA_INICIO)
-    .order('semana_inicio', { ascending: true });
-  if (!rows || rows.length === 0) return { semanas: 0, ok: true, detalhes: [] };
-
-  let ok = true;
-  let semanas = 0;
-  const detalhes: string[] = [];
-  const br = (d: string) => d.split('-').reverse().join('/');
-  const brl = (n: number) => `R$ ${n.toFixed(2).replace('.', ',')}`;
-  let carry = Number(rows[0].saldo_anterior) || 0;
-  for (let i = 0; i < rows.length; i++) {
-    const caixa = mapCaixaRow(rows[i]);
-    if (i > 0) caixa.saldoAnterior = carry;
-    const patch: Record<string, any> = { updated_at: new Date().toISOString() };
-    if (i > 0) patch.saldo_anterior = Number(carry.toFixed(2));
-    if (caixa.status === 'fechado') {
-      const pagamentos = await getPagamentosDoCaixa(caixa.id);
-      const base = await extra.baseDaSemana(caixa);
-      const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentos, { ...extra, salarioBaseOverride: base });
-      patch.salario_base = resumo.salarioBase;
-      patch.total_comissao = resumo.totalComissao;
-      patch.total_descontos = resumo.totalDescontos;
-      patch.total_pago = resumo.totalPago;
-      patch.saldo_final = Number(resumo.saldoFinal.toFixed(2));
-      carry = Number(resumo.saldoFinal.toFixed(2));
-      semanas++;
-      detalhes.push(`${br(caixa.semanaInicio)} a ${br(caixa.semanaFim)}: salário ${brl(resumo.salarioBase)} ${base !== null ? '(ponto da semana anterior)' : '(fixo, sem ponto)'} · saldo ${brl(resumo.saldoFinal)}`);
-    }
-    const { error } = await supabase.from('comissoes_caixas_semanais').update(patch).eq('id', caixa.id);
-    if (error) { console.error('Erro ao recalcular semana:', error); ok = false; }
-  }
-  return { semanas, ok, detalhes };
-}
-
-/**
  * Mantém sozinho o salário das semanas FECHADAS igual ao do ponto: se o salário congelado de uma semana
  * (desde o início do ponto) difere do salário calculado pelo ponto da semana anterior, corrige só o
  * salário e refaz a cadeia de saldos (saldo final -> saldo anterior da seguinte). Não mexe em
