@@ -292,7 +292,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
       baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
     });
     setRecalculando(false);
-    showAlert(r.ok ? `${r.semanas} semana(s) recalculada(s).` : 'Algumas semanas não puderam ser recalculadas. Tente novamente.');
+    showAlert((r.ok ? `${r.semanas} semana(s) recalculada(s):` : 'Algumas semanas não puderam ser recalculadas. Tente novamente. Resultado:') + '\n\n' + r.detalhes.join('\n'));
     setReloadToken((t) => t + 1);
   };
 

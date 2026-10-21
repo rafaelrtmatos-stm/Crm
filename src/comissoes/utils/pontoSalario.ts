@@ -45,7 +45,9 @@ export async function calcularPontoSalarioColab(
         data: dStr,
         trabalhados: ax.trabalhados,
         previstos: ax.previstos,
-        extra: ax.extra
+        extra: ax.extra,
+        // Falta = ausente num dia de trabalho que não é feriado (mesma regra do Meu Ponto).
+        falta: ax.status === 'ausente' && (jx ? !!jx.trabalha : new Date(dStr + 'T12:00:00').getDay() !== 0) && !ehFeriado(dStr)
       });
     }
     const extRes = resumoExtras(diasParaExtras, Number(c.salario_base) || 0, tol);
@@ -58,7 +60,7 @@ export async function calcularPontoSalarioColab(
     const valorHora = salarioMensal > 0 ? salarioMensal / 220 : 0;
     const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
     const valorDiariaVal = salarioMensal > 0 ? salarioMensal / 30 : 0;
-    const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0 && !ehFeriado(d.data)).length;
+    const faltasCount = diasParaExtras.filter(d => d.falta).length;
     const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
     const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR);
 
