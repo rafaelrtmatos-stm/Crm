@@ -38,6 +38,7 @@ import {
   calcularResumoCaixa,
   calcularResumoPorPeriodo,
   recalcularSemanasComPonto,
+  sincronizarSalarioPontoFechadas,
   PeriodoVisualizacao,
   getWorkWeekBounds,
   getDescontosValesBounds,
@@ -247,7 +248,17 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
         baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
       });
       if (cancelled) return;
-      setCaixa(atualizado);
+      // Admin: corrige sozinho o salário das semanas fechadas pelo ponto (semana anterior) e refaz os saldos.
+      let caixaFinal = atualizado;
+      if (isAdmin) {
+        const corrigidas = await sincronizarSalarioPontoFechadas(colaboradorId, (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim));
+        if (corrigidas > 0) {
+          const refeito = await getOrCreateCaixaAberto(colaboradorId);
+          if (refeito) caixaFinal = refeito;
+        }
+        if (cancelled) return;
+      }
+      setCaixa(caixaFinal);
       setLoadingCaixa(false);
       getPagamentosDoColaborador(colaboradorId).then((list) => { if (!cancelled) setPagamentos(list); });
       getHistoricoCaixasFechados(colaboradorId).then((list) => { if (!cancelled) setHistoricoCaixas(list); });

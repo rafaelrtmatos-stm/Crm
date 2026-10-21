@@ -751,6 +751,47 @@ export async function recalcularSemanasComPonto(
   return { semanas, ok, detalhes };
 }
 
+/**
+ * Mantém sozinho o salário das semanas FECHADAS igual ao do ponto: se o salário congelado de uma semana
+ * (desde o início do ponto) difere do salário calculado pelo ponto da semana anterior, corrige só o
+ * salário e refaz a cadeia de saldos (saldo final -> saldo anterior da seguinte). Não mexe em
+ * comissão, descontos nem pagamentos. Devolve quantas semanas foram corrigidas (0 = nada a fazer).
+ */
+export async function sincronizarSalarioPontoFechadas(
+  colaboradorId: string,
+  baseDaSemana: (c: WeeklyCaixa) => Promise<number | null>
+): Promise<number> {
+  const { data: rows } = await supabase
+    .from('comissoes_caixas_semanais')
+    .select('*')
+    .eq('colaborador_id', colaboradorId)
+    .eq('status', 'fechado')
+    .gte('semana_fim', PONTO_DATA_INICIO)
+    .order('semana_inicio', { ascending: true });
+  if (!rows || rows.length === 0) return 0;
+
+  let primeiroAlterado: string | null = null;
+  let alteradas = 0;
+  for (const row of rows) {
+    const base = await baseDaSemana(mapCaixaRow(row));
+    if (base === null) continue;
+    const atual = Number(row.salario_base) || 0;
+    if (Math.abs(base - atual) < 0.01) continue;
+    const { error } = await supabase
+      .from('comissoes_caixas_semanais')
+      .update({ salario_base: base, updated_at: new Date().toISOString() })
+      .eq('id', row.id);
+    if (error) { console.error('Erro ao corrigir salário da semana pelo ponto:', error); continue; }
+    if (!primeiroAlterado) primeiroAlterado = row.id;
+    alteradas++;
+  }
+  if (primeiroAlterado) {
+    const cadeia = await calcularCadeiaAPartirDe(colaboradorId, primeiroAlterado);
+    if (cadeia.length > 0) await aplicarCadeia(cadeia, true);
+  }
+  return alteradas;
+}
+
 // --- Agregação por Período (Semana / Mês / Ano) ---
 
 export type PeriodoVisualizacao = 'semana' | 'mes' | 'ano';
