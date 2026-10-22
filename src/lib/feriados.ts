@@ -84,6 +84,8 @@ const CARGA_DIA_PADRAO_MIN = 440; // 44h / 6 dias, usada quando o dia não tem j
 
 export const valorHora = (salarioMensal: number) => (salarioMensal > 0 ? salarioMensal / HORAS_MENSAIS : 0);
 export const valorDiaria = (salarioMensal: number) => (salarioMensal > 0 ? salarioMensal / DIAS_MES : 0);
+/** Valor de 1 minuto de jornada (salário ÷ 220h ÷ 60). Usado no desconto de débito do ponto. */
+export const valorMinuto = (salarioMensal: number) => (salarioMensal > 0 ? salarioMensal / (HORAS_MENSAIS * 60) : 0);
 /** Feriado trabalhado = dobro da diária. */
 export const valorFeriadoTrabalhado = (salarioMensal: number) => 2 * valorDiaria(salarioMensal);
 /** Hora extra = valor da hora × 1,5. */

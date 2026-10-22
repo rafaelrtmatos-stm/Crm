@@ -1,16 +1,38 @@
-// Salário-base semanal e débito de ponto por colaborador, a partir do ponto eletrônico (mesma lógica do Meu Salário).
-// Fonte ÚNICA usada pela aba Funcionários e pelo Dashboard, para o custo de equipe bater nas duas telas.
-// `pontoWeekOffset` é o offset de getWorkWeekBounds da semana do ponto (a semana ANTERIOR ao ciclo exibido).
+// Salário-base semanal e débito de ponto por colaborador, a partir do ponto eletrônico.
+// Carregador ÚNICO (Supabase) sobre as regras puras de `salarioPonto.ts`. Usado por Funcionários/Admin, Modules,
+// Dashboard, Meu Salário e Caixa (via caixaPonto), para o salário bater em todas as telas.
+//
+// REGRA DO PERÍODO: o salário de um ciclo semanal (Caixa, sáb a sex) é pago em atraso e vem do ponto do ciclo
+// ANTERIOR (ciclo − 7 dias). Ex.: Caixa 10/10 a 16/10 = ponto de 03/10 a 09/10. `pontoBoundsDoCiclo` é a única
+// definição dessa regra. `pontoWeekOffset` de getWorkWeekBounds = offset do ciclo exibido − 1 (mesma coisa).
 import { supabase } from '../../supabase';
-import { getWorkWeekBounds } from './caixaSemanalStorage';
-import { analisarDia, hojeStr, limitarInicioPonto } from '../../lib/pontoCalc';
-import { resumoExtras, ehFeriado } from '../../lib/feriados';
+import { getWorkWeekBounds, addDaysISO } from './caixaSemanalStorage';
+import { hojeStr, limitarInicioPonto, PONTO_DATA_INICIO } from '../../lib/pontoCalc';
+import {
+  analisarSemanaPonto,
+  calcularSalarioPonto,
+  getDestinacaoExtras,
+  DiaPontoAnalisado,
+  ResultadoSalarioPonto,
+} from './salarioPonto';
 
-/** Salário-base do ponto de UM colaborador num intervalo de datas (semana). Fonte única também usada pelo Caixa. */
+export interface PontoSalarioSemana extends ResultadoSalarioPonto {
+  tolerancia: number;
+  /** Minutos positivos lançados no banco de horas na semana do ponto (só informativo). */
+  bancoCreditoMin: number;
+  dias: DiaPontoAnalisado[];
+}
+
+/** Semana do ponto que paga o ciclo [cicloInicio, cicloFim]: sempre o ciclo anterior (−7 dias). */
+export function pontoBoundsDoCiclo(cicloInicio: string, cicloFim: string): { start: string; end: string } {
+  return { start: addDaysISO(cicloInicio, -7), end: addDaysISO(cicloFim, -7) };
+}
+
+/** Salário-base do ponto de UM colaborador numa semana do ponto (datas da própria semana do ponto). */
 export async function calcularPontoSalarioColab(
   c: any,
   pointBounds: { start: string; end: string }
-): Promise<{ base: number; debitoVal: number } | null> {
+): Promise<PontoSalarioSemana | null> {
     let { data: f } = await supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('colaborador_id', c.id).maybeSingle();
     if (!f) {
       const { data: f2 } = await supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('id', c.id).maybeSingle();
@@ -26,49 +48,53 @@ export async function calcularPontoSalarioColab(
     ]);
 
     let debMin = 0;
-    let totalTrab = 0;
+    let bancoCreditoMin = 0;
     (bRes.data || []).forEach((bh: any) => {
       const m = Number(bh.minutos) || 0;
       if (m < 0) debMin += Math.abs(m);
+      else if (m > 0) bancoCreditoMin += m;
     });
 
-    const rMap = new Map((rRes.data || []).map((rx: any) => [rx.data, rx]));
-    const startD = new Date(pointBounds.start + 'T12:00:00');
-    const diasParaExtras = [];
-    for (let i = 0; i < 7; i++) {
-      const dStr = new Date(startD.getTime() + i * 86400000).toISOString().split('T')[0];
-      const rx = rMap.get(dStr);
-      const jx = (jRes.data || []).find((jj: any) => jj.dia_semana === new Date(dStr + 'T12:00:00').getDay()) || (jRes.data || [])[0];
-      const ax = analisarDia(rx, jx, dStr, hojeStr(), tol);
-      totalTrab += ax.trabalhados;
-      diasParaExtras.push({
-        data: dStr,
-        trabalhados: ax.trabalhados,
-        previstos: ax.previstos,
-        extra: ax.extra,
-        // Falta = ausente num dia de trabalho que não é feriado (mesma regra do Meu Ponto).
-        falta: ax.status === 'ausente' && (jx ? !!jx.trabalha : new Date(dStr + 'T12:00:00').getDay() !== 0) && !ehFeriado(dStr)
-      });
-    }
-    const extRes = resumoExtras(diasParaExtras, Number(c.salario_base) || 0, tol);
-    const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${c.id}`) || 'pagar';
-    // Feriado sem batida é abonado (sempre pago); o adicional do dobro vai para o salário ou para o banco de horas.
-    const valFer = extRes.valorAbonos + (destinacaoSal === 'pagar' ? extRes.valorFeriados : 0);
-    const valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
+    const dias = analisarSemanaPonto(pointBounds.start, rRes.data || [], jRes.data || [], tol, hojeStr());
+    const r = calcularSalarioPonto({
+      salarioMensal: Number(c.salario_base) || 0,
+      tolerancia: tol,
+      dias: dias.map((d) => d.dia),
+      destinacao: getDestinacaoExtras(c.id),
+      modalidade: c.modalidade_remuneracao,
+      debitoMin: debMin,
+    });
+    return { ...r, tolerancia: tol, bancoCreditoMin, dias };
+}
 
-    const salarioMensal = Number(c.salario_base) || 0;
-    const valorHora = salarioMensal > 0 ? salarioMensal / 220 : 0;
-    const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
-    const valorDiariaVal = salarioMensal > 0 ? salarioMensal / 30 : 0;
-    const faltasCount = diasParaExtras.filter(d => d.falta).length;
-    const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
-    const baseCalculada = c.modalidade_remuneracao === 'meta' ? 0 : Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR);
-
-    const valorMinuto = salarioMensal > 0 ? salarioMensal / (220 * 60) : 0;
-    const descontoPontoValor = debMin > 0 ? debMin * valorMinuto : 0;
-
-    return { base: baseCalculada, debitoVal: descontoPontoValor };
-
+/**
+ * Salário do ponto que paga um CICLO semanal (sáb a sex) de um colaborador, já com a regra do período aplicada.
+ * Devolve null quando não se aplica (sem id, sem ponto, modalidade meta, sem cadastro no ponto ou ponto anterior ao
+ * início do sistema): aí a tela segue com o salário fixo. Usada pelo Caixa, Dashboard e Meu Salário.
+ */
+export async function calcularPontoSalarioDoCiclo(
+  colaboradorId: string,
+  cicloInicio: string,
+  cicloFim: string
+): Promise<PontoSalarioSemana | null> {
+  try {
+    const pontoBounds = pontoBoundsDoCiclo(cicloInicio, cicloFim);
+    // Ponto da semana anterior à do ciclo. Se ela termina antes do início do ponto (03/10), segue o salário fixo.
+    if (!colaboradorId || pontoBounds.end < PONTO_DATA_INICIO) return null;
+    const { data: c } = await supabase.from('colaboradores').select('*').eq('id', colaboradorId).maybeSingle();
+    if (!c) return null;
+    let localExtra: any = null;
+    try {
+      const raw = localStorage.getItem(`rpro_colab_remun_${c.id}`);
+      if (raw) localExtra = JSON.parse(raw);
+    } catch {}
+    const usaPonto = c.utiliza_ponto_eletronico === true || localExtra?.utilizaPontoEletronico === true;
+    if (!usaPonto || c.modalidade_remuneracao === 'meta') return null;
+    return await calcularPontoSalarioColab(c, pontoBounds);
+  } catch (e) {
+    console.error('Erro ao calcular salário pelo ponto:', e);
+    return null;
+  }
 }
 
 export async function calcularPontoSalarioPorColaborador(

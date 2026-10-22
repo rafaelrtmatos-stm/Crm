@@ -5,17 +5,12 @@ import{formatCurrency}from'../utils/storage';
 import{calculateDescontosNoPeriodo,getDescontosFromSupabase,calcularSalarioSemanal}from'../utils/supabaseStorage';
 import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStorage';
 import{calcularRemuneracaoSemanal}from'../utils/remuneracaoHelper';
-import{analisarDia,hojeStr,limitarInicioPonto}from'../../lib/pontoCalc';
-import{resumoExtras,ehFeriado}from'../../lib/feriados';
+import{calcularPontoSalarioDoCiclo,PontoSalarioSemana}from'../utils/pontoSalario';
 
 export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBase:number;modalidade?:any;comissaoPadraoPercentual?:number;metaPercentual?:number;metasValores?:any[];metaValorMinimo?:number;metaValorMaximo?:number;utilizaPontoEletronico?:boolean}>=({colaboradorId,nome,salarioBase,modalidade='fixo_comissao' as any,comissaoPadraoPercentual=0,metaPercentual=0,metasValores,metaValorMinimo,metaValorMaximo,utilizaPontoEletronico=false})=>{
  const[caixa,setCaixa]=useState<any>(null),[servicos,setServicos]=useState<any[]>([]),[descontos,setDescontos]=useState<any[]>([]),[pagamentos,setPagamentos]=useState<any[]>([]),[loading,setLoading]=useState(true);
- const[pontoDebitoMinutos,setPontoDebitoMinutos]=useState(0);
- const[pontoExtraMinutos,setPontoExtraMinutos]=useState(0);
- const[pontoTrabalhadoMinutos,setPontoTrabalhadoMinutos]=useState(0);
- const[pontoFeriadosValor,setPontoFeriadosValor]=useState(0);
- const[pontoExtrasValor,setPontoExtrasValor]=useState(0);
- const[pontoFaltasCount,setPontoFaltasCount]=useState(0);
+ // Salário do ponto vindo da fonte única (mesmo valor do Caixa para o ciclo exibido). null = segue o salário fixo.
+ const[ponto,setPonto]=useState<PontoSalarioSemana|null>(null);
 
  const[weekOffset,setWeekOffset]=useState<number>(-1);
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
@@ -31,77 +26,22 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    ];
 
    if (utilizaPontoEletronico) {
-     queries.push(
-       supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('colaborador_id', colaboradorId).maybeSingle()
-     );
+     queries.push(calcularPontoSalarioDoCiclo(colaboradorId, bounds.start, bounds.end));
    }
 
    const res = await Promise.all(queries);
    const c = res[0], s = res[1], d = res[2], p = res[3];
-   let debMin = 0;
-   let extMin = 0;
-   let totalTrab = 0;
-   let valFer = 0;
-   let valExt = 0;
-   let faltasCountVal = 0;
-
-   if (utilizaPontoEletronico && res[4]?.data?.id) {
-     const pFuncId = res[4].data.id;
-     const tol = res[4].data.tolerancia_minutos ?? 10;
-     const [bRes, rRes, jRes] = await Promise.all([
-       supabase.from('ponto_banco_horas').select('minutos, tipo').eq('funcionario_id', pFuncId).gte('data', bounds.start).lte('data', bounds.end),
-       supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', limitarInicioPonto(bounds.start)).lte('data', bounds.end),
-       supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
-     ]);
-     
-     (bRes.data || []).forEach((bh: any) => {
-       const m = Number(bh.minutos) || 0;
-       if (m < 0) debMin += Math.abs(m);
-       else if (m > 0) extMin += m;
-     });
-
-     const rMap = new Map((rRes.data || []).map((rx: any) => [rx.data, rx]));
-     const startD = new Date(bounds.start + 'T12:00:00');
-     const diasParaExtras = [];
-     for (let i = 0; i < 7; i++) {
-       const dStr = new Date(startD.getTime() + i * 86400000).toISOString().split('T')[0];
-       const rx = rMap.get(dStr);
-       const jx = (jRes.data || []).find((jj: any) => jj.dia_semana === new Date(dStr + 'T12:00:00').getDay()) || (jRes.data || [])[0];
-       const ax = analisarDia(rx, jx, dStr, hojeStr(), tol);
-       totalTrab += ax.trabalhados;
-       const dow = new Date(dStr + 'T12:00:00').getDay();
-       const isWorkingDay = jx ? jx.trabalha : dow !== 0;
-       if (ax.status === 'ausente' && isWorkingDay && !ehFeriado(dStr)) {
-         faltasCountVal++;
-       }
-       diasParaExtras.push({
-         data: dStr,
-         trabalhados: ax.trabalhados,
-         previstos: ax.previstos,
-         extra: ax.extra
-       });
-     }
-     const extRes = resumoExtras(diasParaExtras, salarioBase, tol);
-     const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) || 'pagar';
-     // Feriado sem batida é abonado (sempre pago); o adicional do dobro vai para o salário ou para o banco de horas.
-     valFer = extRes.valorAbonos + (destinacaoSal === 'pagar' ? extRes.valorFeriados : 0);
-     valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
-   }
+   const pontoRes: PontoSalarioSemana | null = utilizaPontoEletronico ? (res[4] ?? null) : null;
 
    if(ok){
      setCaixa(c.data||null);
      setServicos(s.data||[]);
      setDescontos(d||[]);
      setPagamentos(p.data||[]);
-     setPontoDebitoMinutos(debMin);
-     setPontoExtraMinutos(extMin);
-     setPontoTrabalhadoMinutos(totalTrab);
-     setPontoFeriadosValor(valFer);
-     setPontoExtrasValor(valExt);
-     setPontoFaltasCount(faltasCountVal);
+     setPonto(pontoRes);
      setLoading(false);
    }
- })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end,utilizaPontoEletronico,salarioBase]);
+ })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end,utilizaPontoEletronico]);
 
  const[receitaLoja,setReceitaLoja]=useState(0);
  useEffect(()=>{if(modalidade!=='meta')return;let ok=true;supabase.from('vendas').select('total,status,down_payment').gte('created_at',bounds.start).lte('created_at',bounds.end + 'T23:59:59.999Z').is('deleted_at',null).then(({data})=>{if(!ok)return;setReceitaLoja((data||[]).filter((v:any)=>{if(v.status==='canceled')return false;const t=Number(v.total)||0,d=Number(v.down_payment)||0;return t>0&&(v.status==='completed'||d>=t)}).reduce((a:number,v:any)=>a+(Number(v.total)||0),0))});return()=>{ok=false}},[modalidade,bounds.start,bounds.end]);
@@ -111,18 +51,18 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    const comissaoServicos=servicos.reduce((s,x)=>s+(Number(x.comissao_valor)||0),0),producao=servicos.reduce((s,x)=>s+(Number(x.valor_producao)||0),0);
    const rem=calcularRemuneracaoSemanal({modalidade,salarioBase:salarioSemanal,comissaoPadraoPercentual,metaPercentual,metasValores,metaValorMinimo,metaValorMaximo,faturamentoGeral:receitaLoja},producao,comissaoServicos);
    
-   const valorHora = salarioBase > 0 ? salarioBase / 220 : 0;
-   const salarioHorasTrabalhadas = valorHora * (pontoTrabalhadoMinutos / 60);
-   const valorDiariaVal = salarioBase > 0 ? salarioBase / 30 : 0;
-   const descontoDSR = pontoFaltasCount > 0 ? valorDiariaVal : 0;
-   const baseCalculada = modalidade==='meta'?0: (utilizaPontoEletronico ? Math.max(0, salarioHorasTrabalhadas + pontoFeriadosValor + pontoExtrasValor - descontoDSR) : salarioSemanal);
+   // Base semanal vem da fonte única (pontoSalario/salarioPonto). Sem ponto aplicável, segue o salário fixo, como o Caixa.
+   const pontoDebitoMinutos=ponto?.debitoMin??0;
+   const pontoExtraMinutos=ponto?.bancoCreditoMin??0;
+   const pontoFeriadosValor=ponto?.valorFeriadosPago??0;
+   const pontoExtrasValor=ponto?.valorExtrasPago??0;
+   const baseCalculada = modalidade==='meta'?0: (ponto ? ponto.base : salarioSemanal);
 
    const base=fechado&&caixa?.salario_base!==null&&caixa?.salario_base!==undefined?Number(caixa.salario_base)||baseCalculada:baseCalculada;
    const comissao=rem.comissaoEfetiva;
    
-   // Valor por minuto = Salário Mensal / (220 horas * 60 minutos) = Salário Mensal / 13200
-   const valorMinuto = salarioBase > 0 ? salarioBase / (220 * 60) : 0;
-   const descontoPontoValor = pontoDebitoMinutos > 0 ? pontoDebitoMinutos * valorMinuto : 0;
+   // Débito do banco de horas da semana do ponto (valor/minuto = salário ÷ 220h ÷ 60, na fonte única).
+   const descontoPontoValor = ponto?.debitoVal??0;
 
    const descBase=fechado&&caixa?.total_descontos!==null&&caixa?.total_descontos!==undefined?Number(caixa.total_descontos)||0:calculateDescontosNoPeriodo(descontos,descBounds.start,descBounds.end);
    const desc = descBase + descontoPontoValor;
@@ -131,7 +71,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
    const pago=pagamentos.filter(x=>!caixa?.id||x.caixa_id===caixa.id).reduce((s,x)=>s+(Number(x.valor)||0),0);
    const previsao=Math.max(0,base+comissao-desc+saldoAnterior);
    return{base,comissao,desc,descontoPontoValor,pontoDebitoMinutos,pontoExtraMinutos,pontoFeriadosValor,pontoExtrasValor,saldoAnterior,pago,total:Math.max(0,Number((previsao-pago).toFixed(2)))};
- },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal,modalidade,comissaoPadraoPercentual,metaPercentual,metasValores,metaValorMinimo,metaValorMaximo,receitaLoja,pontoDebitoMinutos,utilizaPontoEletronico,pontoTrabalhadoMinutos,pontoFeriadosValor,pontoExtrasValor,salarioBase]);
+ },[caixa,servicos,descontos,pagamentos,descBounds.start,descBounds.end,salarioSemanal,modalidade,comissaoPadraoPercentual,metaPercentual,metasValores,metaValorMinimo,metaValorMaximo,receitaLoja,ponto,utilizaPontoEletronico]);
 
   const ehSabado = new Date().getDay() === 6;
   const pagamentoLabel=ehSabado?'hoje':'no próximo sábado';

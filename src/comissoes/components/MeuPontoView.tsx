@@ -2,8 +2,9 @@ import React,{useEffect,useMemo,useState}from'react';
 import{supabase}from'../../supabase';
 import{formatCurrency}from'../utils/storage';
 import{getWorkWeekBounds,getDescontosValesBounds}from'../utils/caixaSemanalStorage';
-import{diaEspecial,diasEspeciaisDoAno,diasEntre,resumoExtras,detalheFeriado,ehFeriado}from'../../lib/feriados';
-import{PontoJornada,PontoRegistro,analisarDia,limitarInicioPonto,PONTO_DATA_INICIO,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
+import{diaEspecial,diasEspeciaisDoAno,diasEntre}from'../../lib/feriados';
+import{PontoJornada,PontoRegistro,limitarInicioPonto,PONTO_DATA_INICIO,fmtHM,hhmm,hojeStr,jornadaDoDia,minutosPrevistos,somarDias}from'../../lib/pontoCalc';
+import{analisarSemanaPonto,calcularSalarioPonto,minutosDiferencaSemanaBanco,getDestinacaoExtras,setDestinacaoExtras}from'../utils/salarioPonto';
 import{Clock3,CalendarDays,WalletCards,Coffee,ChevronLeft,ChevronRight,Pencil}from'lucide-react';
 import{BancoHorasLancamentos}from'../../components/ponto/BancoHorasLancamentos';
 import{RegistroModal}from'../../components/ponto/PontoModals';
@@ -22,12 +23,10 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  // Semana de pagamento do ponto: aos sábados é a semana de 2 ciclos atrás (ex.: sáb 17/10 -> 03/10 a 09/10); de domingo a sexta, a semana passada.
  const pagamentoOffset=new Date().getDay()===6?-2:-1;
  const[weekOffset,setWeekOffset]=useState<number>(pagamentoOffset);
- const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => {
-   return (localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) as 'pagar' | 'folga') || 'pagar';
- });
+ const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => getDestinacaoExtras(colaboradorId));
  const handleSetDestinacao = (val: 'pagar' | 'folga') => {
    setDestinacaoExtra(val);
-   localStorage.setItem(`rpro_ponto_dest_${colaboradorId}`, val);
+   setDestinacaoExtras(colaboradorId, val);
  };
 
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
@@ -71,34 +70,14 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
    showAlert('Registro de ponto salvo com sucesso.');
  };
 
- const rMap=useMemo(()=>new Map(registros.map(r=>[r.data,r])),[registros]);
- const semana=useMemo(()=>{
-   const startD=new Date(bounds.start+'T12:00:00');
-   const list=[];
-   for(let i=0;i<7;i++){
-     const d=new Date(startD.getTime()+i*86400000).toISOString().split('T')[0];
-     const r=rMap.get(d);
-     const j=jornadas.find(jj=>jj.dia_semana===new Date(d+'T12:00:00').getDay())||jornadas[0];
-     const a=analisarDia(r,j,d,hojeStr(),func?.tolerancia_minutos??10);
-     list.push({data:d,r,j,a});
-   }
-   return list;
- },[bounds.start,rMap,jornadas,func]);
+ const semana=useMemo(()=>analisarSemanaPonto(bounds.start,registros,jornadas,func?.tolerancia_minutos??10,hojeStr()),[bounds.start,registros,jornadas,func]);
 
   const hoje = hojeStr();
   const horas=semana.reduce((s,d)=>s+d.a.trabalhados,0);
  const prev=semana.reduce((s,d)=>s+minutosPrevistos(d.j),0);
 
- const diferencaSemana=semana.reduce((s,d)=>{
-   if(d.data>hoje)return s;
-   // Feriado: nunca gera débito (faltou = abonado). Se o adicional do dobro for para o banco, entra como crédito.
-   const fer=detalheFeriado({data:d.data,trabalhados:d.a.trabalhados,previstos:d.a.previstos,extra:d.a.extra},func?.tolerancia_minutos??10);
-   if(fer)return s+(destinacaoExtra==='folga'?fer.adicionalMin+fer.extraAlemMin:0);
-   if(d.j&&d.j.trabalha){
-     return s+(d.a.trabalhados-d.a.previstos);
-   }
-   return s;
- },0);
+ // Saldo do banco (em tela): com destinação 'pagar' as extras já saem no salário e NÃO entram no banco.
+ const diferencaSemana=minutosDiferencaSemanaBanco(semana.map(d=>d.dia),destinacaoExtra,func?.tolerancia_minutos??10,hoje);
  const saldoBancoRegistrado=banco.filter(m=>m.minutos<0||!m.validade||m.validade>=hoje).reduce((s,m)=>s+m.minutos,0);
  const saldoTotal=saldoBancoRegistrado+diferencaSemana;
  
@@ -112,26 +91,16 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
    });
  },[anoSelecao,mesSelecao]);
 
- const faltasCount = useMemo(() => {
-   return semana.filter(d => {
-     const dow = new Date(d.data + 'T12:00:00').getDay();
-     const isWorkingDay = d.j ? d.j.trabalha : dow !== 0;
-     return d.a.status === 'ausente' && isWorkingDay && !ehFeriado(d.data);
-   }).length;
- }, [semana]);
-
- const extras=resumoExtras(semana.map(d=>({data:d.data,trabalhados:d.a.trabalhados,previstos:d.a.previstos,extra:d.a.extra})),salarioBase,func?.tolerancia_minutos??10);
-
- const valorHora=salarioBase>0?salarioBase/220:0;
- const salarioHorasTrabalhadas=valorHora*(horas/60);
- const valorDiariaVal = salarioBase > 0 ? salarioBase / 30 : 0;
- const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
- const salarioLiquidoPonto = Math.max(0, salarioHorasTrabalhadas - descontoDSR);
- // Feriado sem batida é abonado (sempre pago). Adicional do dobro e horas extras: pagar ou ir para o banco de horas.
- const pagaExtras=destinacaoExtra==='pagar';
- const valorFeriadosPago=pagaExtras?extras.valorFeriados:0;
- const valorExtrasPago=pagaExtras?extras.valorExtras:0;
- const totalSemana=salarioLiquidoPonto+(salarioBase>0?(extras.valorAbonos+valorFeriadosPago+valorExtrasPago):0);
+ // Resumo salarial: mesma fonte de cálculo do Meu Salário, Dashboard e Caixa (salarioPonto.ts).
+ const sal=calcularSalarioPonto({salarioMensal:salarioBase,tolerancia:func?.tolerancia_minutos??10,dias:semana.map(d=>d.dia),destinacao:destinacaoExtra});
+ const faltasCount=sal.faltas;
+ const extras=sal.extras;
+ const pagaExtras=sal.pagaExtras;
+ const salarioHorasTrabalhadas=sal.salarioHorasTrabalhadas;
+ const descontoDSR=sal.descontoDSR;
+ const valorFeriadosPago=sal.valorFeriadosPago;
+ const valorExtrasPago=sal.valorExtrasPago;
+ const totalSemana=sal.base;
 
  const card='bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 shadow-sm';
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Carregando Meu Ponto...</div>;

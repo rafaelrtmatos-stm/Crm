@@ -27,9 +27,8 @@ import {
 } from '../utils/caixaSemanalStorage';
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
-import { analisarDia, hojeStr, limitarInicioPonto } from '../../lib/pontoCalc';
 import { getBasePontoDaSemana } from '../utils/caixaPonto';
-import { resumoExtras, ehFeriado } from '../../lib/feriados';
+import { calcularPontoSalarioDoCiclo, pontoBoundsDoCiclo } from '../utils/pontoSalario';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -258,9 +257,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // A produção do sábado inicia o próximo ciclo e fica para o próximo recebimento.
   const dashboardWeekOffset = (offset: number) => new Date().getDay() === 6 ? offset - 1 : offset;
   const commissionWeekOffset = dashboardWeekOffset(weekOffset);
-  const pointWeekOffset = commissionWeekOffset - 1;
   const commissionWeekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
-  const pointWeekBounds = useMemo(() => getWorkWeekBounds(pointWeekOffset), [pointWeekOffset]);
+  // Semana do ponto que paga o ciclo exibido (regra única: ciclo − 7 dias).
+  const pointWeekBounds = useMemo(() => pontoBoundsDoCiclo(commissionWeekBounds.start, commissionWeekBounds.end), [commissionWeekBounds.start, commissionWeekBounds.end]);
 
   const [pontoBaseSalaryCalculated, setPontoBaseSalaryCalculated] = useState<number | null>(null);
 
@@ -270,53 +269,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setPontoBaseSalaryCalculated(null);
       return;
     }
-    (async () => {
-      const { data: f } = await supabase.from('ponto_funcionarios').select('id, tolerancia_minutos').eq('colaborador_id', colaboradorId).maybeSingle();
-      if (!ok || !f) {
-        setPontoBaseSalaryCalculated(null);
-        return;
-      }
-      const pFuncId = f.id;
-      const tol = f.tolerancia_minutos ?? 10;
-      const [rRes, jRes] = await Promise.all([
-        supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', limitarInicioPonto(pointWeekBounds.start)).lte('data', pointWeekBounds.end),
-        supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
-      ]);
-      if (!ok) return;
-
-      const rMap = new Map((rRes.data || []).map((rx: any) => [rx.data, rx]));
-      const startD = new Date(pointWeekBounds.start + 'T12:00:00');
-      let totalTrab = 0;
-      const diasParaExtras = [];
-      for (let i = 0; i < 7; i++) {
-        const dStr = new Date(startD.getTime() + i * 86400000).toISOString().split('T')[0];
-        const rx = rMap.get(dStr);
-        const jx = (jRes.data || []).find((jj: any) => jj.dia_semana === new Date(dStr + 'T12:00:00').getDay()) || (jRes.data || [])[0];
-        const ax = analisarDia(rx, jx, dStr, hojeStr(), tol);
-        totalTrab += ax.trabalhados;
-        diasParaExtras.push({
-          data: dStr,
-          trabalhados: ax.trabalhados,
-          previstos: ax.previstos,
-          extra: ax.extra
-        });
-      }
-      const extRes = resumoExtras(diasParaExtras, userSettings.baseSalary, tol);
-      const destinacaoSal = localStorage.getItem(`rpro_ponto_dest_${colaboradorId}`) || 'pagar';
-      // Feriado sem batida é abonado (sempre pago); o adicional do dobro vai para o salário ou para o banco de horas.
-      const valFer = extRes.valorAbonos + (destinacaoSal === 'pagar' ? extRes.valorFeriados : 0);
-      const valExt = destinacaoSal === 'pagar' ? extRes.valorExtras : 0;
-
-      const valorHora = userSettings.baseSalary > 0 ? userSettings.baseSalary / 220 : 0;
-      const salarioHorasTrabalhadas = valorHora * (totalTrab / 60);
-      const valorDiariaVal = userSettings.baseSalary > 0 ? userSettings.baseSalary / 30 : 0;
-      const faltasCount = diasParaExtras.filter(d => d.trabalhados === 0 && !ehFeriado(d.data)).length;
-      const descontoDSR = faltasCount > 0 ? valorDiariaVal : 0;
-      const baseFinal = Math.max(0, salarioHorasTrabalhadas + valFer + valExt - descontoDSR);
-      if (ok) setPontoBaseSalaryCalculated(baseFinal);
-    })();
+    // Fonte única (mesma do Caixa): o ponto do ciclo exibido é o do ciclo anterior (−7 dias).
+    calcularPontoSalarioDoCiclo(colaboradorId, commissionWeekBounds.start, commissionWeekBounds.end).then((r) => {
+      if (ok) setPontoBaseSalaryCalculated(r ? r.base : null);
+    });
     return () => { ok = false; };
-  }, [utilizaPontoEletronico, colaboradorId, pointWeekBounds.start, pointWeekBounds.end, userSettings.baseSalary]);
+  }, [utilizaPontoEletronico, colaboradorId, commissionWeekBounds.start, commissionWeekBounds.end]);
 
   const baseSalaryFinal = userSettings.modalidadeRemuneracao === 'meta'
     ? 0
