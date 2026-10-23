@@ -6,7 +6,7 @@ import { ContractApprovalModule } from './ContractApprovalModule';
 import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
 import { carregarInfoGrupos, digitosDoGrupo, carregarGruposSilenciados, definirGrupoSilenciado, type InfoGrupos } from './MessagesSidebarPopup';
-import { NotificacaoPendenteBanner, useNotificacaoPendente, marcarNotificacoesResolvidas } from './NotificacaoPendenteBanner';
+import { NotificacaoPendenteBanner, useNotificacaoPendente, resolverConversaPorTelefone } from './NotificacaoPendenteBanner';
 import { 
   AudioMessagePlayer, 
   MessageHoverActions, 
@@ -5458,29 +5458,10 @@ export const ChatPanel = ({
         lastMessageDirection: 'resolved' as any
       });
       if (conversation.phone) {
-        const raw = String(conversation.phone).trim();
-        const clean = raw.replace(/\D/g, '');
-        const ultimos8 = clean.slice(-8);
-        const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
-        if (ultimos8 && ultimos8.length >= 6) {
-          orClauses.push(`phone.ilike.%${ultimos8}%`);
-        }
+        // Igualdade exata por telefone (variantes), so ate a mensagem que o usuario viu: nao resolve outro cliente
+        // nem uma mensagem que chegou depois.
         try {
-          const { data: notifs } = await supabase
-            .from('crm_notifications')
-            .select('id')
-            .eq('company_id', currentCompany?.id || 'rafa-arts')
-            .or(orClauses.join(','))
-            .eq('status', 'pending');
-          if (notifs?.length) {
-            await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
-          }
-          await supabase
-            .from('crm_notifications')
-            .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
-            .eq('company_id', currentCompany?.id || 'rafa-arts')
-            .or(orClauses.join(','))
-            .eq('status', 'pending');
+          await resolverConversaPorTelefone(String(conversation.phone), { leadId: conversation.id, resolvidoPor: user?.name, ateMensagemEm: notificacaoPendente?.lastMessageAt });
         } catch (e) {
           console.warn('Erro ao resolver crm_notifications:', e);
         }
@@ -13724,29 +13705,8 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, waitingSince: undefined, unread: false, lastMessageDirection: 'resolved' as any } : l));
 
     if (lead?.phone) {
-      const raw = String(lead.phone).trim();
-      const clean = raw.replace(/\D/g, '');
-      const ultimos8 = clean.slice(-8);
-      const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
-      if (ultimos8 && ultimos8.length >= 6) {
-        orClauses.push(`phone.ilike.%${ultimos8}%`);
-      }
       try {
-        const { data: notifs } = await supabase
-          .from('crm_notifications')
-          .select('id')
-          .eq('company_id', currentCompany?.id || 'rafa-arts')
-          .or(orClauses.join(','))
-          .eq('status', 'pending');
-        if (notifs?.length) {
-          await marcarNotificacoesResolvidas(notifs.map(n => n.id), user?.name);
-        }
-        await supabase
-          .from('crm_notifications')
-          .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
-          .eq('company_id', currentCompany?.id || 'rafa-arts')
-          .or(orClauses.join(','))
-          .eq('status', 'pending');
+        await resolverConversaPorTelefone(String(lead.phone), { leadId: lead.id, resolvidoPor: user?.name });
       } catch (e) {
         console.warn('Erro ao resolver notificações do lead:', e);
       }
@@ -13767,18 +13727,9 @@ export const MessagesModule = ({ currentCompany, user, preselectedLeadId }: { cu
     setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, waitingSince: undefined, unread: false, lastMessageDirection: 'resolved' as any } : l));
 
     try {
-      const phones = leads
-        .filter(l => ids.includes(l.id) && l.phone)
-        .map(l => String(l.phone).replace(/\D/g, ''))
-        .filter(p => p.length >= 6);
-
-      for (const p of phones) {
-        await supabase
-          .from('crm_notifications')
-          .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
-          .eq('company_id', currentCompany?.id || 'rafa-arts')
-          .ilike('phone', `%${p.slice(-8)}%`)
-          .eq('status', 'pending');
+      // Igualdade exata por telefone (variantes): o ilike dos 8 ultimos digitos resolvia notificacao de OUTRO cliente.
+      for (const l of leads.filter(l => ids.includes(l.id) && l.phone)) {
+        await resolverConversaPorTelefone(String(l.phone), { leadId: l.id, resolvidoPor: user?.name });
       }
     } catch (e) {}
   };

@@ -105,7 +105,7 @@ import {
 } from './components/Modules';
 import { AgendaModule } from './components/AgendaModule';
 import { MessagesSidebarPopup, carregarInfoGrupos, grupoEstaSilenciado } from './components/MessagesSidebarPopup';
-import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, marcarNotificacoesResolvidas, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
+import { NotificacoesPendentesBell, useNotificacoesPendentes, buscarNotificacaoDaMensagem, formatarHoraNotificacao, usuarioPodeVerMensagens, buscarLeadsDaConversa, resolverConversaPorTelefone, type NotificacaoPendente } from './components/NotificacaoPendenteBanner';
 import { usePagamentosRecebidos } from './lib/pagamentoRecebido';
 import { RobozinhoRafaModule } from './components/RobozinhoRafaModule';
 import { IntegracoesModule } from './components/IntegracoesModule';
@@ -118,7 +118,7 @@ import { DespesasFixasModule } from './components/DespesasFixasModule';
 import { PontoApp } from './components/ponto/PontoApp';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
 import { SEM_CRM_MESSAGES } from './lib/flags';
-import { normalizarTelefoneBR, variantesTelefoneBR, nomeEhPlaceholder } from './lib/phone';
+import { normalizarTelefoneBR, variantesTelefoneBR, chaveDoContato, nomeEhPlaceholder } from './lib/phone';
 
 export { AppContext, useApp, type MainTab, type AppContextType };
 
@@ -1648,72 +1648,37 @@ export default function App() {
     setActiveTab('crm');
     if (!phone) return;
 
-    const findAndSelectLead = async (): Promise<boolean> => {
-      try {
-        const raw = String(phone).trim();
-        const clean = raw.replace(/\D/g, '');
-        const ultimos8 = clean.slice(-8);
-        const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
-        if (ultimos8.length >= 6) {
-          orClauses.push(`phone.ilike.%${ultimos8}%`);
-        }
-        const { data } = await supabase
-          .from('leads')
-          .select('id')
-          .eq('company_id', 'rafa-arts')
-          .or(orClauses.join(','))
-          .order('updated_at', { ascending: false })
-          .limit(1);
-
-        if (data?.[0]?.id) {
-          setPendingOpenLeadId(data[0].id);
-          return true;
-        }
-      } catch (err) {
-        console.warn('Erro ao localizar lead da notificação:', err);
-      }
-      return false;
+    // Sem correspondencia parcial (os 8 ultimos digitos podiam abrir OUTRO cliente) e sem `.or()` montado com o telefone
+    // cru (mascara/parenteses quebravam a consulta com 400, o erro era ignorado e virava "lead nao encontrado").
+    // Resultado: 'achou' | 'nao-existe' | 'erro'.
+    const findAndSelectLead = async (): Promise<'achou' | 'nao-existe' | 'erro'> => {
+      const { ids, erro } = await buscarLeadsDaConversa(phone, notif?.leadId);
+      if (ids[0]) { setPendingOpenLeadId(ids[0]); return 'achou'; }
+      if (erro) { console.warn('Erro ao localizar lead da notificação:', erro); return 'erro'; }
+      return 'nao-existe';
     };
 
-    const found = await findAndSelectLead();
-    if (!found) {
-      setTimeout(async () => {
-        const foundRetry = await findAndSelectLead();
-        if (!foundRetry) {
-          setTimeout(async () => {
-            const finalTry = await findAndSelectLead();
-            if (!finalTry) {
-              // Se o lead ou mensagens foram apagados, o usuário não conseguia abrir nem resolver.
-              // Oferece a resolução imediata para limpar a notificação pendente do sino.
-              const confirmar = window.confirm(
-                'Esta conversa ou lead não foi encontrada no CRM (ela pode ter sido excluída anteriormente).\n\nDeseja marcar esta notificação como resolvida para retirá-la do sino de notificações?'
-              );
-              if (confirmar) {
-                const ids = notif?.ids || [];
-                if (ids.length > 0) {
-                  await marcarNotificacoesResolvidas(ids, user?.name);
-                } else {
-                  const raw = String(phone).trim();
-                  const clean = raw.replace(/\D/g, '');
-                  const ultimos8 = clean.slice(-8);
-                  const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
-                  if (ultimos8.length >= 6) orClauses.push(`phone.ilike.%${ultimos8}%`);
-                  await supabase
-                    .from('crm_notifications')
-                    .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: user?.name || null })
-                    .eq('company_id', 'rafa-arts')
-                    .or(orClauses.join(','))
-                    .eq('status', 'pending');
-                }
-              }
-            }
-          }, 800);
-        }
-      }, 350);
+    let resultado = await findAndSelectLead();
+    // Recem-criado pelo webhook/sincronizacao: tenta mais duas vezes antes de concluir que nao existe.
+    for (const espera of [350, 800]) {
+      if (resultado === 'achou') return;
+      await new Promise(r => setTimeout(r, espera));
+      resultado = await findAndSelectLead();
     }
+    if (resultado === 'achou') return;
+    if (resultado === 'erro') {
+      showAlert('Não foi possível abrir a conversa agora (falha na consulta). Tente novamente.');
+      return;
+    }
+    // Sem lead (mensagem de numero que nao virou lead, ou lead apagado): nunca abre outro cliente.
+    const confirmar = window.confirm(
+      'Esta conversa não tem cliente associado no CRM (ele pode ter sido excluído).\n\nDeseja marcar esta notificação como resolvida para retirá-la do sino de notificações?'
+    );
+    if (confirmar) await resolverConversaPorTelefone(String(phone), { leadId: notif?.leadId, resolvidoPor: user?.name, ateMensagemEm: notif?.lastMessageAt });
   };
 
-  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, n.messageId, n); };
+  // crm_notifications nao tem message_id: a conversa abre pelo lead/telefone (a mensagem-alvo so existe no clique de notificacao nativa).
+  const abrirNotificacao = (n: NotificacaoPendente) => { openNotificationLead(n.phone, null, n); };
 
   // Clique numa notificacao mostrada pelo service worker (public/sw.js): o SW avisa a aba
   // aberta e aqui abrimos a conversa, igual o onclick da Notification antiga fazia.
@@ -1928,8 +1893,23 @@ export default function App() {
         if (devidos.length === 0) return;
         devidos.sort((x, y) => Date.parse(x.lead.waiting_since) - Date.parse(y.lead.waiting_since));
 
-        const lote = devidos.slice(0, MAX_POR_RODADA);
-        sobrou = devidos.length > lote.length;
+        // Notificacao ja RESOLVIDA (e sem nova mensagem pendente) nao gera lembrete nem som, mesmo que leads.waiting_since
+        // tenha ficado preenchido. Mensagem nova reabre a linha como 'pending' e o lembrete volta. Sem linha = comportamento antigo.
+        const { data: statusNotifs, error: erroNotifs } = await supabase.from('crm_notifications').select('phone,status')
+          .eq('company_id', 'rafa-arts').in('phone', Array.from(new Set(devidos.flatMap(d => variantesTelefoneBR(d.lead.phone).concat(String(d.lead.phone || '')))))) ;
+        const resolvida = (phone: any) => {
+          if (erroNotifs || !statusNotifs) return false;
+          const linhas = statusNotifs.filter((r: any) => chaveDoContato(r.phone) === chaveDoContato(phone));
+          return linhas.length > 0 && !linhas.some((r: any) => r.status === 'pending');
+        };
+        const devidosAtivos = devidos.filter(d => {
+          if (!resolvida(d.lead.phone)) return true;
+          lembretesRef.current.set(d.chave, d.ciclo); // anota o ciclo: nao reavalia ate o proximo
+          return false;
+        });
+        if (devidosAtivos.length === 0) return;
+        const lote = devidosAtivos.slice(0, MAX_POR_RODADA);
+        sobrou = devidosAtivos.length > lote.length;
         try {
           const audio = notifAudioRef.current || (notifAudioRef.current = new Audio('/sounds/mensagem-cliente.mp3'));
           audio.currentTime = 0;

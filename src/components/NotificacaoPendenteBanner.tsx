@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, BadgeDollarSign, Bell, BellRing, Check, CheckCircle2, Crosshair, User, Users } from 'lucide-react';
+import { AlertTriangle, BadgeDollarSign, Bell, BellRing, Check, CheckCircle2, User, Users } from 'lucide-react';
 import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
 import { FotoNotificacao } from '../lib/notify';
 import { ehUuid } from '../lib/uuid';
+import { chaveDoContato, variantesTelefoneBR } from '../lib/phone';
 import { numeroDoPedido, tituloDoPagamento, type PagamentoRecebido } from '../lib/pagamentoRecebido';
 
 // NOTIFICACAO PENDENTE de uma conversa (tabela crm_notifications -- ja existe em producao,
@@ -26,7 +27,7 @@ import { numeroDoPedido, tituloDoPagamento, type PagamentoRecebido } from '../li
 export type NotificacaoPendente = {
   ids: string[];           // ids das linhas pendentes agrupadas -- sao exatamente elas que o botao resolve
   phone: string;
-  messageId?: string;      // mensagem mais antiga pendente: a que gerou a notificacao
+  leadId?: string;         // crm_notifications.lead_id (pode ser nulo se o gatilho nao achou o lead)
   messageCount: number;    // quantas mensagens do cliente ficaram agrupadas
   title?: string;
   senderName?: string;
@@ -44,7 +45,7 @@ const agruparNotificacoes = (rows: any[]): NotificacaoPendente | null => {
   return {
     ids: rows.map(r => r.id),
     phone: primeira.phone,
-    messageId: primeira.message_id || undefined,
+    leadId: ultima.lead_id || primeira.lead_id || undefined,
     messageCount: rows.length,
     title: ultima.title || undefined,
     senderName: ultima.sender_name || undefined,
@@ -89,7 +90,7 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
 
   const recarregar = useCallback(async () => {
     if (!phone) { setNotificacao(null); return; }
-    const { data, error } = await lerTodasPendentes(q => q.eq('phone', phone));
+    const { data, error } = await lerTodasPendentes(q => q.in('phone', variantesDaConversa(phone)));
     if (error) { setNotificacao(null); return; }
     setNotificacao(agruparNotificacoes(data || []));
   }, [phone]);
@@ -98,9 +99,13 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
 
   useEffect(() => {
     if (!phone) return;
+    // Nome UNICO por inscricao: dois chats do mesmo telefone montados juntos compartilhavam o canal e um removia o do outro.
     const channel = supabase
-      .channel(`chat-notificacao-${phone}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_notifications', filter: `phone=eq.${phone}` }, recarregar)
+      .channel(`chat-notificacao-${phone}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_notifications', filter: 'company_id=eq.rafa-arts' }, (payload: any) => {
+        const alvo = payload?.new?.phone ?? payload?.old?.phone;
+        if (alvo === undefined || mesmaConversa(alvo, phone)) recarregar();
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [phone, recarregar]);
@@ -113,18 +118,22 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
  * Resolve SOMENTE as linhas que o aviso mostrava (`ids`): se chegou mensagem nova enquanto o
  * aviso estava na tela, ela nasce pendente e NAO e resolvida junto.
  */
-export async function marcarNotificacoesResolvidas(ids: string[], resolvidoPor?: string | null): Promise<boolean> {
+export async function marcarNotificacoesResolvidas(ids: string[], resolvidoPor?: string | null, ateMensagemEm?: string | null): Promise<boolean> {
   // Um id fora do formato uuid derruba o lote inteiro com 400 (22P02): filtra antes de montar a consulta.
   ids = ids.filter(ehUuid);
   if (!ids.length) return true;
   // Em lotes: `.in('id', ...)` vai na URL, e centenas de ids de uma vez (grupo movimentado) passam do limite dela.
   const quando = new Date().toISOString();
   for (let i = 0; i < ids.length; i += 100) {
-    const { error } = await supabase
+    // Ha UMA linha por conversa: mensagem nova atualiza a MESMA linha (message_at avanca). `ateMensagemEm` (message_at
+    // que o usuario viu, string original do banco) impede que o clique resolva tambem uma mensagem que chegou depois.
+    let consulta = supabase
       .from('crm_notifications')
       .update({ status: 'resolved', resolved_at: quando, resolved_by: resolvidoPor || null })
       .in('id', ids.slice(i, i + 100))
       .eq('status', 'pending');
+    if (ateMensagemEm) consulta = consulta.lte('message_at', ateMensagemEm);
+    const { error } = await consulta;
     if (error) {
       console.error('Erro ao marcar notificacao como resolvida:', error);
       return false;
@@ -133,14 +142,73 @@ export async function marcarNotificacoesResolvidas(ids: string[], resolvidoPor?:
   return true;
 }
 
+/** Telefones em que a MESMA conversa pode estar gravada (com/sem 55, com/sem nono digito). Igualdade exata, nunca parcial. */
+const variantesDaConversa = (phone?: string | null): string[] => {
+  const bruto = String(phone ?? '').trim();
+  const v = new Set<string>(variantesTelefoneBR(bruto));
+  if (bruto) v.add(bruto);
+  return [...v];
+};
+export const mesmaConversa = (a?: string | null, b?: string | null): boolean => {
+  const ca = chaveDoContato(a), cb = chaveDoContato(b);
+  return !!ca && ca === cb;
+};
+
+/**
+ * Acha o(s) lead(s) da conversa SEM correspondencia parcial: 1) lead_id da notificacao; 2) telefone em qualquer formato
+ * equivalente (variantes); 3) telefone gravado com mascara, comparando o numero NORMALIZADO por igualdade. Devolve `erro`
+ * quando a consulta falha (diferente de "nao existe"), para quem chamou nao tratar erro como lead apagado.
+ */
+export const buscarLeadsDaConversa = async (phone?: string | null, leadId?: string | null): Promise<{ ids: string[]; erro: any }> => {
+  const chave = chaveDoContato(phone);
+  try {
+    if (leadId && ehUuid(leadId)) {
+      const { data, error } = await supabase.from('leads').select('id').eq('id', leadId).eq('company_id', 'rafa-arts').limit(1);
+      if (error) return { ids: [], erro: error };
+      if (data?.[0]?.id) return { ids: [data[0].id], erro: null };
+    }
+    if (!chave) return { ids: [], erro: null };
+    const exatos = await supabase.from('leads').select('id').eq('company_id', 'rafa-arts')
+      .in('phone', variantesDaConversa(phone)).order('updated_at', { ascending: false }).limit(10);
+    if (exatos.error) return { ids: [], erro: exatos.error };
+    if (exatos.data?.length) return { ids: exatos.data.map((l: any) => l.id), erro: null };
+    // Telefone com mascara ("(93) 99233-2012"): os 4 ultimos digitos continuam contiguos; o resto e conferido por igualdade.
+    const fim = chave.slice(-4);
+    if (fim.length < 4) return { ids: [], erro: null };
+    const cand = await supabase.from('leads').select('id, phone').eq('company_id', 'rafa-arts')
+      .ilike('phone', `%${fim}`).order('updated_at', { ascending: false }).limit(300);
+    if (cand.error) return { ids: [], erro: cand.error };
+    return { ids: (cand.data || []).filter((l: any) => mesmaConversa(l.phone, phone)).map((l: any) => l.id), erro: null };
+  } catch (erro) {
+    return { ids: [], erro };
+  }
+};
+
+/** Resolve as notificacoes pendentes da conversa (telefone em formatos equivalentes, igualdade exata) e limpa a espera dos leads dela. */
+export const resolverConversaPorTelefone = async (
+  phone: string,
+  opts: { leadId?: string | null; resolvidoPor?: string | null; ateMensagemEm?: string | null } = {}
+): Promise<boolean> => {
+  const { data, error } = await supabase.from('crm_notifications').select('id').eq('company_id', 'rafa-arts')
+    .in('phone', variantesDaConversa(phone)).eq('status', 'pending');
+  if (error) { console.error('Erro ao buscar notificacoes da conversa:', error); return false; }
+  const ok = await marcarNotificacoesResolvidas((data || []).map((r: any) => r.id), opts.resolvidoPor, opts.ateMensagemEm);
+  const { ids } = await buscarLeadsDaConversa(phone, opts.leadId);
+  if (ids.length) {
+    const { error: e2 } = await supabase.from('leads')
+      .update({ waiting_since: null, unread: false, last_message_direction: 'resolved', updated_at: new Date().toISOString() })
+      .in('id', ids);
+    if (e2) { console.error('Erro ao limpar espera do lead:', e2); return false; }
+  }
+  return ok;
+};
+
 export const NotificacaoPendenteBanner = ({
   notificacao,
-  onVerMensagem,
   onResolver,
   resolvendo,
 }: {
   notificacao: NotificacaoPendente;
-  onVerMensagem?: () => void;   // so posiciona no chat; NAO resolve
   onResolver: () => void;       // clique explicito no botao
   resolvendo?: boolean;
 }) => {
@@ -159,17 +227,6 @@ export const NotificacaoPendenteBanner = ({
         )}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
-        {onVerMensagem && notificacao.messageId && (
-          <button
-            type="button"
-            onClick={onVerMensagem}
-            title="Ir até a mensagem que gerou a notificação (não resolve)"
-            className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded border border-white/10 bg-white/5 text-[9.5px] font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-          >
-            <Crosshair size={10} />
-            <span>Ver mensagem</span>
-          </button>
-        )}
         <button
           type="button"
           onClick={onResolver}
@@ -459,34 +516,7 @@ export const NotificacoesPendentesBell = ({
       if (onResolver) {
         onResolver(n);
       }
-      await marcarNotificacoesResolvidas(n.ids);
-      const raw = String(n.phone).trim();
-      const clean = raw.replace(/\D/g, '');
-      const ultimos8 = clean.slice(-8);
-      const orClauses = [`phone.eq.${raw}`, `phone.eq.${clean}`];
-      if (ultimos8 && ultimos8.length >= 6) {
-        orClauses.push(`phone.ilike.%${ultimos8}%`);
-      }
-      await supabase
-        .from('crm_notifications')
-        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-        .eq('company_id', 'rafa-arts')
-        .or(orClauses.join(','))
-        .eq('status', 'pending');
-
-      // Também limpa waiting_since, unread e define last_message_direction no lead correspondente
-      if (ultimos8 && ultimos8.length >= 6) {
-        await supabase
-          .from('leads')
-          .update({
-            waiting_since: null,
-            unread: false,
-            last_message_direction: 'resolved',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('company_id', 'rafa-arts')
-          .ilike('phone', `%${ultimos8}%`);
-      }
+      await resolverConversaPorTelefone(n.phone, { leadId: n.leadId, ateMensagemEm: n.lastMessageAt });
     } catch (err) {
       console.error('Erro ao resolver notificacao pelo sino:', err);
     } finally {
@@ -504,31 +534,9 @@ export const NotificacoesPendentesBell = ({
     if (!ok) return;
     setResolvendoTodas(true);
     try {
-      const todosIds = itens.flatMap(n => n.ids);
-      if (todosIds.length > 0) {
-        await marcarNotificacoesResolvidas(todosIds);
-      }
-      await supabase
-        .from('crm_notifications')
-        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-        .eq('company_id', 'rafa-arts')
-        .eq('status', 'pending');
-
-      const phonesParaLimpar = itens
-        .map(i => String(i.phone || '').replace(/\D/g, ''))
-        .filter(p => p.length >= 6);
-
-      for (const p of phonesParaLimpar) {
-        await supabase
-          .from('leads')
-          .update({
-            waiting_since: null,
-            unread: false,
-            last_message_direction: 'resolved',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('company_id', 'rafa-arts')
-          .ilike('phone', `%${p.slice(-8)}%`);
+      // So as conversas que ESTE usuario ve no sino (permissao de grupos preservada), cada uma ate a mensagem vista.
+      for (const n of itens) {
+        await resolverConversaPorTelefone(n.phone, { leadId: n.leadId, ateMensagemEm: n.lastMessageAt });
       }
 
       onMarcarTodosPagamentos?.();
