@@ -17,7 +17,8 @@ import {
 } from '../lib/cobrancaPix';
 
 // "Cobrar saldo via PIX": a partir de uma nota já salva, prepara a cobrança para o cliente (WhatsApp)
-//  - MENSAGEM: QR Code (imagem) + PIX copia e cola na caixa de mensagem da conversa (sem envio automático); ou
+//  - MENSAGEM: QR Code (imagem com legenda) na caixa de mensagem da conversa (sem envio automático); ao enviar, o PIX copia e cola
+//    sai em uma 2a mensagem de texto e a verificação do pagamento é registrada em pix_pendentes; ou
 //  - LINK: página pública /pagar/:token em que o próprio cliente escolhe entre as opções marcadas — o texto vai para a
 //    CAIXA DE MENSAGEM da conversa (como recibo/orçamento), sem envio automático.
 
@@ -78,7 +79,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     return true;
   };
 
-  // QR + copia e cola: gera a imagem e deixa imagem + legenda (com o copia e cola ao final) na CAIXA DE MENSAGEM da conversa.
+  // QR + copia e cola: gera a imagem e deixa imagem + legenda (descrição da cobrança) na CAIXA DE MENSAGEM da conversa.
   // Nada é enviado sozinho: quem manda é o usuário, clicando em enviar no chat.
   const enviarMensagem = async () => {
     if (enviando || !validar()) return;
@@ -92,11 +93,11 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
         pix,
       });
       if (r.ok === false) { showAlert(`Não foi possível preparar a cobrança: ${r.erro}`); return; }
-      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone });
+      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone, pixCobranca: { saleId: order.id, companyId, valorCentavos: r.valorCentavos, copiaECola: r.payload } });
       onClose();
       onConversaAberta?.();
       await openWhatsAppChat(telefone, order.customerName || 'Cliente', '');
-      showAlert('QR e copia e cola estão na caixa de mensagem — revise e envie.');
+      showAlert('O QR Code está na caixa de mensagem — revise e envie. O copia e cola sai em seguida, em outra mensagem.');
     } finally {
       setEnviando(false);
     }

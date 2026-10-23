@@ -281,8 +281,8 @@ function montarLegendaCobrancaPix(p: {
 
 /**
  * Prepara a cobrança PIX SEM enviar nada: gera o QR (PNG) e a legenda para cair na CAIXA DE MENSAGEM da conversa
- * (setPendingReceiptAttachment + openWhatsAppChat), como recibo/orçamento. O copia e cola vai ao final da legenda,
- * na mesma mensagem da imagem. Quem envia é o usuário.
+ * (setPendingReceiptAttachment + openWhatsAppChat), como recibo/orçamento. O copia e cola NAO entra na legenda: sai em uma 2a mensagem de texto,
+ * logo depois da imagem. Quem envia é o usuário.
  */
 export async function prepararCobrancaPix(p: {
   customerName?: string | null;
@@ -290,7 +290,7 @@ export async function prepararCobrancaPix(p: {
   orderId?: string;
   valor: number;
   pix: PixConfigLite;
-}): Promise<{ ok: true; file: File; previewUrl: string; legenda: string; payload: string } | { ok: false; erro: string }> {
+}): Promise<{ ok: true; file: File; previewUrl: string; legenda: string; payload: string; valorCentavos: number } | { ok: false; erro: string }> {
   try {
     const payload = buildPixPayload({
       key: p.pix.key,
@@ -302,11 +302,12 @@ export async function prepararCobrancaPix(p: {
     const QRCode = (await import('qrcode')).default;
     const dataUrl = await QRCode.toDataURL(payload, { margin: 2, width: 600, errorCorrectionLevel: 'M' });
     const blob = await (await fetch(dataUrl)).blob();
-    const file = new File([blob], 'pix.png', { type: 'image/png' });
+    // Nome unico: a caixa de mensagem descarta anexos com o mesmo nome (uma segunda cobranca seria ignorada).
+    const file = new File([blob], `pix-qrcode-${Date.now()}.png`, { type: 'image/png' });
     const previewUrl = URL.createObjectURL(blob);
-    const base = montarLegendaCobrancaPix(p, 'Pague lendo o QR Code acima ou use o PIX copia e cola abaixo:');
-    const legenda = `${base}\n\n${payload}`;
-    return { ok: true, file, previewUrl, legenda, payload };
+    // Legenda SO descreve a cobranca; o copia e cola vai em mensagem de texto separada (ver Modules.tsx, enviarImagensPendentes).
+    const legenda = montarLegendaCobrancaPix(p, 'Pague lendo o QR Code acima. O código PIX copia e cola segue na próxima mensagem.');
+    return { ok: true, file, previewUrl, legenda, payload, valorCentavos: Math.round(Number(p.valor.toFixed(2)) * 100) };
   } catch (e) {
     return { ok: false, erro: e instanceof Error ? e.message : 'não foi possível gerar o QR Code' };
   }

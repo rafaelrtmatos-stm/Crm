@@ -7,6 +7,7 @@ import { ContractSignatureOtpPanel } from './ContractSignatureOtpPanel';
 import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal';
 import { carregarInfoGrupos, digitosDoGrupo, carregarGruposSilenciados, definirGrupoSilenciado, type InfoGrupos } from './MessagesSidebarPopup';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, resolverConversaPorTelefone } from './NotificacaoPendenteBanner';
+import { registrarPixPendenteDaCobranca } from '../lib/pixPendentes';
 import { 
   AudioMessagePlayer, 
   MessageHoverActions, 
@@ -5782,8 +5783,17 @@ export const ChatPanel = ({
     const legenda = (typeof newMessage === 'string' ? newMessage : '').trim();
     setPendingImages([]);
     setNewMessage('');
+    const pix = pixCobrancaRef.current && lista.some(p => p.file === pixCobrancaRef.current!.file) ? pixCobrancaRef.current : null;
+    pixCobrancaRef.current = null; // uma cobranca = um envio (nunca repete o copia e cola nem a pendencia)
     for (let i = 0; i < lista.length; i++) {
-      await handleSendFile(lista[i].file, 'image', i === 0 ? legenda : '');
+      // Cobranca Pix: 1) imagem do QR com a descricao; 2) SO se a imagem foi enviada: registra a verificacao e manda o copia e cola.
+      const depois = pix && lista[i].file === pix.file ? async (ok: boolean) => {
+        if (!ok) { showAlert('O QR Code não foi enviado, então o copia e cola também não foi. Gere a cobrança de novo.'); return; }
+        const pend = await registrarPixPendenteDaCobranca({ companyId: pix.companyId, saleId: pix.saleId, valorCentavos: pix.valorCentavos });
+        if (!pend) showAlert('A cobrança foi enviada, mas a verificação automática do pagamento não pôde ser registrada. Confirme o pagamento manualmente.');
+        await handleSendMessage(pix.copiaECola);
+      } : undefined;
+      await handleSendFile(lista[i].file, 'image', i === 0 ? legenda : '', depois);
     }
     lista.forEach(p => URL.revokeObjectURL(p.previewUrl));
 
@@ -6494,6 +6504,7 @@ export const ChatPanel = ({
     }
   };
 
+  const pixCobrancaRef = useRef<{ file: File; saleId: string; companyId: string; valorCentavos: number; copiaECola: string } | null>(null);
   const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptAttachment, setPendingReceiptAttachment } = React.useContext(AppContext)!;
 
   useEffect(() => {
@@ -6506,6 +6517,8 @@ export const ChatPanel = ({
       if (att.caption) {
         setNewMessage(att.caption);
       }
+      // Cobranca Pix: lembra o arquivo do QR e os dados; so ao ENVIAR a imagem sai o copia e cola e a verificacao e registrada.
+      pixCobrancaRef.current = att.pixCobranca ? { file: att.file, ...att.pixCobranca } : null;
       setPendingReceiptAttachment(null);
     }
   }, [pendingReceiptAttachment]);
@@ -7245,7 +7258,8 @@ export const ChatPanel = ({
     }
   };
 
-  const handleSendFile = async (arquivo: File | null | undefined, escolhido: 'image' | 'document', legendaFixa?: string) => {
+  // `aoConcluir(ok)`: roda quando o envio TERMINA (ok=true so se o servidor confirmou o envio); permite encadear uma 2a mensagem em ordem.
+  const handleSendFile = async (arquivo: File | null | undefined, escolhido: 'image' | 'document', legendaFixa?: string, aoConcluir?: (ok: boolean) => void | Promise<void>) => {
     if (!arquivo || !conversation || !currentCompany) return;
     const canal = (conversation.sourceType || conversation.channel || 'WhatsApp');
     if (canal !== 'WhatsApp' || !conversation.phone) {
@@ -7366,6 +7380,7 @@ export const ChatPanel = ({
           setOptimisticMediaMessages(prev => prev.filter(m => m.id !== optId));
           if (localBlobUrl) URL.revokeObjectURL(localBlobUrl);
         }, 3000);
+        return true;
 
       } catch (err: any) {
         console.error('Falha ao enviar arquivo:', err);
@@ -7376,6 +7391,7 @@ export const ChatPanel = ({
           uploadError: errMsg,
           retryFn: () => executeUpload(),
         } : m));
+        return false;
       } finally {
         setEnviandoArquivo(false);
       }
@@ -7410,7 +7426,7 @@ export const ChatPanel = ({
       virtuosoRef.current?.scrollToIndex({ index: messages.length + 1, align: 'end', behavior: 'smooth' });
     }, 40);
 
-    executeUpload();
+    executeUpload().then(ok => aoConcluir?.(ok === true)).catch(e => console.warn('Falha após o envio do arquivo:', e));
   };
 
   // Colar imagem do Clipboard (Ctrl+V) na conversa

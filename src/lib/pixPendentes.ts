@@ -39,6 +39,40 @@ export async function registrarPixPendente(params: {
   }
 }
 
+/** Janela de validade da pendência de uma cobrança enviada pelo WhatsApp (o cliente paga fora do card, com a tela fechada). */
+export const PRAZO_COBRANCA_WHATSAPP_MIN = 120;
+
+/**
+ * Registra, NO MOMENTO EM QUE A COBRANCA FOI ENVIADA pelo WhatsApp, a pendencia em `pix_pendentes` (sale_id + valor).
+ * E o mesmo registro do card: quem confirma e da a baixa continua sendo o servidor (pix-aviso -> conferirPendenciasCard,
+ * em api/_lib/pagar-link.js, que le o e-mail do Nubank e usa a trava `baixa_em`). Enviar a mensagem NAO e pagamento.
+ * Reenvio da mesma cobranca (mesma nota e valor): a pendencia anterior e liberada, pra nao haver 2 abertas com o mesmo
+ * valor (a regra de casamento recusa a baixa automatica quando ha mais de uma).
+ */
+export async function registrarPixPendenteDaCobranca(params: {
+  companyId: string;
+  saleId: string;
+  valorCentavos: number;
+}): Promise<PixPendente | null> {
+  try {
+    await supabase.from('pix_pendentes').update({ status: 'expirado' })
+      .eq('company_id', params.companyId).eq('sale_id', params.saleId)
+      .eq('valor_centavos', params.valorCentavos).eq('status', 'pendente').is('baixa_em', null);
+    const base = {
+      company_id: params.companyId,
+      sale_id: params.saleId,
+      valor_centavos: params.valorCentavos,
+      expira_em: new Date(Date.now() + PRAZO_COBRANCA_WHATSAPP_MIN * 60 * 1000).toISOString(),
+    };
+    let res = await supabase.from('pix_pendentes').insert({ ...base, criado_por: idUsuarioLogado() || null }).select('id, expira_em').single();
+    if (res.error) res = await supabase.from('pix_pendentes').insert(base).select('id, expira_em').single();
+    if (res.error || !res.data) return null;
+    return { id: res.data.id as string, expiraEm: res.data.expira_em as string };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Trava de baixa compartilhada com o servidor: devolve true se ESTE navegador deve dar a baixa, false se o servidor
  * já a deu (nesse caso o navegador só atualiza a tela). Em qualquer falha devolve true (comportamento antigo).
