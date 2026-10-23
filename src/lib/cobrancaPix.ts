@@ -290,6 +290,7 @@ export async function prepararCobrancaPix(p: {
   orderId?: string;
   valor: number;
   pix: PixConfigLite;
+  expiraEm?: Date;
 }): Promise<{ ok: true; file: File; previewUrl: string; legenda: string; payload: string; valorCentavos: number } | { ok: false; erro: string }> {
   try {
     const payload = buildPixPayload({
@@ -306,7 +307,8 @@ export async function prepararCobrancaPix(p: {
     const file = new File([blob], `pix-qrcode-${Date.now()}.png`, { type: 'image/png' });
     const previewUrl = URL.createObjectURL(blob);
     // Legenda SO descreve a cobranca; o copia e cola vai em mensagem de texto separada (ver Modules.tsx, enviarImagensPendentes).
-    const legenda = montarLegendaCobrancaPix(p, 'Pague lendo o QR Code acima. O código PIX copia e cola segue na próxima mensagem.');
+    const validade = p.expiraEm ? `\nVálido até ${fmtValidade(p.expiraEm)}.` : '';
+    const legenda = montarLegendaCobrancaPix(p, `Pague lendo o QR Code acima. O código PIX copia e cola segue na próxima mensagem.${validade}`);
     return { ok: true, file, previewUrl, legenda, payload, valorCentavos: Math.round(Number(p.valor.toFixed(2)) * 100) };
   } catch (e) {
     return { ok: false, erro: e instanceof Error ? e.message : 'não foi possível gerar o QR Code' };

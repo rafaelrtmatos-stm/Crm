@@ -39,10 +39,8 @@ export async function registrarPixPendente(params: {
   }
 }
 
-/** Janela de validade da pendência de uma cobrança enviada pelo WhatsApp (o cliente paga fora do card, com a tela fechada). */
-export const PRAZO_COBRANCA_WHATSAPP_MIN = 120;
-
 /**
+ * Validade (`expiraEm`) escolhida por quem cobra, igual a do link de pagamento: depois dela a pendencia expira e nao confirma mais.
  * Registra, NO MOMENTO EM QUE A COBRANCA FOI ENVIADA pelo WhatsApp, a pendencia em `pix_pendentes` (sale_id + valor).
  * E o mesmo registro do card: quem confirma e da a baixa continua sendo o servidor (pix-aviso -> conferirPendenciasCard,
  * em api/_lib/pagar-link.js, que le o e-mail do Nubank e usa a trava `baixa_em`). Enviar a mensagem NAO e pagamento.
@@ -53,6 +51,7 @@ export async function registrarPixPendenteDaCobranca(params: {
   companyId: string;
   saleId: string;
   valorCentavos: number;
+  expiraEm: string;
 }): Promise<PixPendente | null> {
   try {
     await supabase.from('pix_pendentes').update({ status: 'expirado' })
@@ -62,7 +61,7 @@ export async function registrarPixPendenteDaCobranca(params: {
       company_id: params.companyId,
       sale_id: params.saleId,
       valor_centavos: params.valorCentavos,
-      expira_em: new Date(Date.now() + PRAZO_COBRANCA_WHATSAPP_MIN * 60 * 1000).toISOString(),
+      expira_em: params.expiraEm,
     };
     let res = await supabase.from('pix_pendentes').insert({ ...base, criado_por: idUsuarioLogado() || null }).select('id, expira_em').single();
     if (res.error) res = await supabase.from('pix_pendentes').insert(base).select('id, expira_em').single();

@@ -44,7 +44,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   const [outroValor, setOutroValor] = useState<string>('');
   const [telefone, setTelefone] = useState<string>(telefoneInicial || order.customerPhone || '');
   const [enviando, setEnviando] = useState(false);
-  // Validade do link (modo link): atalhos em horas (padrão 72 h) ou data/hora exata.
+  // Validade (link e QR/copia e cola): atalhos em horas (padrão 72 h) ou data/hora exata.
   const [prazo, setPrazo] = useState<'24' | '48' | '72' | 'custom'>('72');
   const [prazoCustom, setPrazoCustom] = useState<string>(''); // valor do <input type="datetime-local">
 
@@ -75,7 +75,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     if (restante <= 0) { showAlert('Esta nota não tem saldo a cobrar.'); return false; }
     if (!telefoneParaEnvio(telefone)) { showAlert('Informe um WhatsApp válido (com DDD).'); return false; }
     if (opcoesParaEnviar.length === 0) { showAlert('Escolha um valor válido (não pode passar do saldo da nota).'); return false; }
-    if (modo === 'link' && !venceEm) { showAlert('Escolha uma data e hora de validade futura para o link.'); return false; }
+    if (!venceEm) { showAlert('Escolha uma data e hora de validade futura para o link.'); return false; }
     return true;
   };
 
@@ -91,9 +91,10 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
         orderId: order.id,
         valor: opcoesParaEnviar[0].valor_centavos / 100,
         pix,
+        expiraEm: venceEm ?? undefined,
       });
       if (r.ok === false) { showAlert(`Não foi possível preparar a cobrança: ${r.erro}`); return; }
-      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone, pixCobranca: { saleId: order.id, companyId, valorCentavos: r.valorCentavos, copiaECola: r.payload } });
+      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone, pixCobranca: { saleId: order.id, companyId, valorCentavos: r.valorCentavos, copiaECola: r.payload, expiraEm: (venceEm as Date).toISOString() } });
       onClose();
       onConversaAberta?.();
       await openWhatsAppChat(telefone, order.customerName || 'Cliente', '');
@@ -205,9 +206,9 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
           )}
         </div>
 
-        {modo === 'link' && (
+        {(
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase text-white/50 block">Validade do link</label>
+            <label className="text-[10px] font-bold uppercase text-white/50 block">{modo === 'link' ? 'Validade do link' : 'Validade do PIX (tempo de espera do pagamento)'}</label>
             <div className="grid grid-cols-4 gap-1.5">
               {(['24', '48', '72'] as const).map(h => (
                 <button key={h} type="button" className={chip(prazo === h)} onClick={() => setPrazo(h)}>{h} h</button>
@@ -218,7 +219,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
               <Input type="datetime-local" value={prazoCustom} onChange={e => setPrazoCustom(e.target.value)} />
             )}
             <span className="text-[10px] font-semibold text-white/50 block">
-              {venceEm ? `Válido até ${fmtValidade(venceEm)} — aparece para o cliente na mensagem e na página.` : 'Escolha uma data e hora futuras.'}
+              {venceEm ? `Válido até ${fmtValidade(venceEm)} — aparece para o cliente na mensagem${modo === 'link' ? ' e na página' : ''}; depois disso o pagamento não é mais confirmado automaticamente.` : 'Escolha uma data e hora futuras.'}
             </span>
           </div>
         )}
