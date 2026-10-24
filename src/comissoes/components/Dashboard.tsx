@@ -383,6 +383,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [period, weekOffset, customStartDate, customEndDate]);
 
+  // Receita quitada da loja no período selecionado (inclui datas personalizadas).
+  const [receitaLojaPeriodo, setReceitaLojaPeriodo] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    // Inputs de data representam dias locais; converte limites para UTC e usa fim exclusivo
+    // para incluir todo o último dia sem depender de milissegundos.
+    const inicioLocal = new Date(`${start}T00:00:00`);
+    const fimLocalExclusivo = new Date(`${end}T00:00:00`);
+    fimLocalExclusivo.setDate(fimLocalExclusivo.getDate() + 1);
+    supabase
+      .from('vendas')
+      .select('total, status, down_payment, created_at')
+      .gte('created_at', inicioLocal.toISOString())
+      .lt('created_at', fimLocalExclusivo.toISOString())
+      .is('deleted_at', null)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const total = (data || [])
+          .filter((v: any) => {
+            if (v.status === 'canceled') return false;
+            const tot = Number(v.total) || 0;
+            const down = Number(v.down_payment) || 0;
+            return tot > 0 && (v.status === 'completed' || down >= tot);
+          })
+          .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
+        setReceitaLojaPeriodo(total);
+      });
+    return () => { cancelled = true; };
+  }, [start, end]);
+
   // Filter services for chosen period
   const filteredServices = useMemo(() => {
     return recentServices.filter((s) => s.date >= start && s.date <= end);
@@ -754,7 +784,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             baseSalary={userSettings.modalidadeRemuneracao === 'meta' ? 0 : baseSalaryFinal}
             totalCommission={resumoComissaoSemanaVigente?.totalComissao ?? 0}
             weeklyGoal={userSettings.weeklyGoal}
-            totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
+            totalProduction={userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaPeriodo : (period === 'semana' ? displayStats.totalProduction : weeklyStats.weeklyProduction)}
             totalDiscounts={resumoPeriodoAtivo?.totalDescontos ?? 0}
             totalPaid={resumoPeriodoAtivo?.totalPago ?? 0}
             previousBalance={saldoAnteriorAoPeriodo}
@@ -787,7 +817,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-3 border-t border-[var(--border-color)]">
-              <span>{userSettings.modalidadeRemuneracao === 'meta' ? 'Ciclo Semanal:' : 'Serviços no Período:'} <strong className="text-[var(--text-main)]">{userSettings.modalidadeRemuneracao === 'meta' ? 'Sábado a Sexta' : displayStats.totalCount}</strong></span>
+              <span>{userSettings.modalidadeRemuneracao === 'meta' ? 'Período:' : 'Serviços no Período:'} <strong className="text-[var(--text-main)]">{userSettings.modalidadeRemuneracao === 'meta' ? `${formatDateBR(start)} a ${formatDateBR(end)}` : displayStats.totalCount}</strong></span>
               <span className="text-[var(--accent-red)] font-semibold">{userSettings.modalidadeRemuneracao === 'meta' ? '100% Quitadas' : 'Produção Ativa'}</span>
             </div>
           </div>
