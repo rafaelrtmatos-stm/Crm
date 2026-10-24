@@ -42,6 +42,9 @@ import {
   getWorkWeekBounds,
   getDescontosValesBounds,
   addDaysISO,
+  ajustarOffsetSabado,
+  acharCaixaDoPagamento,
+  getJanelaPagamentosCaixa,
 } from '../utils/caixaSemanalStorage';
 import { getBasePontoDaSemana } from '../utils/caixaPonto';
 import { supabase } from '../../supabase';
@@ -103,7 +106,7 @@ const getDescontosPeriodoBounds = (periodo: DescontosPeriodo, offset: number) =>
   }
 
   if (periodo === 'semana') {
-    const weekBounds = getWorkWeekBounds(offset);
+    const weekBounds = getWorkWeekBounds(ajustarOffsetSabado(offset));
     return getDescontosValesBounds(weekBounds.start, weekBounds.end);
   }
 
@@ -149,12 +152,14 @@ const emptyForm: DescontoFormInput = {
   ativo: true,
 };
 
-const emptyPagamentoForm: PagamentoFormInput = {
+// Função (e não constante): a data precisa ser a de HOJE no momento de abrir o formulário,
+// não a do dia em que o módulo foi carregado.
+const getEmptyPagamentoForm = (): PagamentoFormInput => ({
   valor: 0,
   data: getTodayISO(),
   descricao: '',
   formaPagamento: 'pix',
-};
+});
 
 export const DescontosView: React.FC<DescontosViewProps> = ({
   colaboradorId,
@@ -215,7 +220,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const [showPagamentoForm, setShowPagamentoForm] = useState(false);
   // null = form em modo "novo pagamento"; id = form em modo "editando esse pagamento"
   const [editingPagamentoId, setEditingPagamentoId] = useState<string | null>(null);
-  const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
+  const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>(getEmptyPagamentoForm);
   const [savingPagamento, setSavingPagamento] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   // Salário da semana aberta vindo do ponto (horas - DSR). null = não usa ponto: segue o salário fixo.
@@ -427,7 +432,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   // Abre o formulário de pagamento já preenchido com o valor que falta pagar (saldo a favor do colaborador).
   const abrirFormPagamento = () => {
     const falta = Math.max(0, Number((resumoPorPeriodo.saldoFinal || 0).toFixed(2)));
-    setPagamentoForm({ ...emptyPagamentoForm, valor: falta });
+    setPagamentoForm({ ...getEmptyPagamentoForm(), valor: falta });
     setShowPagamentoForm(true);
   };
 
@@ -439,6 +444,15 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
 
     if (editingPagamentoId) {
       const original = pagamentos.find((x) => x.id === editingPagamentoId);
+      // A data do pagamento define a semana de acerto (segunda a sábado). Mudar a data para
+      // outro ciclo deixaria o pagamento no caixa errado e fora dos totais.
+      const caixaOriginal = original ? [caixa, ...historicoCaixas].find((c) => c.id === original.caixaId) : undefined;
+      const janelaOriginal = caixaOriginal ? getJanelaPagamentosCaixa(caixaOriginal) : null;
+      if (janelaOriginal && (pagamentoForm.data < janelaOriginal.start || pagamentoForm.data > janelaOriginal.end)) {
+        setSavingPagamento(false);
+        showAlert(`A data precisa estar entre ${formatDateBR(janelaOriginal.start)} e ${formatDateBR(janelaOriginal.end)} (semana deste pagamento). Para mudar de semana, exclua e lance novamente.`);
+        return;
+      }
       // Pagamento de semana já fechada: simula a cadeia de saldos antes de salvar.
       const semanaFechada = !!original && original.caixaId !== caixa.id;
       const cadeia = semanaFechada
@@ -460,9 +474,15 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
     } else {
       // Vendo uma semana passada na visão semanal: o pagamento entra no histórico DESSA semana
       // (e não na atual). Em qualquer outro caso, entra no caixa aberto.
-      const caixaVisto = periodoVisualizacao === 'semana' && caixa.semanaInicio !== resumoPorPeriodo.inicio
+      const caixaVistoNaTela = periodoVisualizacao === 'semana' && caixa.semanaInicio !== resumoPorPeriodo.inicio
         ? historicoCaixas.find((c) => c.semanaInicio === resumoPorPeriodo.inicio)
         : undefined;
+      // Sem semana passada selecionada, o pagamento vai para o caixa da semana de acerto da
+      // DATA informada (ex.: pagamento de sábado lançado depois do fechamento volta para o
+      // ciclo que terminou na sexta, e não para o caixa aberto de hoje).
+      const caixaPorData = acharCaixaDoPagamento(pagamentoForm.data, [caixa, ...historicoCaixas]);
+      const caixaVisto = caixaVistoNaTela
+        ?? (caixaPorData && caixaPorData.id !== caixa.id ? caixaPorData : undefined);
       const caixaAlvoId = caixaVisto ? caixaVisto.id : caixa.id;
       const cadeia = caixaVisto
         ? await calcularCadeiaAPartirDe(colaboradorId, caixaVisto.id, undefined, { caixaId: caixaVisto.id, valor: pagamentoForm.valor })
@@ -484,7 +504,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
 
     setShowPagamentoForm(false);
     setEditingPagamentoId(null);
-    setPagamentoForm({ ...emptyPagamentoForm });
+    setPagamentoForm(getEmptyPagamentoForm());
   };
 
   const handleStartEditPagamento = (p: Pagamento) => {
@@ -496,7 +516,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const handleCancelPagamentoForm = () => {
     setShowPagamentoForm(false);
     setEditingPagamentoId(null);
-    setPagamentoForm({ ...emptyPagamentoForm });
+    setPagamentoForm(getEmptyPagamentoForm());
   };
 
   const handleDeletePagamento = async (p: Pagamento) => {

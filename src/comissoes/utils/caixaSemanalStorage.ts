@@ -132,6 +132,35 @@ export const getDescontosValesBounds = (weekStart: string, weekEnd: string): { s
   return { start, end };
 };
 
+/**
+ * No sábado (dia do acerto) o caixa do ciclo encerrado na sexta ainda está aberto, mas
+ * getWorkWeekBounds(0) já devolve o ciclo novo. Para telas que mostram o caixa/pagamentos do
+ * acerto, o "ciclo atual" no sábado é o anterior (offset - 1). Mesma regra já usada em
+ * ComissoesAdminPanel e Dashboard.
+ */
+export const ajustarOffsetSabado = (offset: number): number =>
+  new Date().getDay() === 6 ? offset - 1 : offset;
+
+/**
+ * Janela de datas de pagamentos/descontos de um caixa (segunda a sábado). Retorna null para
+ * caixas antigos (início fora de sábado/segunda inaugural), que não seguem a regra atual.
+ */
+export const getJanelaPagamentosCaixa = (c: { semanaInicio: string; semanaFim: string }): { start: string; end: string } | null => {
+  const startDay = new Date(`${c.semanaInicio}T00:00:00`).getDay();
+  if (startDay !== 6 && startDay !== 1) return null;
+  return getDescontosValesBounds(c.semanaInicio, c.semanaFim);
+};
+
+/**
+ * Caixa a que um pagamento pertence pela DATA dele (pagamento de sábado conta no ciclo que
+ * terminou na sexta). Retorna undefined se nenhum caixa da lista cobre a data.
+ */
+export const acharCaixaDoPagamento = (data: string, caixas: WeeklyCaixa[]): WeeklyCaixa | undefined =>
+  caixas.find((c) => {
+    const j = getJanelaPagamentosCaixa(c);
+    return !!j && data >= j.start && data <= j.end;
+  });
+
 /** Sábado da semana seguinte à semana que termina em semanaFim (sexta-feira). */
 const getProximaSemanaInicio = (semanaFim: string): string => addDaysISO(semanaFim, 1);
 
@@ -796,7 +825,7 @@ export function calcularResumoPorPeriodo(
   if (!caixaAberto || !resumoCaixaAberto) return zeroResumoPorPeriodo(periodo);
 
   const { start, end } =
-    periodo === 'semana' ? getWorkWeekBounds(offset) :
+    periodo === 'semana' ? getWorkWeekBounds(ajustarOffsetSabado(offset)) :
     periodo === 'mes' ? getMonthBounds(offset) :
     getYearBounds(offset);
 

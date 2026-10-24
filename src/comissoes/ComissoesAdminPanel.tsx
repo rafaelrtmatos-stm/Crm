@@ -346,7 +346,7 @@ export default function ComissoesAdminPanel() {
       // No sábado, esse é o ciclo Sábado a Sexta que está sendo acertado hoje.
       const descBounds = getDescontosValesBounds(weekBounds.start, weekBounds.end);
 
-      const [servicosRes, descontosRes, pagamentosRes, usuariosRes, caixasRes, vendasRes] = await Promise.all([
+      const [servicosRes, descontosRes, usuariosRes, caixasRes, vendasRes] = await Promise.all([
         supabase
           .from('comissoes_servicos')
           .select('colaborador_id, comissao_valor, valor_producao, status')
@@ -357,11 +357,6 @@ export default function ComissoesAdminPanel() {
           .from('comissoes_descontos')
           .select('*')
           .eq('ativo', true),
-        supabase
-          .from('comissoes_pagamentos')
-          .select('colaborador_id, caixa_id, valor')
-          .gte('data', descBounds.start)
-          .lte('data', descBounds.end),
         supabase
           .from('usuarios')
           .select('id, name, email, role, colaborador_id, password')
@@ -377,6 +372,13 @@ export default function ComissoesAdminPanel() {
           .lte('created_at', end + 'T23:59:59.999Z')
           .is('deleted_at', null),
       ]);
+
+      // Pagamentos do ciclo exibido: pelo caixa (mesmo critério do fechamento/snapshot), e não pela
+      // data. Assim um pagamento de sábado não some por causa da janela de datas.
+      const caixaIdsExibidos = (caixasRes.data || []).map((cx: any) => cx.id);
+      const pagamentosRes: { data: any[] | null } = caixaIdsExibidos.length > 0
+        ? await supabase.from('comissoes_pagamentos').select('colaborador_id, caixa_id, valor').in('caixa_id', caixaIdsExibidos)
+        : { data: [] };
 
       if (usuariosRes.data) {
         setUsuariosContas(usuariosRes.data as UsuarioConta[]);
