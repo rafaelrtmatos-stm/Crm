@@ -809,7 +809,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   {userSettings.modalidadeRemuneracao === 'meta' ? 'RECEITA QUITADA DA LOJA' : `PRODUÇÃO (${period.toUpperCase()})`}
                 </span>
                 <div className="text-3xl sm:text-4xl font-black text-[var(--text-main)] font-mono mt-1">
-                  {formatCurrency(userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaSemana : displayStats.totalProduction)}
+                  {formatCurrency(userSettings.modalidadeRemuneracao === 'meta' ? receitaLojaPeriodo : displayStats.totalProduction)}
                 </div>
               </div>
               <div className="p-3.5 rounded-xl bg-red-500/10 text-[var(--accent-red)]">
