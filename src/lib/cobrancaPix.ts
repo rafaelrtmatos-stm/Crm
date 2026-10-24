@@ -2,6 +2,7 @@ import { supabase } from '../supabase';
 import { PUBLIC_SIGN_BASE_URL } from './companyIdentity';
 import { normalizarTelefoneBR } from './phone';
 import { buildPixPayload } from './pix';
+import type { TipoDescontoPix } from './descontoPix';
 
 // Cobrança e aviso de pagamento por WhatsApp (PIX):
 //  - enviarAvisoPagamentoPix: texto curto "pagamento confirmado" ao número da nota (PIX automático);
@@ -20,7 +21,14 @@ export interface PixConfigLite {
 export interface OpcaoCobranca {
   id: string;
   label: string;
+  /** Valor FINAL cobrado no Pix (já com o desconto, quando houver). */
   valor_centavos: number;
+  /** Só quando há desconto: valor antes do desconto, desconto concedido e como foi definido. */
+  valor_original_centavos?: number;
+  desconto_centavos?: number;
+  desconto_tipo?: TipoDescontoPix;
+  /** % (percentual) ou R$ (fixo) digitado por quem cobra. */
+  desconto_valor?: number;
 }
 
 export const fmtBRL = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
@@ -86,7 +94,7 @@ export function opcoesPadrao(restante: number): OpcaoCobranca[] {
   const metadeCent = Math.round(totalCent / 2);
   const lista: OpcaoCobranca[] = [];
   if (metadeCent > 0 && metadeCent < totalCent) lista.push({ id: 'metade', label: 'Entrada 50%', valor_centavos: metadeCent });
-  if (totalCent > 0) lista.push({ id: 'total', label: 'Valor total', valor_centavos: totalCent });
+  if (totalCent > 0) lista.push({ id: 'total', label: 'Saldo total (quitação à vista)', valor_centavos: totalCent });
   return lista;
 }
 
@@ -132,15 +140,15 @@ export function montarMensagemPagamento(p: {
   valor: number;
   itens?: Array<{ name?: string; quantity?: number; price?: number }>;
   total: number;
-  pagamentos?: Array<{ method?: string; value?: number; date?: string }>;
+  pagamentos?: Array<{ method?: string; value?: number; date?: string; discount?: number; originalValue?: number }>;
   pago?: number;
   orderId?: string;
 }): string {
   const nome = primeiroNome(p.customerName);
   const itens = (p.itens || []).filter(i => i && i.name);
-  let pagamentos: Array<{ metodo: string; valor: number; data?: string }> = (p.pagamentos || [])
+  let pagamentos: Array<{ metodo: string; valor: number; data?: string; desconto?: number; original?: number }> = (p.pagamentos || [])
     .filter(x => Number(x.value) > 0)
-    .map(x => ({ metodo: String(x.method || 'pix'), valor: Number(x.value), data: x.date }));
+    .map(x => ({ metodo: String(x.method || 'pix'), valor: Number(x.value), data: x.date, desconto: Number(x.discount) > 0 ? Number(x.discount) : 0, original: Number(x.originalValue) || 0 }));
   if (pagamentos.length === 0) {
     // Nota sem lista de pagamentos: o que veio antes do PIX atual é tratado como dinheiro (sem hora conhecida).
     const anterior = Math.max(0, Math.round(((p.pago ?? p.valor) - p.valor) * 100) / 100);
@@ -167,6 +175,7 @@ export function montarMensagemPagamento(p: {
   for (const x of pagamentos) {
     const hora = fmtHoraPagamento(x.data);
     linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}${hora ? ` (${hora})` : ''}: ${fmtBRL(x.valor)}`);
+    if (x.desconto && x.desconto > 0) linhas.push(`🏷️ Desconto Pix: -${fmtBRL(x.desconto)}${x.original ? ` (valor original ${fmtBRL(x.original)})` : ''}`);
   }
   linhas.push(`✅ Total pago: ${fmtBRL(totalPago)}`);
   linhas.push(falta > 0.009 ? `🔴 Falta pagar: ${fmtBRL(falta)}` : '🟢 Pedido quitado!');
@@ -268,12 +277,23 @@ function montarLegendaCobrancaPix(p: {
   itens?: Array<{ name?: string; quantity?: number }>;
   orderId?: string;
   valor: number;
+  /** Valor antes do desconto e desconto concedido (só quando houver desconto). */
+  valorOriginal?: number;
+  desconto?: number;
 }, instrucao: string): string {
   const nota = numeroDaNota(p.orderId);
+  const comDesconto = (p.desconto ?? 0) > 0.009 && (p.valorOriginal ?? 0) > 0;
+  const linhasValor = comDesconto
+    ? [
+      `Valor original: ${fmtBRL(p.valorOriginal as number)}`,
+      `🏷️ Desconto no Pix: -${fmtBRL(p.desconto as number)}`,
+      `Valor a pagar: ${fmtBRL(p.valor)}${nota ? ` · Nota ${nota}` : ''}`,
+    ]
+    : [`Valor: ${fmtBRL(p.valor)}${nota ? ` · Nota ${nota}` : ''}`];
   return [
     '💳 *Cobrança via PIX*',
     `Olá, ${abreviarNome(p.customerName)}! Segue o pagamento referente a: ${resumirItens(p.itens)}`,
-    `Valor: ${fmtBRL(p.valor)}${nota ? ` · Nota ${nota}` : ''}`,
+    ...linhasValor,
     '',
     instrucao,
   ].join('\n');
@@ -288,9 +308,13 @@ export async function prepararCobrancaPix(p: {
   customerName?: string | null;
   itens?: Array<{ name?: string; quantity?: number }>;
   orderId?: string;
+  /** Valor FINAL cobrado (já com desconto). O QR Code e o copia e cola usam exatamente este valor. */
   valor: number;
   pix: PixConfigLite;
   expiraEm?: Date;
+  /** Quando há desconto: valor original e desconto (informativos na legenda; o QR usa `valor`). */
+  valorOriginal?: number;
+  desconto?: number;
 }): Promise<{ ok: true; file: File; previewUrl: string; legenda: string; payload: string; valorCentavos: number } | { ok: false; erro: string }> {
   try {
     const payload = buildPixPayload({
@@ -338,6 +362,13 @@ export async function criarLinkPagamento(p: {
   expiraEmData?: Date;
 }): Promise<{ ok: boolean; url?: string; expiraEm?: string; erro?: string }> {
   if (p.opcoes.length === 0) return { ok: false, erro: 'Escolha ao menos uma opção de valor.' };
+  for (const o of p.opcoes) {
+    const desc = o.desconto_centavos ?? 0;
+    const original = o.valor_centavos + desc;
+    if (!(o.valor_centavos > 0) || desc < 0 || original > p.restanteCentavos) {
+      return { ok: false, erro: `Valor inválido na opção "${o.label}": o desconto não pode zerar o Pix nem passar do saldo devido.` };
+    }
+  }
   const token = tokenAleatorio();
   const venceEm = p.expiraEmData ?? new Date(Date.now() + (p.validadeHoras ?? 72) * 60 * 60 * 1000);
   if (Number.isNaN(venceEm.getTime()) || venceEm.getTime() <= Date.now()) return { ok: false, erro: 'A validade do link precisa ser uma data futura.' };
@@ -369,7 +400,9 @@ export function montarTextoLinkPagamento(p: {
   /** ISO do vencimento do link — vira "Válido até dd/mm às hh:mm" na mensagem. */
   expiraEm?: string;
 }): string {
-  const opcoesTxt = p.opcoes.map(o => `• ${o.label}: ${fmtBRL(o.valor_centavos / 100)}`).join('\n');
+  const opcoesTxt = p.opcoes.map(o => (o.desconto_centavos ?? 0) > 0
+    ? `• ${o.label}: ${fmtBRL((o.valor_original_centavos ?? o.valor_centavos + (o.desconto_centavos ?? 0)) / 100)} → ${fmtBRL(o.valor_centavos / 100)} (desconto de ${fmtBRL((o.desconto_centavos ?? 0) / 100)} no Pix)`
+    : `• ${o.label}: ${fmtBRL(o.valor_centavos / 100)}`).join('\n');
   const validade = p.expiraEm ? fmtValidade(p.expiraEm) : '';
   return [
     '💳 *Link de pagamento*',

@@ -512,7 +512,8 @@ export async function renderReceiptCanvas({
   // Total Financeiro
   const paymentBreakdown = order.payments && order.payments.length > 0 ? order.payments : null;
   const hasCardSurcharge = down > total;
-  const paymentBreakdownExtra = (paymentBreakdown ? paymentBreakdown.length * 18 : 0) + (hasCardSurcharge ? 14 : 0);
+  const pixDescontoLinhas = paymentBreakdown ? paymentBreakdown.filter((p: any) => Number(p.discount) > 0).length : 0;
+  const paymentBreakdownExtra = (paymentBreakdown ? paymentBreakdown.length * 18 : 0) + (hasCardSurcharge ? 14 : 0) + pixDescontoLinhas * 13;
   const totalCardH = 132 + paymentBreakdownExtra;
 
   // Informações Importantes
@@ -1071,6 +1072,18 @@ export async function renderReceiptCanvas({
       ctx.font = `700 9px ${FONT}`;
       ctx.fillText(`R$ ${val.toFixed(2).replace('.', ',')}`, width - marginX - 22, py);
       py += 18;
+      // PIX com desconto: valor original, desconto concedido (o valor acima já é o final pago).
+      const descPix = Number(p.discount) || 0;
+      if (descPix > 0) {
+        const orig = Number(p.originalValue) || (val + descPix);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = TEXT_MUTED;
+        ctx.font = `600 8px ${FONT}`;
+        ctx.fillText(`   Desconto Pix: original R$ ${orig.toFixed(2).replace('.', ',')}`, finRightX, py - 5);
+        ctx.textAlign = 'right';
+        ctx.fillText(`- R$ ${descPix.toFixed(2).replace('.', ',')}`, width - marginX - 22, py - 5);
+        py += 13;
+      }
     });
   }
 

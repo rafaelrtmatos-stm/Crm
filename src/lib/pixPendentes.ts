@@ -50,8 +50,13 @@ export async function registrarPixPendente(params: {
 export async function registrarPixPendenteDaCobranca(params: {
   companyId: string;
   saleId: string;
+  /** Valor FINAL cobrado no Pix (é o que o e-mail do banco vai trazer). */
   valorCentavos: number;
   expiraEm: string;
+  /** Desconto concedido (em centavos) sobre o valor original; a baixa na nota usa isso para quitar o saldo. */
+  descontoCentavos?: number;
+  descontoTipo?: 'percentual' | 'fixo';
+  descontoValor?: number;
 }): Promise<PixPendente | null> {
   try {
     await supabase.from('pix_pendentes').update({ status: 'expirado' })
@@ -63,9 +68,20 @@ export async function registrarPixPendenteDaCobranca(params: {
       valor_centavos: params.valorCentavos,
       expira_em: params.expiraEm,
     };
-    let res = await supabase.from('pix_pendentes').insert({ ...base, criado_por: idUsuarioLogado() || null }).select('id, expira_em').single();
-    if (res.error) res = await supabase.from('pix_pendentes').insert(base).select('id, expira_em').single();
-    if (res.error || !res.data) return null;
+    const desc = Math.max(0, Math.round(params.descontoCentavos ?? 0));
+    const comDesconto: Record<string, unknown> = desc > 0
+      ? { desconto_centavos: desc, desconto_tipo: params.descontoTipo ?? null, desconto_valor: params.descontoValor ?? null }
+      : {};
+    const criadoPor = { criado_por: idUsuarioLogado() || null };
+    const tentativas: Array<Record<string, unknown>> = [{ ...base, ...comDesconto, ...criadoPor }, { ...base, ...comDesconto }];
+    let res: any = null;
+    for (const corpo of tentativas) {
+      res = await supabase.from('pix_pendentes').insert(corpo).select('id, expira_em').single();
+      if (!res.error) break;
+    }
+    // Colunas de desconto ainda não criadas (supabase/add_desconto_pix.sql): NÃO registra sem elas, senão a baixa
+    // automática quitaria só o valor com desconto e deixaria o saldo aberto. O operador confirma manualmente.
+    if (!res || res.error || !res.data) return null;
     return { id: res.data.id as string, expiraEm: res.data.expira_em as string };
   } catch {
     return null;

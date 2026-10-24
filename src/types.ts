@@ -84,6 +84,14 @@ export interface PaymentEntry {
   feePercent?: number;
   /** PIX: nome de quem pagou (lido do e-mail do banco, em maiúsculas). Só informativo — aparece em vermelho na nota e no recibo. */
   payerName?: string;
+  /** PIX com desconto: valor da cobrança ANTES do desconto, desconto concedido e (em `value`) o valor efetivamente pago. */
+  originalValue?: number;
+  discount?: number;
+  /** Como o desconto foi definido: percentual (discountInput = %) ou fixo (discountInput = R$). */
+  discountType?: 'percentual' | 'fixo';
+  discountInput?: number;
+  /** true quando este pagamento quitou o saldo da nota (quitação à vista). */
+  settlement?: boolean;
 }
 
 export interface SaleOrder {

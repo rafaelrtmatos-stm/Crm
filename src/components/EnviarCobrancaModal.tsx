@@ -15,6 +15,7 @@ import {
   opcoesPadrao,
   telefoneParaEnvio,
 } from '../lib/cobrancaPix';
+import { calcularDescontoPix, type TipoDescontoPix } from '../lib/descontoPix';
 
 // "Cobrar saldo via PIX": a partir de uma nota já salva, prepara a cobrança para o cliente (WhatsApp)
 //  - MENSAGEM: QR Code (imagem com legenda) na caixa de mensagem da conversa (sem envio automático); ao enviar, o PIX copia e cola
@@ -47,6 +48,10 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   // Validade (link e QR/copia e cola): atalhos em horas (padrão 72 h) ou data/hora exata.
   const [prazo, setPrazo] = useState<'24' | '48' | '72' | 'custom'>('72');
   const [prazoCustom, setPrazoCustom] = useState<string>(''); // valor do <input type="datetime-local">
+  // Desconto no Pix (definido manualmente): só vale quando "Aplicar desconto" está ligado.
+  const [aplicarDesconto, setAplicarDesconto] = useState(false);
+  const [tipoDesconto, setTipoDesconto] = useState<TipoDescontoPix>('percentual');
+  const [valorDesconto, setValorDesconto] = useState<string>('');
 
   const venceCustom = prazoCustom ? new Date(prazoCustom) : null;
   const venceCustomValido = !!venceCustom && !Number.isNaN(venceCustom.getTime()) && venceCustom.getTime() > Date.now() + 5 * 60 * 1000;
@@ -59,11 +64,32 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
     return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
   })();
   const outroValido = valorOutroCent > 0 && valorOutroCent <= Math.round(restante * 100);
-  const outroOpcao: OpcaoCobranca = { id: 'outro', label: 'Outro valor', valor_centavos: valorOutroCent };
+  const outroOpcao: OpcaoCobranca = { id: 'outro', label: 'Valor parcial', valor_centavos: valorOutroCent };
 
-  const opcoesParaEnviar: OpcaoCobranca[] = modo === 'mensagem'
+  // Opções escolhidas ANTES do desconto (valor original de cada uma).
+  const opcoesBase: OpcaoCobranca[] = modo === 'mensagem'
     ? (escolha === 'outro' ? (outroValido ? [outroOpcao] : []) : padrao.filter(o => o.id === escolha))
     : [...padrao.filter(o => marcadas.has(o.id)), ...(marcadas.has('outro') && outroValido ? [outroOpcao] : [])];
+
+  // Desconto aplicado a cada opção: valor_centavos passa a ser o valor FINAL cobrado no Pix.
+  const restanteCent = Math.round(restante * 100);
+  const calculos = opcoesBase.map(o => ({
+    opcao: o,
+    calc: calcularDescontoPix({ valorCentavos: o.valor_centavos, restanteCentavos: restanteCent, aplicar: aplicarDesconto, tipo: tipoDesconto, valor: valorDesconto }),
+  }));
+  const erroDesconto = calculos.find(c => !c.calc.ok)?.calc.erro || null;
+  const opcoesParaEnviar: OpcaoCobranca[] = erroDesconto ? [] : calculos.map(({ opcao, calc }) => (
+    aplicarDesconto && calc.descontoCentavos > 0
+      ? {
+        ...opcao,
+        valor_centavos: calc.finalCentavos,
+        valor_original_centavos: calc.originalCentavos,
+        desconto_centavos: calc.descontoCentavos,
+        desconto_tipo: tipoDesconto,
+        desconto_valor: Number(String(valorDesconto).replace(',', '.')),
+      }
+      : opcao
+  ));
 
   const alternarMarcada = (id: string) => setMarcadas(prev => {
     const novo = new Set(prev);
@@ -74,6 +100,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   const validar = (): boolean => {
     if (restante <= 0) { showAlert('Esta nota não tem saldo a cobrar.'); return false; }
     if (!telefoneParaEnvio(telefone)) { showAlert('Informe um WhatsApp válido (com DDD).'); return false; }
+    if (aplicarDesconto && erroDesconto) { showAlert(erroDesconto); return false; }
     if (opcoesParaEnviar.length === 0) { showAlert('Escolha um valor válido (não pode passar do saldo da nota).'); return false; }
     if (!venceEm) { showAlert('Escolha uma data e hora de validade futura para o link.'); return false; }
     return true;
@@ -89,12 +116,14 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
         customerName: order.customerName,
         itens: order.items,
         orderId: order.id,
-        valor: opcoesParaEnviar[0].valor_centavos / 100,
+        valor: opcoesParaEnviar[0].valor_centavos / 100, // valor FINAL (com desconto): o QR cobra exatamente isto
+        valorOriginal: opcoesParaEnviar[0].valor_original_centavos != null ? opcoesParaEnviar[0].valor_original_centavos / 100 : undefined,
+        desconto: opcoesParaEnviar[0].desconto_centavos != null ? opcoesParaEnviar[0].desconto_centavos / 100 : undefined,
         pix,
         expiraEm: venceEm ?? undefined,
       });
       if (r.ok === false) { showAlert(`Não foi possível preparar a cobrança: ${r.erro}`); return; }
-      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone, pixCobranca: { saleId: order.id, companyId, valorCentavos: r.valorCentavos, copiaECola: r.payload, expiraEm: (venceEm as Date).toISOString() } });
+      setPendingReceiptAttachment({ file: r.file, previewUrl: r.previewUrl, caption: r.legenda, phone: telefone, pixCobranca: { saleId: order.id, companyId, valorCentavos: r.valorCentavos, copiaECola: r.payload, expiraEm: (venceEm as Date).toISOString(), descontoCentavos: opcoesParaEnviar[0].desconto_centavos, descontoTipo: opcoesParaEnviar[0].desconto_tipo, descontoValor: opcoesParaEnviar[0].desconto_valor } });
       onClose();
       onConversaAberta?.();
       await openWhatsAppChat(telefone, order.customerName || 'Cliente', '');
@@ -136,6 +165,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   };
 
   const copiarLink = async () => {
+    if (aplicarDesconto && erroDesconto) { showAlert(erroDesconto); return; }
     if (enviando || opcoesParaEnviar.length === 0) { if (!enviando) showAlert('Escolha ao menos uma opção de valor.'); return; }
     if (!venceEm) { showAlert('Escolha uma data e hora de validade futura para o link.'); return; }
     setEnviando(true);
@@ -194,7 +224,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
             className={chip(modo === 'mensagem' ? escolha === 'outro' : marcadas.has('outro'))}
             onClick={() => (modo === 'mensagem' ? setEscolha('outro') : alternarMarcada('outro'))}
           >
-            {modo === 'link' ? (marcadas.has('outro') ? '☑ ' : '☐ ') : (escolha === 'outro' ? '◉ ' : '○ ')}Outro valor
+            {modo === 'link' ? (marcadas.has('outro') ? '☑ ' : '☐ ') : (escolha === 'outro' ? '◉ ' : '○ ')}Valor parcial (outro valor)
           </button>
           {(modo === 'mensagem' ? escolha === 'outro' : marcadas.has('outro')) && (
             <Input
@@ -204,6 +234,44 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
               onChange={e => setOutroValor(e.target.value)}
             />
           )}
+        </div>
+
+        <div className="space-y-1.5">
+          <button type="button" className={chip(aplicarDesconto)} onClick={() => setAplicarDesconto(v => !v)}>
+            {aplicarDesconto ? '☑ ' : '☐ '}Aplicar desconto no Pix
+          </button>
+          {aplicarDesconto && (
+            <div className="grid grid-cols-[auto_1fr] gap-1.5 items-center">
+              <div className="grid grid-cols-2 gap-1">
+                <button type="button" className={chip(tipoDesconto === 'percentual')} onClick={() => setTipoDesconto('percentual')}>%</button>
+                <button type="button" className={chip(tipoDesconto === 'fixo')} onClick={() => setTipoDesconto('fixo')}>R$</button>
+              </div>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                placeholder={tipoDesconto === 'percentual' ? 'Ex.: 5 (%)' : 'Ex.: 10,00 (R$)'}
+                value={valorDesconto}
+                onChange={e => setValorDesconto(e.target.value)}
+              />
+            </div>
+          )}
+          {/* Prévia antes de gerar: valor original, desconto e valor final de cada opção. */}
+          {opcoesBase.length > 0 && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] divide-y divide-white/5 text-[11px] font-semibold">
+              {calculos.map(({ opcao, calc }) => (
+                <div key={opcao.id} className="px-3 py-2 space-y-0.5">
+                  <div className="text-[10px] uppercase font-black text-white/40">{opcao.label}</div>
+                  <div className="flex justify-between text-white/60"><span>Valor original</span><span className="font-mono">{fmtBRL(calc.originalCentavos / 100)}</span></div>
+                  {aplicarDesconto && (
+                    <div className="flex justify-between text-amber-300"><span>Desconto</span><span className="font-mono">{calc.ok ? `- ${fmtBRL(calc.descontoCentavos / 100)}` : '—'}</span></div>
+                  )}
+                  <div className="flex justify-between text-primary-200 font-black"><span>Valor final no Pix</span><span className="font-mono">{fmtBRL((calc.ok ? calc.finalCentavos : calc.originalCentavos) / 100)}</span></div>
+                </div>
+              ))}
+            </div>
+          )}
+          {aplicarDesconto && erroDesconto && <p className="text-[11px] font-bold text-rose-300">{erroDesconto}</p>}
         </div>
 
         {(
@@ -236,7 +304,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
           {modo === 'link' && (
             <button
               type="button"
-              disabled={enviando}
+              disabled={enviando || (aplicarDesconto && !!erroDesconto)}
               onClick={copiarLink}
               className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 disabled:opacity-50"
             >
@@ -245,7 +313,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
           )}
           <button
             type="button"
-            disabled={enviando}
+            disabled={enviando || (aplicarDesconto && !!erroDesconto)}
             onClick={modo === 'mensagem' ? enviarMensagem : enviarLink}
             className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-primary-500/20 hover:bg-primary-500/30 text-primary-300 border border-primary-500/40 flex items-center gap-1.5 disabled:opacity-50"
           >
