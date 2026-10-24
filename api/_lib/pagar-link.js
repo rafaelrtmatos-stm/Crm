@@ -53,18 +53,53 @@ async function carregarPendencia(id) {
   return r.corpo[0] || null;
 }
 
-/** Soma o PIX recebido na nota (down_payment/received_value/payments/status), com trava otimista. */
-async function aplicarBaixaNaNota(link, valor, pagador = null) {
+/**
+ * Desconto Pix: reduz o desconto pedido ao que a nota ainda deve (nunca negativo e nunca maior que o saldo menos o
+ * valor pago), em centavos. Espelha limitarDescontoAoSaldo de src/lib/descontoPix.ts.
+ */
+function limitarDescontoAoSaldo(valorPagoCentavos, descontoCentavos, restanteCentavos) {
+  const desc = Math.max(0, Math.round(Number(descontoCentavos)) || 0);
+  const maxPermitido = Math.max(0, Math.round(restanteCentavos) - Math.round(valorPagoCentavos));
+  return Math.min(desc, maxPermitido);
+}
+
+/**
+ * Soma o PIX recebido na nota (down_payment/received_value/payments/status), com trava otimista.
+ * `desconto` ({ centavos, tipo, valor }, opcional): desconto concedido NESTA cobrança. O valor cobrado no Pix (`valor`) já é o
+ * valor final; para a nota continuar coerente o desconto abate o total da nota (e soma em discount_value), assim o saldo
+ * quita de verdade. O lançamento em `payments` guarda valor original, desconto e valor final (histórico preservado) e o
+ * total/ desconto anteriores ficam reconstituíveis (total original = total + soma dos descontos Pix).
+ */
+async function aplicarBaixaNaNota(link, valor, pagador = null, desconto = null) {
   for (let tentativa = 0; tentativa < 3; tentativa++) {
-    const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,payments,status,customer_name,customer_phone&limit=1`);
+    const g = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&select=total,down_payment,discount_value,payments,status,customer_name,customer_phone&limit=1`);
     if (!g.ok || !Array.isArray(g.corpo) || !g.corpo[0]) throw new Error('nota não encontrada para a baixa');
     const venda = g.corpo[0];
     if (venda.status === 'canceled') return { restante: null };
     const pagoAntes = venda.down_payment == null ? null : Number(venda.down_payment) || 0;
+    const totalAntes = Number(venda.total);
+    let descCent = 0;
+    if (desconto && desconto.centavos > 0) {
+      const restanteAntesCent = Math.max(0, Math.round(totalAntes * 100) - Math.round((pagoAntes || 0) * 100));
+      descCent = limitarDescontoAoSaldo(Math.round(valor * 100), desconto.centavos, restanteAntesCent);
+      if (descCent !== desconto.centavos) console.warn(`[pagar-link] desconto Pix reduzido de ${desconto.centavos} para ${descCent} centavos (saldo atual da nota ${restanteAntesCent}).`);
+    }
+    const desc = round2(descCent / 100);
+    const novoTotal = round2(totalAntes - desc);
     const novoPago = round2((pagoAntes || 0) + valor);
-    const restante = Math.max(0, round2(Number(venda.total) - novoPago));
-    const pagamentos = [...(Array.isArray(venda.payments) ? venda.payments : []), { method: 'pix', value: valor, date: new Date().toISOString(), ...(pagador ? { payerName: pagador } : {}) }];
-    const filtroVersao = pagoAntes == null ? 'down_payment=is.null' : `down_payment=eq.${pagoAntes}`;
+    const restante = Math.max(0, round2(novoTotal - novoPago));
+    const lancamento = {
+      method: 'pix', value: valor, date: new Date().toISOString(),
+      ...(pagador ? { payerName: pagador } : {}),
+      ...(desc > 0 ? {
+        originalValue: round2(valor + desc), discount: desc,
+        ...(desconto?.tipo ? { discountType: desconto.tipo } : {}),
+        ...(desconto?.valor != null && Number.isFinite(Number(desconto.valor)) ? { discountInput: Number(desconto.valor) } : {}),
+        ...(restante <= 0.009 ? { settlement: true } : {}),
+      } : {}),
+    };
+    const pagamentos = [...(Array.isArray(venda.payments) ? venda.payments : []), lancamento];
+    const filtroVersao = (pagoAntes == null ? 'down_payment=is.null' : `down_payment=eq.${pagoAntes}`) + (desc > 0 ? `&total=eq.${totalAntes}` : '');
     const u = await rest(`vendas?id=eq.${encodeURIComponent(link.sale_id)}&${filtroVersao}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
@@ -72,11 +107,12 @@ async function aplicarBaixaNaNota(link, valor, pagador = null) {
         down_payment: novoPago,
         received_value: novoPago,
         payments: pagamentos,
+        ...(desc > 0 ? { total: novoTotal, discount_value: round2((Number(venda.discount_value) || 0) + desc) } : {}),
         status: restante <= 0.009 ? 'completed' : 'pending',
         updated_at: new Date().toISOString(),
       }),
     });
-    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, pago: novoPago, total: Number(venda.total), clienteNome: String(venda.customer_name || '').trim(), telefone: venda.customer_phone || null, itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
+    if (u.ok && Array.isArray(u.corpo) && u.corpo.length > 0) return { restante, pago: novoPago, total: novoTotal, desconto: desc, valorOriginal: round2(valor + desc), clienteNome: String(venda.customer_name || '').trim(), telefone: venda.customer_phone || null, itens: Array.isArray(venda.items) ? venda.items : [], pagamentos };
     // Alguém alterou a nota entre a leitura e a gravação: relê e tenta de novo.
   }
   throw new Error('não foi possível atualizar a nota (conflito)');
@@ -109,7 +145,7 @@ function fmtHoraPagamento(iso) {
 function montarMensagemPagamento({ nome, valor, pedido, itens, total, pagamentos, pago }) {
   const lista = (Array.isArray(pagamentos) ? pagamentos : [])
     .filter((x) => Number(x?.value) > 0)
-    .map((x) => ({ metodo: String(x.method || 'pix'), valor: Number(x.value), data: x.date }));
+    .map((x) => ({ metodo: String(x.method || 'pix'), valor: Number(x.value), data: x.date, desconto: Number(x.discount) > 0 ? Number(x.discount) : 0, original: Number(x.originalValue) || 0 }));
   // O que a nota realmente recebeu (down_payment) manda; a soma da lista só vale quando esse valor não veio.
   const somaLista = round2(lista.reduce((a, x) => a + x.valor, 0));
   const totalPago = pago != null && Number.isFinite(Number(pago)) ? round2(Number(pago)) : somaLista;
@@ -125,6 +161,7 @@ function montarMensagemPagamento({ nome, valor, pedido, itens, total, pagamentos
   for (const x of lista) {
     const hora = fmtHoraPagamento(x.data);
     linhas.push(`💵 ${ROTULO_PAGAMENTO[x.metodo] || x.metodo}${hora ? ` (${hora})` : ''}: ${fmtBRL(x.valor)}`);
+    if (x.desconto > 0) linhas.push(`🏷️ Desconto Pix: -${fmtBRL(x.desconto)}${x.original > 0 ? ` (valor original ${fmtBRL(x.original)})` : ''}`);
   }
   linhas.push(`✅ Total pago: ${fmtBRL(totalPago)}`);
   linhas.push(falta > 0.009 ? `🔴 Falta pagar: ${fmtBRL(falta)}` : '🟢 Pedido quitado!');
@@ -210,7 +247,9 @@ async function darBaixa(link, pendencia) {
   if (!Array.isArray(claim.corpo) || claim.corpo.length === 0) return false; // outra chamada já deu a baixa
   let resultado;
   try {
-    resultado = await aplicarBaixaNaNota(link, valor);
+    // O desconto vem da opção salva no link (definida pelo operador), nunca do navegador do cliente.
+    const desconto = opcao && opcao.desconto_centavos > 0 ? { centavos: Number(opcao.desconto_centavos), tipo: opcao.desconto_tipo || null, valor: opcao.desconto_valor ?? null } : null;
+    resultado = await aplicarBaixaNaNota(link, valor, null, desconto);
   } catch (err) {
     // A nota NÃO foi atualizada: devolve o link ao estado "ativo" para a próxima conferência tentar de novo
     // (sem isso o link ficaria marcado como pago e a nota pendente para sempre).
@@ -309,7 +348,8 @@ async function darBaixaCard(pend) {
   const valor = round2(pend.valor_centavos / 100);
   let resultado;
   try {
-    resultado = await aplicarBaixaNaNota({ sale_id: pend.sale_id }, valor, pend.pagador_nome || null);
+    const desconto = Number(pend.desconto_centavos) > 0 ? { centavos: Number(pend.desconto_centavos), tipo: pend.desconto_tipo || null, valor: pend.desconto_valor ?? null } : null;
+    resultado = await aplicarBaixaNaNota({ sale_id: pend.sale_id }, valor, pend.pagador_nome || null, desconto);
   } catch (err) {
     await rest(`pix_pendentes?id=eq.${pend.id}`, { method: 'PATCH', body: JSON.stringify({ baixa_em: null }) }).catch(() => {});
     throw err;
@@ -424,6 +464,8 @@ export async function handlePagarLink(req, res) {
       if (Date.now() >= new Date(link.expira_em).getTime()) { res.status(410).json({ erro: 'Este link expirou. Peça um novo.' }); return; }
       const opcao = (Array.isArray(link.opcoes) ? link.opcoes : []).find((o) => o.id === String(req.body?.opcaoId || ''));
       if (!opcao || !(opcao.valor_centavos > 0)) { res.status(400).json({ erro: 'Opção inválida.' }); return; }
+      const descOpcao = Number(opcao.desconto_centavos) || 0;
+      if (descOpcao < 0 || opcao.valor_centavos + descOpcao > Number(link.restante_centavos)) { res.status(400).json({ erro: 'Opção inválida.' }); return; }
       // Uma tentativa por vez: encerra pendências abertas anteriores deste mesmo link.
       await rest(`pix_pendentes?sale_id=eq.${encodeURIComponent(`link:${token}`)}&status=eq.pendente`, {
         method: 'PATCH',

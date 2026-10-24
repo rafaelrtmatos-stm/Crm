@@ -5789,7 +5789,7 @@ export const ChatPanel = ({
       // Cobranca Pix: 1) imagem do QR com a descricao; 2) SO se a imagem foi enviada: registra a verificacao e manda o copia e cola.
       const depois = pix && lista[i].file === pix.file ? async (ok: boolean) => {
         if (!ok) { showAlert('O QR Code não foi enviado, então o copia e cola também não foi. Gere a cobrança de novo.'); return; }
-        const pend = await registrarPixPendenteDaCobranca({ companyId: pix.companyId, saleId: pix.saleId, valorCentavos: pix.valorCentavos, expiraEm: pix.expiraEm });
+        const pend = await registrarPixPendenteDaCobranca({ companyId: pix.companyId, saleId: pix.saleId, valorCentavos: pix.valorCentavos, expiraEm: pix.expiraEm, descontoCentavos: pix.descontoCentavos, descontoTipo: pix.descontoTipo, descontoValor: pix.descontoValor });
         if (!pend) showAlert('A cobrança foi enviada, mas a verificação automática do pagamento não pôde ser registrada. Confirme o pagamento manualmente.');
         await handleSendMessage(pix.copiaECola);
       } : undefined;
@@ -6504,7 +6504,7 @@ export const ChatPanel = ({
     }
   };
 
-  const pixCobrancaRef = useRef<{ file: File; saleId: string; companyId: string; valorCentavos: number; copiaECola: string; expiraEm: string } | null>(null);
+  const pixCobrancaRef = useRef<{ file: File; saleId: string; companyId: string; valorCentavos: number; copiaECola: string; expiraEm: string; descontoCentavos?: number; descontoTipo?: 'percentual' | 'fixo'; descontoValor?: number } | null>(null);
   const { setPrefilledCustomer, activeTab: rootActiveTab, setActiveTab: setRootActiveTab, setPendingReceiptOpenId, setPendingOpenContratoId, setPendingOpenOrcamentoId, setPendingOpenLeadId, setPendingWhatsAppShare, openWhatsAppChat, pendingReceiptAttachment, setPendingReceiptAttachment } = React.useContext(AppContext)!;
 
   useEffect(() => {
