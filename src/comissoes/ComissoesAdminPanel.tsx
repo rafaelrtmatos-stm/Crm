@@ -51,6 +51,7 @@ import { getWorkWeekBounds, getDescontosValesBounds } from './utils/caixaSemanal
 import { calcularPrevisaoRecebimento, calcularAReceber } from './utils/previsaoRecebimento';
 import { useSyncWithCrmTheme } from './utils/useSyncCrmTheme';
 import { calcularRemuneracaoSemanal } from './utils/remuneracaoHelper';
+import { somarReceitaQuitada } from './utils/receitaLoja';
 import { calcularPontoSalarioPorColaborador } from './utils/pontoSalario';
 import { supabase } from '../supabase';
 import { analisarDia, hojeStr } from '../lib/pontoCalc';
@@ -383,14 +384,7 @@ export default function ComissoesAdminPanel() {
       }
 
       // Receita da loja no período (Sábado a Sexta): apenas notas 100% quitadas e recebidas (só com entrada NÃO conta)
-      const receitaLojaQuitadasSemana = (vendasRes.data || [])
-        .filter((v: any) => {
-          if (v.status === 'canceled') return false;
-          const total = Number(v.total) || 0;
-          const down = Number(v.down_payment) || 0;
-          return total > 0 && (v.status === 'completed' || down >= total);
-        })
-        .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
+      const receitaLojaQuitadasSemana = somarReceitaQuitada(vendasRes.data);
 
       const servicos = servicosRes.data || [];
       const descontos = descontosRes.data || [];

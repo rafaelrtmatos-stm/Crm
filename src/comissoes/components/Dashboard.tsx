@@ -27,6 +27,7 @@ import {
 } from '../utils/caixaSemanalStorage';
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
+import { buscarReceitaLojaQuitada, usaReceitaDaLoja } from '../utils/receitaLoja';
 import { getBasePontoDaSemana } from '../utils/caixaPonto';
 import { calcularPontoSalarioDoCiclo, pontoBoundsDoCiclo } from '../utils/pontoSalario';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
@@ -223,6 +224,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
+        metasValores: userSettings.metasValores,
+        metaValorMinimo: userSettings.metaValorMinimo,
+        metaValorMaximo: userSettings.metaValorMaximo,
+        faturamentoDaSemana: usaReceitaDaLoja(userSettings.modalidadeRemuneracao) ? (cx) => buscarReceitaLojaQuitada(cx.semanaInicio, cx.semanaFim) : undefined,
         baseDaSemana: (cx) => getBasePontoDaSemana(colaboradorId, cx.semanaInicio, cx.semanaFim),
       });
       if (cancelled) return;
@@ -287,26 +292,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => {
     let cancelled = false;
     const bounds = getWorkWeekBounds(dashboardWeekOffset(weekOffset));
-    supabase
-      .from('vendas')
-      .select('total, status, down_payment, created_at')
-      .gte('created_at', bounds.start)
-      .lte('created_at', bounds.end + 'T23:59:59.999Z')
-      .is('deleted_at', null)
-      .then(({ data }) => {
-        if (cancelled) return;
-        const total = (data || [])
-          .filter((v: any) => {
-            if (v.status === 'canceled') return false;
-            const tot = Number(v.total) || 0;
-            const down = Number(v.down_payment) || 0;
-            return tot > 0 && (v.status === 'completed' || down >= tot);
-          })
-          .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
-        setReceitaLojaSemana(total);
-      });
+    buscarReceitaLojaQuitada(bounds.start, bounds.end).then((total) => { if (!cancelled) setReceitaLojaSemana(total); });
     return () => { cancelled = true; };
   }, [weekOffset]);
+
+  // A receita carregada acima é a do ciclo exibido (commissionWeekBounds): só entra nos resumos desse mesmo período,
+  // para nunca misturar a base de meta de uma semana com a de outra.
+  const faturamentoDoIntervalo = (ini: string, fim: string): number | undefined =>
+    usaReceitaDaLoja(userSettings.modalidadeRemuneracao) && ini === commissionWeekBounds.start && fim === commissionWeekBounds.end ? receitaLojaSemana : undefined;
 
   const metaCalculada = useMemo(() => {
     if (userSettings.modalidadeRemuneracao !== 'meta') return null;
@@ -436,6 +429,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       dataInicioColaborador || caixa.semanaInicio,
       userSettings.baseSalary, recentServices, descontos, pagamentos, start, end,
       {
+        faturamentoGeral: faturamentoDoIntervalo(start, end),
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
@@ -444,7 +438,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, start, end, receitaLojaSemana, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   // Resumo da comissão da semana vigente, independente do fechamento do ponto.
   const resumoComissaoSemanaVigente = useMemo(() => {
@@ -458,6 +452,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       commissionWeekBounds.start,
       commissionWeekBounds.end,
       {
+        faturamentoGeral: faturamentoDoIntervalo(commissionWeekBounds.start, commissionWeekBounds.end),
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
@@ -466,7 +461,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, commissionWeekBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, commissionWeekBounds, receitaLojaSemana, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   // Saldo anterior ao início da semana atual do caixa (dívidas ou créditos
   // vindos de semanas anteriores já fechadas).
@@ -503,6 +498,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       dataInicioColaborador || caixa.semanaInicio,
       userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds.start, weeklyBounds.end,
       {
+        faturamentoGeral: faturamentoDoIntervalo(weeklyBounds.start, weeklyBounds.end),
         modalidadeRemuneracao: userSettings.modalidadeRemuneracao,
         metaPercentual: userSettings.metaPercentual,
         comissaoPadraoPercentual: userSettings.defaultCommissionRate,
@@ -511,7 +507,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         metaValorMaximo: userSettings.metaValorMaximo,
       }
     );
-  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
+  }, [caixa, dataInicioColaborador, userSettings.baseSalary, recentServices, descontos, pagamentos, weeklyBounds, receitaLojaSemana, userSettings.modalidadeRemuneracao, userSettings.metaPercentual, userSettings.defaultCommissionRate, userSettings.metasValores, userSettings.metaValorMinimo, userSettings.metaValorMaximo]);
 
   const weeklyStats = useMemo(() => {
     const prod = weeklyServices.reduce((acc, s) => acc + s.productionValue, 0);

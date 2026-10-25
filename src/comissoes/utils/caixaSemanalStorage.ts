@@ -389,7 +389,7 @@ export function calcularResumoCaixa(
   services: ServiceItem[],
   descontos: Desconto[],
   pagamentos: Pagamento[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null> }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null>; faturamentoGeral?: number; faturamentoDaSemana?: (c: WeeklyCaixa) => Promise<number> }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= caixa.semanaInicio && s.date <= caixa.semanaFim && s.status !== 'CANCELADO');
@@ -406,6 +406,7 @@ export function calcularResumoCaixa(
       metasValores: extra?.metasValores,
       metaValorMinimo: extra?.metaValorMinimo,
       metaValorMaximo: extra?.metaValorMaximo,
+      faturamentoGeral: extra?.faturamentoGeral,
     },
     totalProducao,
     totalComissaoServicos
@@ -415,7 +416,9 @@ export function calcularResumoCaixa(
   const totalDescontos = calculateDescontosNoPeriodo(descontos, descBounds.start, descBounds.end);
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
   // Quem usa ponto eletrônico: o salário vem do ponto da semana (horas trabalhadas - DSR), no lugar do fixo.
-  const salarioBaseUsado = extra?.salarioBaseOverride != null ? Math.max(0, extra.salarioBaseOverride) : remuneracao.salarioBaseEfetivo;
+  // META e faturamento geral não têm salário fixo: o ponto não pode somar salário nessas modalidades.
+  const semSalarioFixo = extra?.modalidadeRemuneracao === 'meta' || extra?.modalidadeRemuneracao === 'faturamento_geral';
+  const salarioBaseUsado = !semSalarioFixo && extra?.salarioBaseOverride != null ? Math.max(0, extra.salarioBaseOverride) : remuneracao.salarioBaseEfetivo;
   const totalBruto = remuneracao.totalBruto - remuneracao.salarioBaseEfetivo + salarioBaseUsado;
   const saldoSemana = totalBruto - totalDescontos - totalPago;
   const saldoFinal = caixa.saldoAnterior + saldoSemana;
@@ -444,7 +447,7 @@ export function calcularResumoNoIntervalo(
   pagamentos: Pagamento[],
   inicio: string,
   fim: string,
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null> }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null>; faturamentoGeral?: number; faturamentoDaSemana?: (c: WeeklyCaixa) => Promise<number> }
 ): ResumoCaixa {
   const validServices = services
     .filter((s) => s.date >= inicio && s.date <= fim && s.status !== 'CANCELADO');
@@ -465,6 +468,7 @@ export function calcularResumoNoIntervalo(
       metasValores: extra?.metasValores,
       metaValorMinimo: extra?.metaValorMinimo,
       metaValorMaximo: extra?.metaValorMaximo,
+      faturamentoGeral: extra?.faturamentoGeral,
     },
     totalProducao,
     totalComissaoServicos
@@ -679,7 +683,7 @@ export async function avancarCaixaSeNecessario(
   salarioBase: number,
   services: ServiceItem[],
   descontos: Desconto[],
-  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null> }
+  extra?: { modalidadeRemuneracao?: ModalidadeRemuneracao; metaPercentual?: number; comissaoPadraoPercentual?: number; metasValores?: MetaValorItem[]; metaValorMinimo?: number; metaValorMaximo?: number; salarioBaseOverride?: number | null; baseDaSemana?: (c: WeeklyCaixa) => Promise<number | null>; faturamentoGeral?: number; faturamentoDaSemana?: (c: WeeklyCaixa) => Promise<number> }
 ): Promise<WeeklyCaixa> {
   let caixa = caixaInicial;
   const hoje = getTodayISO();
@@ -692,7 +696,9 @@ export async function avancarCaixaSeNecessario(
     guard++;
     const pagamentosDaSemana = await getPagamentosDoCaixa(caixa.id);
     const baseDoPonto = extra?.baseDaSemana ? await extra.baseDaSemana(caixa) : null;
-    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, { ...extra, salarioBaseOverride: baseDoPonto });
+    // Remuneração por meta: a base é a receita da loja DESSA semana (mesmo período do caixa que está sendo fechado).
+    const faturamento = extra?.faturamentoDaSemana ? await extra.faturamentoDaSemana(caixa) : extra?.faturamentoGeral;
+    const resumo = calcularResumoCaixa(caixa, salarioBase, services, descontos, pagamentosDaSemana, { ...extra, salarioBaseOverride: baseDoPonto, faturamentoGeral: faturamento });
     const proximo = await fecharCaixa(caixa, resumo);
     if (!proximo) break; // não trava a tela numa semana antiga se o fechamento falhar
     caixa = proximo;

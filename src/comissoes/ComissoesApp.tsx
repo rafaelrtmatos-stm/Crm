@@ -434,6 +434,10 @@ export default function ComissoesApp() {
                 services={services}
                 modalidadeRemuneracao={colaborador.modalidadeRemuneracao}
                 metaPercentual={colaborador.metaPercentual}
+                metasValores={userSettings.metasValores}
+                metaValorMinimo={userSettings.metaValorMinimo}
+                metaValorMaximo={userSettings.metaValorMaximo}
+                comissaoPadraoPercentual={userSettings.defaultCommissionRate}
               />
             )}
           </>

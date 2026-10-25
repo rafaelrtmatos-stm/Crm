@@ -304,6 +304,7 @@ import { getDespesasFixasTotalMensal } from './DespesasFixasModule';
 import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
 import { calculateDescontosNoPeriodo, calcularSalarioSemanal } from '../comissoes/utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
+import { somarReceitaQuitada } from '../comissoes/utils/receitaLoja';
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
 import { calcularPontoSalarioPorColaborador } from '../comissoes/utils/pontoSalario';
 import { calcularPrevisaoRecebimento, calcularAReceber } from '../comissoes/utils/previsaoRecebimento';
@@ -1689,14 +1690,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         const caixas = caixasRes.data || [];
         const vendas = vendasRes.data || [];
 
-        const receitaLojaQuitadasSemana = vendas
-          .filter((v: any) => {
-            if (v.status === 'canceled') return false;
-            const total = Number(v.total) || 0;
-            const down = Number(v.down_payment) || 0;
-            return total > 0 && (v.status === 'completed' || down >= total);
-          })
-          .reduce((acc: number, v: any) => acc + (Number(v.total) || 0), 0);
+        const receitaLojaQuitadasSemana = somarReceitaQuitada(vendas);
 
         const servicosByColab: Record<string, { totalComissao: number; totalProducao: number }> = {};
         servicos.forEach((s: any) => {
