@@ -94,6 +94,17 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
   const [deliveryDays, setDeliveryDays] = useState(7);
   const [paymentMethod, setPaymentMethod] = useState('PIX / Transferência');
   const [cidadeForo, setCidadeForo] = useState('Goiânia - GO');
+  const [contractMerchandiseItems, setContractMerchandiseItems] = useState<MerchandiseItem[]>([]);
+
+  const contractMaterialCost = contractMerchandiseItems.reduce(
+    (sum, item) => sum + Number(item.costPrice || 0) * Number(item.quantity || 0),
+    0
+  );
+  const contractGrossValue = contractMerchandiseItems.reduce(
+    (sum, item) => sum + Number(item.totalPrice || 0),
+    0
+  );
+  const contractDiscount = Math.max(0, contractGrossValue - Number(totalAmount || 0));
 
   // Contract details
   const [contractText, setContractText] = useState('');
@@ -504,6 +515,7 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
       {activeModuleView === 'merchandise' && (
         <MerchandiseModule
           onAttachItemsToContract={(itemsList, totalVal, desc) => {
+            setContractMerchandiseItems(itemsList);
             setTotalAmount(totalVal);
             setServiceDescription(desc);
             setActiveModuleView('budget');
@@ -835,6 +847,56 @@ export const ContractApprovalModule = ({ currentCompany, onContractApproved }: C
                 <DollarSign size={18} className="text-emerald-400" />
                 Valores & Especificação do Serviço
               </h3>
+
+              {contractMerchandiseItems.length > 0 && (
+                <div className="md:col-span-3 rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-300">Composição interna do contrato</p>
+                      <p className="text-[9px] text-white/40">Valores de custo são visíveis somente para o operador e não entram no contrato enviado ao cliente.</p>
+                    </div>
+                    <span className="text-[9px] font-black uppercase text-amber-400">{contractMerchandiseItems.length} item(ns)</span>
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-white/5">
+                    <table className="w-full text-[10px]">
+                      <thead className="bg-white/5 text-white/40 uppercase tracking-wider">
+                        <tr>
+                          <th className="text-left px-3 py-2">Material / Produto</th>
+                          <th className="text-right px-3 py-2">Qtd.</th>
+                          <th className="text-right px-3 py-2">Custo do Material</th>
+                          <th className="text-right px-3 py-2">Valor Unitário</th>
+                          <th className="text-right px-3 py-2">Valor Final</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {contractMerchandiseItems.map(item => (
+                          <tr key={item.id} className="border-t border-white/5 text-white/80">
+                            <td className="px-3 py-2 font-semibold">{item.description}</td>
+                            <td className="px-3 py-2 text-right">{item.quantity} {item.unit}</td>
+                            <td className="px-3 py-2 text-right text-amber-300 font-mono">R$ {(Number(item.costPrice || 0) * Number(item.quantity || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2 text-right text-white font-mono">R$ {Number(item.salePrice || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-2 text-right text-emerald-300 font-mono">R$ {Number(item.totalPrice || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="rounded-xl bg-white/5 border border-white/5 px-3 py-2">
+                      <p className="text-[9px] uppercase text-white/40 font-black">Custo dos materiais</p>
+                      <p className="text-sm font-black text-amber-300 font-mono">R$ {contractMaterialCost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="rounded-xl bg-white/5 border border-white/5 px-3 py-2">
+                      <p className="text-[9px] uppercase text-white/40 font-black">Desconto lançado</p>
+                      <p className="text-sm font-black text-red-300 font-mono">R$ {contractDiscount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
+                      <p className="text-[9px] uppercase text-emerald-400 font-black">Valor final</p>
+                      <p className="text-sm font-black text-emerald-300 font-mono">R$ {Number(totalAmount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2 space-y-1">
