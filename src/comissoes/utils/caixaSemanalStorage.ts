@@ -108,11 +108,11 @@ export const getWorkWeekBounds = (offsetWeeks = 0, ref: Date = new Date()): { st
 /**
  * Retorna os limites de apuração de Descontos e Vales para o acerto vigente.
  * Regra independente do ciclo de comissão:
- * - Descontos e vales pertencentes ao acerto são considerados de SEGUNDA a SÁBADO.
+ * - Descontos e vales pertencentes ao acerto são considerados de DOMINGO (que já vale para a segunda) a SÁBADO.
  * - Para um ciclo de comissão Sábado a Sexta, a janela de descontos correspondente
- *   começa na segunda-feira seguinte ao sábado de início e termina no sábado seguinte
+ *   começa no domingo seguinte ao sábado de início e termina no sábado seguinte
  *   à sexta-feira de encerramento.
- * - Exemplo: comissão 26/09 a 02/10 -> descontos 28/09 a 03/10.
+ * - Exemplo: comissão 26/09 a 02/10 -> descontos 27/09 a 03/10.
  * - Isso impede que descontos do ciclo anterior sejam carregados para o acerto atual.
  */
 export const getDescontosValesBounds = (weekStart: string, weekEnd: string): { start: string; end: string } => {
@@ -120,7 +120,8 @@ export const getDescontosValesBounds = (weekStart: string, weekEnd: string): { s
 
   // Ciclo normal Sábado -> Sexta: descontos começam na segunda e terminam no sábado.
   // Na semana inaugural iniciada numa segunda, mantém a própria segunda como início.
-  const start = startDay === 1 ? weekStart : addDaysISO(weekStart, 2);
+  // O desconto de DOMINGO já entra no acerto seguinte (junto com a segunda): a janela começa no domingo.
+  const start = startDay === 1 ? weekStart : addDaysISO(weekStart, 1);
   const end = addDaysISO(weekEnd, 1);
 
   return { start, end };
