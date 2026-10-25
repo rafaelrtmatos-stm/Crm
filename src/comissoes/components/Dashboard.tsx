@@ -28,6 +28,7 @@ import {
 import { supabase } from '../../supabase';
 import { calcularRemuneracaoSemanal } from '../utils/remuneracaoHelper';
 import { buscarReceitaLojaQuitada, usaReceitaDaLoja } from '../utils/receitaLoja';
+import { validarIntervaloISO } from '../../lib/intervaloDatas';
 import { getBasePontoDaSemana } from '../utils/caixaPonto';
 import { calcularPontoSalarioDoCiclo, pontoBoundsDoCiclo } from '../utils/pontoSalario';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
@@ -368,13 +369,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
       };
     }
 
-    // personalizado
+    // personalizado: datas vazias/incompletas/invertidas não podem chegar nas consultas (new Date('T00:00:00') é
+    // inválida e toISOString lançava RangeError, derrubando a tela) -- enquanto inválido, mostra o dia de hoje.
+    const intervalo = validarIntervaloISO(customStartDate, customEndDate);
+    if (!intervalo.ok) {
+      return { start: today, end: today, periodLabel: `Personalizado inválido — exibindo hoje (${formatDateBR(today)})` };
+    }
     return {
-      start: customStartDate,
-      end: customEndDate,
-      periodLabel: `Personalizado (${formatDateBR(customStartDate)} até ${formatDateBR(customEndDate)})`,
+      start: intervalo.inicio,
+      end: intervalo.fim,
+      periodLabel: `Personalizado (${formatDateBR(intervalo.inicio)} até ${formatDateBR(intervalo.fim)})`,
     };
   }, [period, weekOffset, customStartDate, customEndDate]);
+  const erroPersonalizado = period === 'personalizado' ? validarIntervaloISO(customStartDate, customEndDate) : null;
 
   // Receita quitada da loja no período selecionado (inclui datas personalizadas).
   const [receitaLojaPeriodo, setReceitaLojaPeriodo] = useState(0);
@@ -741,6 +748,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 className="px-2.5 py-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-sec)] text-xs text-[var(--text-main)] font-mono focus:outline-none focus:border-[var(--accent-red)]"
               />
             </div>
+            {erroPersonalizado && !erroPersonalizado.ok && (
+              <p className="self-end text-[10px] font-bold text-rose-400">{erroPersonalizado.erro}</p>
+            )}
           </div>
         )}
       </div>

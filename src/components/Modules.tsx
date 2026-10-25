@@ -305,6 +305,7 @@ import { fetchDespesasFixas } from '../lib/despesasFixasStorage';
 import { calculateDescontosNoPeriodo, calcularSalarioSemanal } from '../comissoes/utils/supabaseStorage';
 import { getWorkWeekBounds, getDescontosValesBounds } from '../comissoes/utils/caixaSemanalStorage';
 import { somarReceitaQuitada } from '../comissoes/utils/receitaLoja';
+import { validarIntervaloISO } from '../lib/intervaloDatas';
 import { calcularRemuneracaoSemanal } from '../comissoes/utils/remuneracaoHelper';
 import { calcularPontoSalarioPorColaborador } from '../comissoes/utils/pontoSalario';
 import { calcularPrevisaoRecebimento, calcularAReceber } from '../comissoes/utils/previsaoRecebimento';
@@ -1558,7 +1559,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [period, setPeriod] = useState('7 dias');
   // Navegacao de semana (sabado a sexta): 0 = atual, -1 = anterior, +1 = proxima
   const [semanaOffset, setSemanaOffset] = useState(0);
-  const [customRange, setCustomRange] = useState({ start: '', end: '' });
+  const [customRange, setCustomRange] = useState(() => { const hoje = new Date(); return { start: format(new Date(hoje.getFullYear(), hoje.getMonth(), 1), 'yyyy-MM-dd'), end: format(hoje, 'yyyy-MM-dd') }; });
+  const intervaloCustom = validarIntervaloISO(customRange.start, customRange.end);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [showLinhaFaturamento, setShowLinhaFaturamento] = useState(true);
@@ -2024,9 +2026,16 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
       return { start, end };
     }
-    if (period === 'Personalizado' && customRange.start && customRange.end) {
-      const start = new Date(customRange.start); start.setHours(0, 0, 0, 0);
-      const end = new Date(customRange.end); end.setHours(23, 59, 59, 999);
+    if (period === 'Personalizado') {
+      // Datas inválidas/incompletas NUNCA viram "todo o histórico" (isso gerava milhares de pontos no gráfico e travava):
+      // enquanto o intervalo não é válido, mostra o mês atual e avisa no seletor.
+      if (intervaloCustom.ok) {
+        const start = new Date(`${intervaloCustom.inicio}T00:00:00`);
+        const end = new Date(`${intervaloCustom.fim}T23:59:59.999`);
+        return { start, end };
+      }
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const end = new Date(now); end.setHours(23, 59, 59, 999);
       return { start, end };
     }
     return { start: new Date(0), end: new Date(8640000000000000) };
@@ -2058,8 +2067,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         past.setDate(now.getDate() - days);
         return orderDate >= past;
       }
-      if (period === 'Personalizado' && customRange.start && customRange.end) {
-        return orderDate >= new Date(customRange.start) && orderDate <= new Date(customRange.end);
+      if (period === 'Personalizado') {
+        const { start: ini, end: fim } = getPeriodRange();
+        return orderDate >= ini && orderDate <= fim;
       }
       return true;
     });
@@ -2260,7 +2270,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       } else {
         const curr = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
         const endMonth = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
-        while (curr <= endMonth) {
+        while (curr <= endMonth && points.length < 120) {
           const k = format(curr, 'MM/yyyy');
           const label = format(curr, 'MM/yy');
           indexByKey[k] = points.length;
@@ -2383,7 +2393,8 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
   const [buscaProdutoAnalise, setBuscaProdutoAnalise] = useState('');
   const [buscaClienteAnalise, setBuscaClienteAnalise] = useState('');
 
-  const analiseDetalhada = useMemo(() => {
+  type AnalisePeriodoKey = 'hoje' | 'semana' | 'mes' | 'ano' | 'personalizado';
+  const calcularAnaliseDetalhada = (analisePeriodo: AnalisePeriodoKey, analiseCustomRange: { start: string; end: string }, analiseSemanaOffset: number) => {
     // Custo completo da nota (matéria-prima, tinta, máquina e extras sem comissão) — mesma regra das telas de notas.
     const custoDoPedido = (o: SaleOrder) => custoCompletoDaNotaDash(o);
 
@@ -2420,10 +2431,10 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       inicioPeriodo = startOfYear;
       fimPeriodo = endOfDay;
     } else { // 'personalizado'
-      const startParsed = analiseCustomRange.start ? new Date(`${analiseCustomRange.start}T00:00:00`) : startOfMonth;
-      const endParsed = analiseCustomRange.end ? new Date(`${analiseCustomRange.end}T23:59:59`) : endOfDay;
-      inicioPeriodo = isNaN(startParsed.getTime()) ? startOfMonth : startParsed;
-      fimPeriodo = isNaN(endParsed.getTime()) ? endOfDay : endParsed;
+      // Intervalo inválido/incompleto/gigante cai no mês atual (nunca em milhares de pontos de gráfico).
+      const v = validarIntervaloISO(analiseCustomRange.start, analiseCustomRange.end);
+      inicioPeriodo = v.ok ? new Date(`${v.inicio}T00:00:00`) : startOfMonth;
+      fimPeriodo = v.ok ? new Date(`${v.fim}T23:59:59`) : endOfDay;
     }
 
     const diasNoPeriodo = Math.max(1, Math.ceil((fimPeriodo.getTime() - inicioPeriodo.getTime()) / 86400000));
@@ -2662,7 +2673,33 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       fimPeriodo,
       diasNoPeriodo
     };
-  }, [realSales, inventory, analisePeriodo, analiseCustomRange, comissoesLancadas, analiseSemanaOffset, despesasFixasBaseMensal, custoProdutoPorId, produtoPorIdDash, materiasPrimasDash, mapasMaquinasDash]);
+  };
+  const analiseDetalhada = useMemo(
+    () => calcularAnaliseDetalhada(analisePeriodo, analiseCustomRange, analiseSemanaOffset),
+    [realSales, inventory, comissoesLancadas, despesasFixasBaseMensal, custoProdutoPorId, produtoPorIdDash, materiasPrimasDash, mapasMaquinasDash, analisePeriodo, analiseCustomRange, analiseSemanaOffset]
+  );
+  const intervaloAnalise = validarIntervaloISO(analiseCustomRange.start, analiseCustomRange.end);
+
+  // Classificação (produtos e clientes) direto no Dashboard: usa o MESMO cálculo da Análise Detalhada,
+  // porém sempre no período escolhido no seletor do Dashboard (Hoje/Ontem/Semana/30 dias/Ano/Personalizado).
+  const [rankDashTab, setRankDashTab] = useState<'produtos' | 'clientes'>('produtos');
+  const [rankDashProdCrit, setRankDashProdCrit] = useState<'faturamento' | 'quantidade' | 'lucro'>('faturamento');
+  const [rankDashCliCrit, setRankDashCliCrit] = useState<'faturamento' | 'pedidos' | 'ticket'>('faturamento');
+  const argsClassificacaoDash = useMemo(() => {
+    const hoje = new Date();
+    const iso = (d: Date) => format(d, 'yyyy-MM-dd');
+    const mesAtual = { start: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), end: iso(hoje) };
+    if (period === 'Hoje') return { p: 'hoje' as AnalisePeriodoKey, r: mesAtual, o: 0 };
+    if (period === 'Ontem') { const y = new Date(hoje); y.setDate(hoje.getDate() - 1); return { p: 'personalizado' as AnalisePeriodoKey, r: { start: iso(y), end: iso(y) }, o: 0 }; }
+    if (period === 'Semana' || period === '7 dias') return { p: 'semana' as AnalisePeriodoKey, r: mesAtual, o: semanaOffset };
+    if (period === '30 dias') { const i = new Date(hoje); i.setDate(hoje.getDate() - 30); return { p: 'personalizado' as AnalisePeriodoKey, r: { start: iso(i), end: iso(hoje) }, o: 0 }; }
+    if (period === 'Ano' || period === 'Este Ano') return { p: 'ano' as AnalisePeriodoKey, r: mesAtual, o: 0 };
+    return { p: 'personalizado' as AnalisePeriodoKey, r: intervaloCustom.ok ? { start: intervaloCustom.inicio, end: intervaloCustom.fim } : mesAtual, o: 0 };
+  }, [period, semanaOffset, customRange.start, customRange.end]);
+  const classificacaoDash = useMemo(
+    () => (user?.isAdmin ? calcularAnaliseDetalhada(argsClassificacaoDash.p, argsClassificacaoDash.r, argsClassificacaoDash.o) : null),
+    [user?.isAdmin, realSales, inventory, comissoesLancadas, despesasFixasBaseMensal, custoProdutoPorId, produtoPorIdDash, materiasPrimasDash, mapasMaquinasDash, argsClassificacaoDash]
+  );
 
   const addWidget = (type: WidgetType) => {
     const newWidget: DashboardWidget = {
@@ -2697,6 +2734,38 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
     // Redirecting to POS for sales history since documents/reports is removed
     setActiveTab('pos');
   };
+
+  const anoMaxData = format(new Date(new Date().getFullYear() + 1, 11, 31), 'yyyy-MM-dd');
+  const seletorDatasPersonalizado = (
+    <div className="flex flex-col gap-1 items-end">
+      <div className="flex flex-wrap gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-1">
+        <span className="text-[9px] font-black uppercase text-white/40">Início:</span>
+        <input
+          type="date"
+          min="2000-01-01"
+          max={customRange.end || anoMaxData}
+          className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10"
+          value={customRange.start}
+          onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
+        />
+        <span className="text-[9px] font-black uppercase text-white/40">Fim:</span>
+        <input
+          type="date"
+          min={customRange.start || '2000-01-01'}
+          max={anoMaxData}
+          className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10"
+          value={customRange.end}
+          onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
+        />
+      </div>
+      {!intervaloCustom.ok && (
+        <p className="text-[10px] font-bold text-rose-300">{intervaloCustom.erro} Exibindo o mês atual até você corrigir.</p>
+      )}
+      {intervaloCustom.ok && filteredOrders.length === 0 && totalRevenue === 0 && (
+        <p className="text-[10px] font-bold text-white/50">Nenhuma venda encontrada neste período.</p>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500 relative min-h-screen pb-20">
@@ -2744,23 +2813,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
 
               {(period === '7 dias' || period === 'Semana') && navegadorSemana}
 
-              {period === 'Personalizado' && (
-                <div className="flex gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-2">
-                   <input 
-                     type="date" 
-                     className="bg-transparent text-[9px] font-bold text-white outline-none" 
-                     value={customRange.start}
-                     onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
-                   />
-                   <span className="text-[9px] text-white/20">até</span>
-                   <input 
-                     type="date" 
-                     className="bg-transparent text-[9px] font-bold text-white outline-none" 
-                     value={customRange.end}
-                     onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
-                   />
-                </div>
-              )}
+              {period === 'Personalizado' && seletorDatasPersonalizado}
             </div>
           </div>
         } 
@@ -3013,6 +3066,82 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
         />
       )}
 
+      {user?.isAdmin && classificacaoDash && (() => {
+        const brl = (n: number) => `R$ ${(Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+        const ehProdutos = rankDashTab === 'produtos';
+        const crit = ehProdutos ? rankDashProdCrit : rankDashCliCrit;
+        const criterios = ehProdutos
+          ? [{ id: 'faturamento', label: 'Faturamento' }, { id: 'quantidade', label: 'Quantidade' }, { id: 'lucro', label: 'Lucro' }]
+          : [{ id: 'faturamento', label: 'Total gasto' }, { id: 'pedidos', label: 'Pedidos' }, { id: 'ticket', label: 'Ticket médio' }];
+        const produtos = [...classificacaoDash.produtosCalculados].sort((a, b) =>
+          crit === 'quantidade' ? b.qty - a.qty : crit === 'lucro' ? b.lucro - a.lucro : b.total - a.total);
+        const clientes = [...classificacaoDash.clientesCalculados].sort((a, b) =>
+          crit === 'pedidos' ? b.ordersCount - a.ordersCount : crit === 'ticket' ? b.ticketMedio - a.ticketMedio : b.total - a.total);
+        const lista: any[] = (ehProdutos ? produtos : clientes).slice(0, 10);
+        return (
+          <GlassCard className="p-6 sm:p-8 border-white/5 bg-white/[0.02] space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Classificação do Período</h3>
+                <p className="text-xs text-white/40 font-bold tracking-widest uppercase">
+                  {safeFormat(classificacaoDash.inicioPeriodo, 'dd/MM/yyyy')} até {safeFormat(classificacaoDash.fimPeriodo, 'dd/MM/yyyy')} · {ehProdutos ? classificacaoDash.produtosCalculados.length : classificacaoDash.clientesCalculados.length} {ehProdutos ? 'produtos' : 'clientes'}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(['produtos', 'clientes'] as const).map(t => (
+                  <button key={t} onClick={() => setRankDashTab(t)}
+                    className={cn("px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-all cursor-pointer",
+                      rankDashTab === t ? "bg-primary-500 text-slate-900 border-primary-400" : "bg-white/5 text-white/50 border-white/5 hover:text-white")}>
+                    {t === 'produtos' ? 'Produtos' : 'Clientes'}
+                  </button>
+                ))}
+                <span className="text-[9px] font-black uppercase text-white/40 tracking-wider mx-1">Por:</span>
+                {criterios.map(c => (
+                  <button key={c.id} onClick={() => (ehProdutos ? setRankDashProdCrit(c.id as any) : setRankDashCliCrit(c.id as any))}
+                    className={cn("px-2.5 py-1 rounded-lg text-[9px] font-black uppercase border transition-all cursor-pointer",
+                      crit === c.id ? "bg-white/20 text-white border-white/20" : "bg-white/5 text-white/50 border-white/5 hover:text-white")}>
+                    {c.label}
+                  </button>
+                ))}
+                <Button variant="ghost" icon={Maximize2} onClick={() => { setAnaliseActiveTab(rankDashTab); setAnalisePeriodo(argsClassificacaoDash.p); setAnaliseCustomRange(argsClassificacaoDash.r); setAnaliseSemanaOffset(argsClassificacaoDash.o); setIsRevenueModalOpen(true); }} title="Abrir classificação completa" />
+              </div>
+            </div>
+            {lista.length === 0 ? (
+              <div className="text-center py-8 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <p className="text-xs text-white/40 font-bold">Nenhum {ehProdutos ? 'produto vendido' : 'cliente com compras'} neste período.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {lista.map((it, idx) => (
+                  <div key={it.name} className="flex items-center justify-between gap-3 bg-white/5 border border-white/5 rounded-xl px-3 py-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-6 h-6 rounded-lg bg-primary-500/10 border border-primary-500/20 text-primary-400 font-black text-xs flex items-center justify-center shrink-0">#{idx + 1}</span>
+                      <span className="text-xs font-bold text-white truncate">{it.name}</span>
+                    </div>
+                    <div className="flex items-center gap-4 shrink-0 text-right">
+                      {ehProdutos ? (
+                        <>
+                          <div><span className="text-[8px] font-bold text-white/40 uppercase block">Qtd</span><span className="text-xs font-black text-white">{it.qty}</span></div>
+                          <div><span className="text-[8px] font-bold text-white/40 uppercase block">Faturamento</span><span className="text-xs font-black text-emerald-400">{brl(it.total)}</span></div>
+                          <div className="hidden sm:block"><span className="text-[8px] font-bold text-emerald-400/60 uppercase block">Lucro</span><span className={cn("text-xs font-black", classeLucro(it.lucro, "text-emerald-300"))}>{formatarLucroBRL(it.lucro)}</span></div>
+                        </>
+                      ) : (
+                        <>
+                          <div><span className="text-[8px] font-bold text-white/40 uppercase block">Pedidos</span><span className="text-xs font-black text-white">{it.ordersCount}</span></div>
+                          <div className="hidden sm:block"><span className="text-[8px] font-bold text-purple-300/60 uppercase block">Ticket</span><span className="text-xs font-black text-purple-300">{brl(it.ticketMedio)}</span></div>
+                          <div><span className="text-[8px] font-bold text-white/40 uppercase block">Total</span><span className="text-xs font-black text-emerald-400">{brl(it.total)}</span></div>
+                        </>
+                      )}
+                      <div className="hidden md:block w-14"><span className="text-[8px] font-bold text-white/40 uppercase block">Part.</span><span className="text-xs font-black text-primary-300">{Number(it.pctTotal ?? 0).toFixed(1)}%</span></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        );
+      })()}
+
       <div className={cn("grid gap-8", user?.isAdmin ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
         {user?.isAdmin && (
           <GlassCard className="lg:col-span-2 p-6 sm:p-8 border-white/5 bg-white/[0.02] space-y-6">
@@ -3076,24 +3205,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
              </div>
 
              {/* Seletor de data para período personalizado */}
-             {period === 'Personalizado' && (
-                <div className="flex flex-wrap gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5 animate-in slide-in-from-top-1">
-                   <span className="text-[9px] font-black uppercase text-white/40">Início:</span>
-                   <input 
-                     type="date" 
-                     className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10" 
-                     value={customRange.start}
-                     onChange={(e) => setCustomRange(prev => ({ ...prev, start: e.target.value }))}
-                   />
-                   <span className="text-[9px] font-black uppercase text-white/40">Fim:</span>
-                   <input 
-                     type="date" 
-                     className="bg-transparent text-[10px] font-bold text-white outline-none px-2 py-1 rounded bg-white/5 border border-white/10" 
-                     value={customRange.end}
-                     onChange={(e) => setCustomRange(prev => ({ ...prev, end: e.target.value }))}
-                   />
-                </div>
-             )}
+             {period === 'Personalizado' && seletorDatasPersonalizado}
 
              {/* Métricas rápidas do Card */}
              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -3656,6 +3768,9 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
                          ))}
                       </div>
                    </div>
+                   {!intervaloAnalise.ok && (
+                      <p className="w-full text-[10px] font-bold text-rose-300">{intervaloAnalise.erro} Exibindo o mês atual até você corrigir.</p>
+                   )}
                 </div>
              )}
 
