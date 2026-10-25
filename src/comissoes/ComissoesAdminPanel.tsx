@@ -322,24 +322,6 @@ export default function ComissoesAdminPanel() {
       setColaboradores(colabs);
       setSelected((prev) => (prev ? colabs.find((c) => c.id === prev.id) ?? null : prev));
 
-      // Limpeza automática de débito/saldo anterior acidental (R$ 400) para Caleb conforme pedido
-      const calebColab = colabs.find((c) => c.nome.toLowerCase().includes('caleb'));
-      if (calebColab) {
-        supabase
-          .from('comissoes_descontos')
-          .delete()
-          .eq('colaborador_id', calebColab.id)
-          .or('tipo.eq.debito_saldo_anterior,valor.eq.400')
-          .then(() => {});
-
-        supabase
-          .from('comissoes_caixas_semanais')
-          .update({ saldo_anterior: 0 })
-          .eq('colaborador_id', calebColab.id)
-          .eq('status', 'aberto')
-          .then(() => {});
-      }
-
       // 2. Busca dados da semana atual para cálculo do Total Estimado e contas de usuários
       const { start, end } = weekBounds;
       // O caixa, descontos, pagamentos e saldo anterior pertencem ao MESMO ciclo semanal.
