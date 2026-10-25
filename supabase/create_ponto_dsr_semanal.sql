@@ -38,4 +38,15 @@ create policy "allow all ponto_dsr_semanal" on ponto_dsr_semanal for all using (
 drop policy if exists "allow all ponto_dsr_historico" on ponto_dsr_historico;
 create policy "allow all ponto_dsr_historico" on ponto_dsr_historico for all using (true) with check (true);
 
+-- Tempo real: o painel de Funcionarios recalcula o Total Estimado quando o DSR, as batidas ou o banco de horas mudam.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['ponto_dsr_semanal','ponto_registros','ponto_banco_horas'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = t) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE %I', t);
+    END IF;
+  END LOOP;
+END $$;
+
 NOTIFY pgrst, 'reload schema';

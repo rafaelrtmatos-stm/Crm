@@ -597,6 +597,16 @@ export default function ComissoesAdminPanel() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_caixas_semanais' }, () => {
         loadData({ silent: true });
       })
+      // Salário vem do ponto: DSR, batidas e banco de horas mudam o Total Estimado.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_dsr_semanal' }, () => {
+        loadData({ silent: true });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_registros' }, () => {
+        loadData({ silent: true });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_banco_horas' }, () => {
+        loadData({ silent: true });
+      })
       .subscribe();
 
     return () => {
