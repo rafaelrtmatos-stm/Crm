@@ -324,6 +324,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
       .channel(`caixa-ponto-${colaboradorId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_registros' }, disparar)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_banco_horas' }, disparar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_dsr_semanal' }, disparar)
       .subscribe();
     const aoVoltar = () => { if (document.visibilityState === 'visible') disparar(); };
     document.addEventListener('visibilitychange', aoVoltar);

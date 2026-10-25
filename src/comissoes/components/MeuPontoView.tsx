@@ -11,6 +11,7 @@ import{RegistroModal}from'../../components/ponto/PontoModals';
 import{salvarRegistroPonto}from'../../lib/pontoRegistroSalvar';
 import{buscarDecisaoDsr,buscarUltimaAlteracaoDsr,salvarDecisaoDsr}from'../../lib/pontoDsr';
 import{showAlert}from'../../lib/notify';
+import{useRealtimeReload}from'../../lib/useRealtimeReload';
 
 const DsrControle:React.FC<{faltas:string[];desconta:boolean;automatico:boolean;valor:number;info:{alterado_por:string|null;alterado_em:string}|null;salvando:boolean;onChange:(v:boolean)=>void}>=({faltas,desconta,automatico,valor,info,salvando,onChange})=>(
   <div className={'rounded-xl border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 '+(desconta?'border-rose-500/30 bg-rose-500/10':'border-[var(--border-color)] bg-[var(--bg-card-sec)]')}>
@@ -37,6 +38,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const[loading,setLoading]=useState(true);
  const[editReg,setEditReg]=useState<{funcionario_id:string;data:string;reg:PontoRegistro|null}|null>(null);
  const[reloadKey,setReloadKey]=useState(0);
+ // Tempo real: batidas, banco de horas e decisão do DSR (de outro admin/aba) atualizam a semana na hora.
+ const rtTick=useRealtimeReload(['ponto_registros','ponto_banco_horas','ponto_dsr_semanal','ponto_jornadas']);
  // Decisão do DSR da semana exibida: true/false salvo no Supabase; null = automático (sem decisão salva).
  const[dsrDecisao,setDsrDecisao]=useState<boolean|null>(null);
  const[dsrInfo,setDsrInfo]=useState<{alterado_por:string|null;alterado_em:string}|null>(null);
@@ -85,7 +88,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
      setLoading(false);
    })();
    return()=>{ok=false};
- },[colaboradorId,bounds.start,bounds.end,reloadKey]);
+ },[colaboradorId,bounds.start,bounds.end,reloadKey,rtTick]);
 
  // Admin corrige as batidas do dia (mesma gravação do Registro de Ponto no Controle de Ponto) e recarrega a semana.
  const salvarRegistro=async(fid:string,data:string,h:Partial<PontoRegistro>)=>{

@@ -42,8 +42,8 @@ create policy "allow all ponto_dsr_historico" on ponto_dsr_historico for all usi
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['ponto_dsr_semanal','ponto_registros','ponto_banco_horas'] LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = t) THEN
+  FOREACH t IN ARRAY ARRAY['ponto_dsr_semanal','ponto_registros','ponto_banco_horas','ponto_jornadas','comissoes_caixas_semanais','comissoes_descontos','comissoes_pagamentos'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = t) THEN
       EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE %I', t);
     END IF;
   END LOOP;
