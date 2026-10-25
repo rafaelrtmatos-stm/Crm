@@ -20,8 +20,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const[editReg,setEditReg]=useState<{funcionario_id:string;data:string;reg:PontoRegistro|null}|null>(null);
  const[reloadKey,setReloadKey]=useState(0);
 
- // Semana de pagamento do ponto: aos sábados é a semana de 2 ciclos atrás (ex.: sáb 17/10 -> 03/10 a 09/10); de domingo a sexta, a semana passada.
- const pagamentoOffset=new Date().getDay()===6?-2:-1;
+ // Semana de pagamento do ponto: sempre o ciclo anterior ao exibido (ex.: ciclo 17/10 a 23/10, inclusive no sábado 24/10 -> ponto de 10/10 a 16/10).
+ const pagamentoOffset=-1;
  const[weekOffset,setWeekOffset]=useState<number>(pagamentoOffset);
  const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => getDestinacaoExtras(colaboradorId));
  const handleSetDestinacao = (val: 'pagar' | 'folga') => {

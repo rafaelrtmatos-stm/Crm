@@ -146,21 +146,22 @@ const getDescontosPeriodoLabel = (periodo: DescontosPeriodo, offset: number, bou
   return String(now.getFullYear() + offset);
 };
 
-const emptyForm: DescontoFormInput = {
+// Funções (e não constantes): a data padrão precisa ser a de HOJE no momento do uso, não a do carregamento do módulo.
+const makeEmptyForm = (): DescontoFormInput => ({
   tipo: 'outro',
   descricao: '',
   valor: 0,
   recorrencia: 'unica',
   data: getTodayISO(),
   ativo: true,
-};
+});
 
-const emptyPagamentoForm: PagamentoFormInput = {
+const makeEmptyPagamentoForm = (): PagamentoFormInput => ({
   valor: 0,
   data: getTodayISO(),
   descricao: '',
   formaPagamento: 'pix',
-};
+});
 
 export const DescontosView: React.FC<DescontosViewProps> = ({
   colaboradorId,
@@ -178,7 +179,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
 }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<DescontoFormInput>({ ...emptyForm });
+  const [form, setForm] = useState<DescontoFormInput>(makeEmptyForm());
   const [saving, setSaving] = useState(false);
 
   // ✅ Card "Descontos": seletor Semana / Mês / Ano, com Semana selecionada por padrão,
@@ -225,7 +226,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const [showPagamentoForm, setShowPagamentoForm] = useState(false);
   // null = form em modo "novo pagamento"; id = form em modo "editando esse pagamento"
   const [editingPagamentoId, setEditingPagamentoId] = useState<string | null>(null);
-  const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>({ ...emptyPagamentoForm });
+  const [pagamentoForm, setPagamentoForm] = useState<PagamentoFormInput>(makeEmptyPagamentoForm());
   const [savingPagamento, setSavingPagamento] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   // Salário da semana aberta vindo do ponto (horas - DSR). null = não usa ponto: segue o salário fixo.
@@ -454,7 +455,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   // Abre o formulário de pagamento já preenchido com o valor que falta pagar (saldo a favor do colaborador).
   const abrirFormPagamento = () => {
     const falta = Math.max(0, Number((resumoPorPeriodo.saldoFinal || 0).toFixed(2)));
-    setPagamentoForm({ ...emptyPagamentoForm, valor: falta });
+    setPagamentoForm({ ...makeEmptyPagamentoForm(), valor: falta });
     setShowPagamentoForm(true);
   };
 
@@ -511,7 +512,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
 
     setShowPagamentoForm(false);
     setEditingPagamentoId(null);
-    setPagamentoForm({ ...emptyPagamentoForm });
+    setPagamentoForm(makeEmptyPagamentoForm());
   };
 
   const handleStartEditPagamento = (p: Pagamento) => {
@@ -523,7 +524,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const handleCancelPagamentoForm = () => {
     setShowPagamentoForm(false);
     setEditingPagamentoId(null);
-    setPagamentoForm({ ...emptyPagamentoForm });
+    setPagamentoForm(makeEmptyPagamentoForm());
   };
 
   const handleDeletePagamento = async (p: Pagamento) => {
@@ -550,7 +551,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const openNewForm = () => {
     setEditingId(null);
     setForm({
-      ...emptyForm,
+      ...makeEmptyForm(),
       tipo: 'outro',
       descricao: '',
       valor: 0,
@@ -567,7 +568,7 @@ export const DescontosView: React.FC<DescontosViewProps> = ({
   const closeForm = () => {
     setShowForm(false);
     setEditingId(null);
-    setForm({ ...emptyForm });
+    setForm(makeEmptyForm());
   };
 
   const handleSave = async () => {

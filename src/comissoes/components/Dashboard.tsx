@@ -261,7 +261,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // No sábado, a comissão exibida é a do ciclo encerrado na sexta-feira
   // (26/09 a 02/10). O saldo do ponto/salário permanece no ciclo anterior.
   // A produção do sábado inicia o próximo ciclo e fica para o próximo recebimento.
-  const dashboardWeekOffset = (offset: number) => new Date().getDay() === 6 ? offset - 1 : offset;
+  // getWorkWeekBounds já mantém no sábado o ciclo encerrado na sexta (o novo só vira atual no domingo).
+  const dashboardWeekOffset = (offset: number) => offset;
   const commissionWeekOffset = dashboardWeekOffset(weekOffset);
   const commissionWeekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
   // Semana do ponto que paga o ciclo exibido (regra única: ciclo − 7 dias).
@@ -479,9 +480,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     // No sábado o card representa o fechamento do ciclo que terminou na sexta.
     // O saldo anterior do caixa aberto pertence ao novo ciclo e não pode ser somado
     // novamente ao fechamento de 26/09 a 02/10.
-    if (new Date().getDay() === 6 && period === 'semana' && weekOffset === 0) {
-      return 0;
-    }
     // Dívida (< 0) ou crédito (> 0) vindo da semana anterior entra na previsão, igual à aba
     // Funcionários (fórmula única em utils/previsaoRecebimento.ts).
     return caixa.saldoAnterior;

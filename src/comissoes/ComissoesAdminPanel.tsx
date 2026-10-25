@@ -233,9 +233,8 @@ export default function ComissoesAdminPanel() {
   // No sábado, a comissão exibida é a do ciclo encerrado na sexta-feira
   // (26/09 a 02/10). O saldo do ponto/salário permanece no ciclo anterior.
   // A produção do sábado fica para o próximo recebimento.
-  const commissionWeekOffset = new Date().getDay() === 6 ? weekOffset - 1 : weekOffset;
+  const commissionWeekOffset = weekOffset; // sábado já mantém o ciclo encerrado na sexta (ver getWorkWeekBounds)
   const weekBounds = useMemo(() => getWorkWeekBounds(commissionWeekOffset), [commissionWeekOffset]);
-  const isSaturday = new Date().getDay() === 6;
 
   // Estados de busca, filtros e visualização
   const [searchQuery, setSearchQuery] = useState('');

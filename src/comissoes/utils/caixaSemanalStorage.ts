@@ -75,29 +75,23 @@ const getTodayISO = (): string => formatISO(new Date());
  * Ciclo de Comissão Semanal: Sábado a Sexta-feira.
  * Regra oficial de fechamento:
  * - O ciclo de produção/comissão apurado vai de Sábado até Sexta-feira.
- * - No Sábado (dia 6), quando o usuário visualiza o modal/painel de previsão de recebimento,
- *   a semana de acerto exibida é a semana que encerrou ontem (sexta-feira), para pagar o que foi
- *   produzido até sexta. Os serviços realizados no próprio sábado não entram neste acerto,
- *   entrando para o próximo ciclo semanal.
- * - De Domingo a Sexta-feira: a semana apurada avança e acumula em tempo real do sábado anterior
- *   até o respectivo dia.
+ * - De Segunda a Sábado o ciclo vigente é o que encerra na sexta-feira (ex.: 17/10 a 23/10 até
+ *   sábado 24/10, dia do acerto). Os serviços do sábado já pertencem ao próximo ciclo.
+ * - No Domingo o indicador "ATUAL" avança para o novo ciclo (ex.: 24/10 a 30/10).
  * - Exceção inaugural (semana de 07/09 a 11/09): como a regra começou na segunda-feira 07/09,
  *   não soma o sábado 05/09 (que pertenceu ao fechamento anterior).
  */
-export const getWorkWeekBounds = (offsetWeeks = 0): { start: string; end: string } => {
-  const now = new Date();
-  const day = now.getDay(); // 0 = domingo ... 6 = sábado
+export const getWorkWeekBounds = (offsetWeeks = 0, ref: Date = new Date()): { start: string; end: string } => {
+  const day = ref.getDay(); // 0 = domingo ... 6 = sábado
 
-  // Ciclo oficial de produção semanal: SÁBADO até SEXTA-FEIRA.
-  // No sábado (6), (6 + 1) % 7 = 0 -> diffToSaturday = 0 (início do ciclo da semana).
-  // No domingo (0), (0 + 1) % 7 = 1 -> diffToSaturday = -1 (sábado de ontem).
-  // Na segunda (1), diffToSaturday = -2.
-  // ...
-  // Na sexta (5), diffToSaturday = -6 (sábado de 6 dias atrás).
-  const diffToSaturday = -((day + 1) % 7);
+  // Ciclo oficial: SÁBADO até SEXTA-FEIRA, e o indicador "ATUAL" só avança no DOMINGO.
+  // - Domingo (0): sábado de ontem (-1) -> começa o novo ciclo.
+  // - Segunda a sexta (1..5): o sábado desse mesmo ciclo (-2 ... -6).
+  // - Sábado (6): ainda é o dia de acerto do ciclo que fechou na sexta; o novo ciclo (iniciado
+  //   hoje) só vira "atual" amanhã. Por isso o início é o sábado ANTERIOR (-7), e não hoje.
+  const diffToSaturday = day === 6 ? -7 : -((day + 1) % 7);
 
-  const sat = new Date(now);
-  sat.setDate(now.getDate() + diffToSaturday + offsetWeeks * 7);
+  const sat = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + diffToSaturday + offsetWeeks * 7);
   let start = formatISO(sat);
   const end = addDaysISO(start, 6); // Sexta-feira (7 dias: sábado a sexta)
 

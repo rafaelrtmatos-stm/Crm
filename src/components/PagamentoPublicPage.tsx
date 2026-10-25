@@ -25,6 +25,17 @@ const INTERVALO_MS = 8000;
 // Depois de 10 min a confirmação já é feita pelo servidor (aviso do Gmail); a tela só acompanha, mais devagar.
 const INTERVALO_LENTO_MS = 30000;
 const FASE_RAPIDA_MS = 10 * 60 * 1000;
+// CSS escopado da página. O index.css tem `*{max-width:100%}` FORA de @layer, que vence qualquer `max-w-*` do Tailwind
+// (utilitários ficam em @layer): sem isto o card esticava até a largura inteira da tela no computador. Também desliga a
+// hifenização automática (`hyphens:auto` de p/span/div), que quebrava nomes como "APARE-CIDA".
+const CSS_PAGAMENTO = `
+.pgto-root, .pgto-root * { box-sizing: border-box; -webkit-hyphens: manual; hyphens: manual; }
+.pgto-root { max-width: 100vw; overflow-x: hidden; }
+.pgto-card { width: 100%; min-width: 0; max-width: min(400px, 100%); }
+.pgto-card > * { min-width: 0; max-width: 100%; }
+.pgto-qr { width: 100%; max-width: 200px; aspect-ratio: 1 / 1; }
+.pgto-root p, .pgto-root span, .pgto-root h1, .pgto-root h2, .pgto-root div { overflow-wrap: break-word; word-break: normal; }
+`;
 const fmt = (centavos: number) => `R$ ${(centavos / 100).toFixed(2).replace('.', ',')}`;
 
 /** Logo do PIX: quatro losangos arredondados em cruz. */
@@ -153,11 +164,12 @@ export default function PagamentoPublicPage() {
 
   const moldura = (filhos: React.ReactNode) => (
     <div
-      className="min-h-screen text-white flex items-start sm:items-center justify-center p-3 sm:p-6"
+      className="pgto-root min-h-screen w-full text-white flex items-start sm:items-center justify-center p-3 sm:p-6"
       style={{ background: 'radial-gradient(120% 60% at 0% 0%, rgba(16,185,129,0.16) 0%, transparent 55%), radial-gradient(90% 50% at 100% 100%, rgba(16,185,129,0.12) 0%, transparent 60%), linear-gradient(180deg, #06101f 0%, #050b16 100%)' }}
     >
+      <style>{CSS_PAGAMENTO}</style>
       <div
-        className="w-full max-w-[430px] rounded-[28px] border border-emerald-400/20 p-4 sm:p-6 space-y-4"
+        className="pgto-card rounded-[28px] border border-emerald-400/20 p-4 sm:p-6 space-y-4"
         style={{ background: 'linear-gradient(180deg, rgba(10,22,40,0.92) 0%, rgba(6,14,27,0.96) 100%)', boxShadow: '0 0 60px rgba(16,185,129,0.10), 0 20px 50px rgba(0,0,0,0.5)' }}
       >
         {filhos}
@@ -187,15 +199,15 @@ export default function PagamentoPublicPage() {
 
   const cabecalho = (
     <>
-      <div className="flex items-center gap-4">
-        <PixLogo size={72} />
-        <div className="leading-none">
-          <h1 className="text-[22px] font-black uppercase tracking-tight text-white">Pagamento via</h1>
-          <div className="text-[64px] font-black leading-[0.95] tracking-tight text-[#2de3a0]">PIX</div>
+      <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+        <PixLogo size={60} />
+        <div className="min-w-0 leading-none">
+          <h1 className="text-[18px] sm:text-[22px] font-black uppercase tracking-tight text-white">Pagamento via</h1>
+          <div className="text-[52px] sm:text-[64px] font-black leading-[0.95] tracking-tight text-[#2de3a0]">PIX</div>
         </div>
       </div>
-      <p className="text-[12px] font-bold uppercase tracking-wide text-slate-400">Rápido • Seguro • Sem burocracia</p>
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+      <p className="text-[11px] sm:text-[12px] font-bold uppercase tracking-wide text-slate-400">Rápido • Seguro • Sem burocracia</p>
+      <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
         <div className="min-w-0 space-y-0.5">
           <p className="break-words text-[17px] font-black text-white">Olá{link.cliente_nome ? `, ${link.cliente_nome.toUpperCase()}` : ''}!</p>
           {link.resumo && <p className="break-words text-[13px] font-semibold text-slate-400">Referente a: {link.resumo.toUpperCase()}</p>}
@@ -207,11 +219,11 @@ export default function PagamentoPublicPage() {
   );
 
   const selosConfianca = (
-    <div className="grid grid-cols-3 gap-1 border-t border-white/10 pt-4 text-[11px] font-semibold text-slate-300">
+    <div className="grid grid-cols-3 gap-1 min-w-0 border-t border-white/10 pt-4 text-[11px] font-semibold text-slate-300">
       {[[ShieldCheck, 'Pagamento seguro'], [Zap, 'Aprovação imediata'], [Lock, 'Seus dados protegidos']].map(([Icone, texto], i) => {
         const I = Icone as typeof ShieldCheck;
         return (
-          <div key={i} className="flex flex-col items-center gap-1 text-center leading-tight">
+          <div key={i} className="flex min-w-0 flex-col items-center gap-1 text-center leading-tight break-words">
             <I size={26} strokeWidth={1.5} className="text-[#2de3a0]" />
             <span>{texto as string}</span>
           </div>
@@ -221,7 +233,7 @@ export default function PagamentoPublicPage() {
   );
 
   const rodape = (
-    <div className="flex items-center justify-center gap-4 pt-1">
+    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 pt-1">
       <PixLogo size={26} />
       <span className="text-[22px] font-light tracking-tight text-white">pix</span>
       <span className="h-8 w-px bg-emerald-400/40" />
@@ -235,14 +247,14 @@ export default function PagamentoPublicPage() {
       type="button"
       disabled={desabilitado}
       onClick={onClick}
-      className="group w-full flex items-center gap-3 rounded-[26px] border border-emerald-300/50 px-4 py-4 text-left cursor-pointer transition-transform active:scale-[.985] disabled:opacity-60"
+      className="group w-full min-w-0 max-w-full box-border flex items-center gap-2.5 sm:gap-3 rounded-[26px] border border-emerald-300/50 px-4 py-4 text-left cursor-pointer transition-transform active:scale-[.985] disabled:opacity-60"
       style={{ background: 'linear-gradient(180deg, #0fd68f 0%, #079a68 100%)', boxShadow: '0 0 34px rgba(45,227,160,0.35), inset 0 1px 0 rgba(255,255,255,0.35)' }}
     >
-      <PixLogo size={44} cor="#ffffff" />
-      <span className="h-14 w-px bg-white/30" />
+      <PixLogo size={40} cor="#ffffff" />
+      <span className="h-14 w-px shrink-0 bg-white/30" />
       <span className="flex-1 min-w-0 leading-tight">
-        <span className="block text-[18px] font-black uppercase tracking-wide text-white">{rotulo}</span>
-        <span className={'block whitespace-nowrap font-black text-white ' + (valorPequeno ? 'text-[22px]' : 'text-[34px]')}>{valorTxt}</span>
+        <span className="block text-[16px] sm:text-[18px] font-black uppercase tracking-wide text-white">{rotulo}</span>
+        <span className={'block break-words font-black text-white ' + (valorPequeno ? 'text-[clamp(16px,6vw,22px)]' : 'text-[clamp(24px,9vw,34px)]')}>{valorTxt}</span>
         <span className="block text-[15px] font-bold uppercase tracking-wide text-white/90">via PIX</span>
       </span>
       <ChevronRight size={30} strokeWidth={2.6} className="shrink-0 text-white transition-transform group-hover:translate-x-1" />
@@ -262,7 +274,7 @@ export default function PagamentoPublicPage() {
           <p className="text-[15px] font-semibold text-slate-300">Toque no botão abaixo para ver<br />as opções de pagamento.</p>
         </div>
         {unica && descontoDe(unica) > 0 && (
-          <p className="mx-auto w-fit max-w-full rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-center text-[13px] font-bold leading-snug text-amber-300">
+          <p className="mx-auto w-fit max-w-full break-words rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-center text-[13px] font-bold leading-snug text-amber-300">
             <Tag size={15} className="mr-1 inline align-[-2px]" />
             Desconto de {fmt(descontoDe(unica))} no Pix<br />de {fmt(originalDe(unica))} por {fmt(unica.valor_centavos)}
           </p>
@@ -293,14 +305,14 @@ export default function PagamentoPublicPage() {
                 type="button"
                 disabled={iniciando}
                 onClick={() => setSelecionada(o)}
-                className={'w-full rounded-2xl border px-4 py-3 text-left transition-all cursor-pointer disabled:opacity-50 ' + (marcado ? 'border-[#2de3a0] bg-emerald-500/15 shadow-[0_0_22px_rgba(45,227,160,0.22)]' : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07]')}
+                className={'w-full min-w-0 max-w-full box-border rounded-2xl border px-4 py-3 text-left transition-all cursor-pointer disabled:opacity-50 ' + (marcado ? 'border-[#2de3a0] bg-emerald-500/15 shadow-[0_0_22px_rgba(45,227,160,0.22)]' : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07]')}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-2 text-[13px] font-black uppercase leading-tight tracking-wide">
                     <span className={'inline-block h-4 w-4 shrink-0 rounded-full border-2 ' + (marcado ? 'border-[#2de3a0] bg-[#2de3a0]' : 'border-slate-500')} />
-                    <span className="min-w-0">{o.label}</span>
+                    <span className="min-w-0 break-words">{o.label}</span>
                   </span>
-                  <span className="shrink-0 whitespace-nowrap text-[22px] font-black text-[#2de3a0]">{fmt(o.valor_centavos)}</span>
+                  <span className="shrink-0 whitespace-nowrap text-[clamp(17px,5.4vw,22px)] font-black text-[#2de3a0]">{fmt(o.valor_centavos)}</span>
                 </div>
                 {desc > 0 && (
                   <div className="mt-1.5 space-y-0.5 pl-6 text-[12px] font-semibold text-slate-400">
@@ -339,8 +351,8 @@ export default function PagamentoPublicPage() {
   return moldura(
     <>
       {cabecalho}
-      <div className="rounded-xl border border-white/10 bg-[#0c1829] px-4 py-2.5 space-y-1">
-        <div className="flex items-center justify-between">
+      <div className="min-w-0 rounded-xl border border-white/10 bg-[#0c1829] px-4 py-2.5 space-y-1">
+        <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 text-[11px] font-extrabold uppercase leading-tight tracking-wide text-slate-400">{opcao.label}</span>
           <span className="shrink-0 whitespace-nowrap pl-2 text-2xl font-black text-[#2de3a0]">{fmt(opcao.valor_centavos)}</span>
         </div>
@@ -353,7 +365,7 @@ export default function PagamentoPublicPage() {
       </div>
 
       <div className="flex justify-center">
-        <div className="rounded-2xl bg-white p-2 w-[200px] h-[200px]">
+        <div className="pgto-qr rounded-2xl bg-white p-2">
           <PixQrImage payload={payload} className="block h-full w-full object-contain" />
         </div>
       </div>
@@ -366,7 +378,7 @@ export default function PagamentoPublicPage() {
         <Copy size={18} strokeWidth={1.8} />
         {copiado ? 'PIX copiado!' : 'Copia e cola'}
       </button>
-      <p className="text-[11px] text-slate-400 text-center">Beneficiário: {link.pix.beneficiaryName}{link.pix.bank ? ` · ${link.pix.bank}` : ''}</p>
+      <p className="break-words text-[11px] text-slate-400 text-center">Beneficiário: {link.pix.beneficiaryName}{link.pix.bank ? ` · ${link.pix.bank}` : ''}</p>
 
       <p className="text-center text-[11px] font-semibold text-slate-400">
         {expirou

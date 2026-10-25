@@ -1499,7 +1499,9 @@ ${CONTRATADA_NOME} — CONTRATADA`;
 // Semana de trabalho: SABADO a SEXTA (mesma regra da aba Funcionarios). offset 0 = semana atual, -1 = anterior, +1 = proxima.
 export function getSemanaSabSex(offset = 0): { start: Date; end: Date } {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 1) % 7) + offset * 7, 0, 0, 0, 0);
+  // Sábado ainda é o dia de acerto do ciclo que fechou na sexta: o novo ciclo só vira atual no domingo.
+  const diffSab = now.getDay() === 6 ? -7 : -((now.getDay() + 1) % 7);
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffSab + offset * 7, 0, 0, 0, 0);
   const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999);
   return { start, end };
 }
@@ -1656,8 +1658,7 @@ export const DashboardModule = ({ user, currentCompany, companies = [], pendingO
       try {
         // No sábado, o Dashboard mostra o ciclo encerrado na sexta-feira.
         // De domingo a sexta, mostra o ciclo atual em apuração.
-        const isSaturday = new Date().getDay() === 6;
-        const offsetCicloExibido = semanaFolhaOffset !== 0 ? semanaFolhaOffset : (isSaturday ? -1 : 0);
+        const offsetCicloExibido = semanaFolhaOffset; // getWorkWeekBounds já segura o ciclo até domingo
         const { start, end } = getWorkWeekBounds(offsetCicloExibido);
         const descBounds = getDescontosValesBounds(start, end);
 
