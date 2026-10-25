@@ -8,6 +8,7 @@ import { ContractAcceptanceDetailsModal } from './ContractAcceptanceDetailsModal
 import { carregarInfoGrupos, digitosDoGrupo, carregarGruposSilenciados, definirGrupoSilenciado, type InfoGrupos } from './MessagesSidebarPopup';
 import { NotificacaoPendenteBanner, useNotificacaoPendente, resolverConversaPorTelefone } from './NotificacaoPendenteBanner';
 import { registrarPixPendenteDaCobranca } from '../lib/pixPendentes';
+import { descontoCentavosPorModo } from '../lib/descontoPix';
 import { 
   AudioMessagePlayer, 
   MessageHoverActions, 
@@ -20368,17 +20369,10 @@ export const POSModule = ({ currentCompany, addPendingOrder }: { currentCompany:
   const applySaleDiscountInput = () => {
     const parsedVal = typeof saleDiscountInput === 'string' ? parseFloat(saleDiscountInput.replace(',', '.')) : Number(saleDiscountInput);
     const val = isNaN(parsedVal) ? 0 : parsedVal;
-    let novoDesconto = 0;
     const baseTotal = activeRawTotal;
-    if (saleDiscountMode === 'percentual') {
-      novoDesconto = baseTotal * (val / 100);
-    } else if (saleDiscountMode === 'valor') {
-      novoDesconto = val;
-    } else {
-      // valor final desejado: desconto = total original - valor final que o cliente quer pagar
-      novoDesconto = Math.max(0, baseTotal - val);
-    }
-    setSaleDiscountValue(Math.max(0, Math.min(baseTotal, novoDesconto)));
+    // Regra única (src/lib/descontoPix.ts), a mesma da cobrança/link Pix: %, R$ de desconto ou valor final desejado.
+    const modo = saleDiscountMode === 'percentual' ? 'percentual' : saleDiscountMode === 'valor' ? 'fixo' : 'final';
+    setSaleDiscountValue(descontoCentavosPorModo(Math.round(baseTotal * 100), modo, val) / 100);
   };
 
   // Quitar Debito: abre a mesma tela de pagamento do Terminal, mas pra uma venda ja existente com saldo pendente

@@ -365,6 +365,11 @@ export async function criarLinkPagamento(p: {
   for (const o of p.opcoes) {
     const desc = o.desconto_centavos ?? 0;
     const original = o.valor_centavos + desc;
+    // Coerência: valor_centavos é SEMPRE o valor final; se há desconto, o original gravado precisa ser final + desconto
+    // (assim o desconto nunca é aplicado duas vezes nem some do histórico).
+    if (desc > 0 && o.valor_original_centavos != null && o.valor_original_centavos !== original) {
+      return { ok: false, erro: `Valor inválido na opção "${o.label}": original, desconto e valor final não conferem.` };
+    }
     if (!(o.valor_centavos > 0) || desc < 0 || original > p.restanteCentavos || (desc > 0 && original !== p.restanteCentavos)) {
       return { ok: false, erro: `Valor inválido na opção "${o.label}": o desconto só vale no pagamento integral do saldo e não pode zerar o Pix.` };
     }

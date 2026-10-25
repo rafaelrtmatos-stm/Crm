@@ -15,7 +15,7 @@ import {
   opcoesPadrao,
   telefoneParaEnvio,
 } from '../lib/cobrancaPix';
-import { calcularDescontoPix, type TipoDescontoPix } from '../lib/descontoPix';
+import { calcularDescontoPix, type ModoDescontoPix } from '../lib/descontoPix';
 
 // "Cobrar saldo via PIX": a partir de uma nota já salva, prepara a cobrança para o cliente (WhatsApp)
 //  - MENSAGEM: QR Code (imagem com legenda) na caixa de mensagem da conversa (sem envio automático); ao enviar, o PIX copia e cola
@@ -50,7 +50,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   const [prazoCustom, setPrazoCustom] = useState<string>(''); // valor do <input type="datetime-local">
   // Desconto no Pix (definido manualmente): só vale quando "Aplicar desconto" está ligado.
   const [aplicarDesconto, setAplicarDesconto] = useState(false);
-  const [tipoDesconto, setTipoDesconto] = useState<TipoDescontoPix>('percentual');
+  const [tipoDesconto, setTipoDesconto] = useState<ModoDescontoPix>('percentual');
   const [valorDesconto, setValorDesconto] = useState<string>('');
 
   const venceCustom = prazoCustom ? new Date(prazoCustom) : null;
@@ -86,8 +86,9 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
         valor_centavos: calc.finalCentavos,
         valor_original_centavos: calc.originalCentavos,
         desconto_centavos: calc.descontoCentavos,
-        desconto_tipo: tipoDesconto,
-        desconto_valor: Number(String(valorDesconto).replace(',', '.')),
+        // 'final' (valor final digitado) é gravado como desconto fixo equivalente; o desconto é aplicado UMA vez na baixa.
+        desconto_tipo: tipoDesconto === 'final' ? 'fixo' as const : tipoDesconto,
+        desconto_valor: tipoDesconto === 'final' ? calc.descontoCentavos / 100 : Number(String(valorDesconto).replace(',', '.')),
       }
       : opcao
   ));
@@ -214,9 +215,13 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
           </label>
           {padrao.map(o => {
             const ativo = modo === 'mensagem' ? escolha === o.id : marcadas.has(o.id);
+            // Com desconto válido, a opção selecionável mostra o valor FINAL (o que o cliente paga), com o original ao lado.
+            const calcOpcao = calculos.find(c => c.opcao.id === o.id)?.calc;
+            const comDesc = aplicarDesconto && !!calcOpcao && calcOpcao.ok && calcOpcao.descontoCentavos > 0;
             return (
               <button key={o.id} type="button" className={chip(ativo)} onClick={() => (modo === 'mensagem' ? setEscolha(o.id) : alternarMarcada(o.id))}>
-                {modo === 'link' ? (ativo ? '☑ ' : '☐ ') : (ativo ? '◉ ' : '○ ')}{o.label} — {fmtBRL(o.valor_centavos / 100)}
+                {modo === 'link' ? (ativo ? '☑ ' : '☐ ') : (ativo ? '◉ ' : '○ ')}{o.label} — {fmtBRL((comDesc ? calcOpcao!.finalCentavos : o.valor_centavos) / 100)}
+                {comDesc && <span className="ml-1 font-semibold text-white/40 line-through">{fmtBRL(o.valor_centavos / 100)}</span>}
               </button>
             );
           })}
@@ -243,15 +248,16 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
           </button>
           {aplicarDesconto && (
             <div className="grid grid-cols-[auto_1fr] gap-1.5 items-center">
-              <div className="grid grid-cols-2 gap-1">
-                <button type="button" className={chip(tipoDesconto === 'percentual')} onClick={() => setTipoDesconto('percentual')}>%</button>
-                <button type="button" className={chip(tipoDesconto === 'fixo')} onClick={() => setTipoDesconto('fixo')}>R$</button>
+              <div className="grid grid-cols-3 gap-1">
+                <button type="button" className={chip(tipoDesconto === 'percentual')} onClick={() => { setTipoDesconto('percentual'); setValorDesconto(''); }}>%</button>
+                <button type="button" className={chip(tipoDesconto === 'fixo')} onClick={() => { setTipoDesconto('fixo'); setValorDesconto(''); }}>R$ desc.</button>
+                <button type="button" className={chip(tipoDesconto === 'final')} onClick={() => { setTipoDesconto('final'); setValorDesconto(''); }}>Valor final</button>
               </div>
               <Input
                 type="number"
                 inputMode="decimal"
                 min="0"
-                placeholder={tipoDesconto === 'percentual' ? 'Ex.: 5 (%)' : 'Ex.: 10,00 (R$)'}
+                placeholder={tipoDesconto === 'percentual' ? 'Ex.: 5 (%)' : tipoDesconto === 'final' ? 'Valor final. Ex.: 900,00 (R$)' : 'Desconto. Ex.: 100,00 (R$)'}
                 value={valorDesconto}
                 onChange={e => setValorDesconto(e.target.value)}
               />
