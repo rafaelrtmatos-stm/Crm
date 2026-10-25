@@ -194,7 +194,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <MinusCircle className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
-            <span>DESCONTOS</span>
+            <span>FINANCEIRO</span>
           </button>
         </nav>
 
@@ -279,7 +279,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <MinusCircle className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Descontos</span>
+            <span className="truncate">Financeiro</span>
           </button>
         </div>
       </div>
