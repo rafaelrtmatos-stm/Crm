@@ -11,23 +11,22 @@ import{RegistroModal}from'../../components/ponto/PontoModals';
 import{salvarRegistroPonto}from'../../lib/pontoRegistroSalvar';
 import{buscarDecisaoDsr,buscarUltimaAlteracaoDsr,salvarDecisaoDsr}from'../../lib/pontoDsr';
 import{showAlert}from'../../lib/notify';
+import{useRealtimeReload}from'../../lib/useRealtimeReload';
 
-const DsrControle:React.FC<{desconta:boolean;automatico:boolean;valor:number;info:{alterado_por:string|null;alterado_em:string}|null;podeEditar:boolean;salvando:boolean;onChange:(v:boolean)=>void}>=({desconta,automatico,valor,info,podeEditar,salvando,onChange})=>(
+const DsrControle:React.FC<{faltas:string[];desconta:boolean;automatico:boolean;valor:number;info:{alterado_por:string|null;alterado_em:string}|null;salvando:boolean;onChange:(v:boolean)=>void}>=({faltas,desconta,automatico,valor,info,salvando,onChange})=>(
   <div className={'rounded-xl border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 '+(desconta?'border-rose-500/30 bg-rose-500/10':'border-[var(--border-color)] bg-[var(--bg-card-sec)]')}>
     <div className="text-xs">
       <b className={desconta?'text-rose-400':'text-[var(--text-main)]'}>DSR da semana: {desconta?`descontar ${formatCurrency(valor)}`:'não descontar'}</b>
       <span className="block text-[10px] text-[var(--text-muted)]">
-        Falta injustificada nesta semana (desconto aplicado uma única vez){automatico?' · automático':''}
+        Referente a: {faltas.join(' · ')} — desconto aplicado uma única vez na semana{automatico?' · automático':''}
         {info?` · alterado${info.alterado_por?` por ${info.alterado_por}`:''} em ${new Date(info.alterado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}`:''}
       </span>
     </div>
-    {podeEditar?(
-      <div className="flex gap-1 shrink-0">
+    <div className="flex gap-1 shrink-0">
         {([true,false] as const).map(v=>(
           <button key={String(v)} type="button" disabled={salvando} onClick={()=>desconta!==v&&onChange(v)} className={'px-3 py-1 rounded-lg text-xs font-bold border transition-all '+(salvando?'opacity-60 cursor-wait ':'cursor-pointer ')+(desconta===v?'bg-[var(--accent-red)] border-[var(--accent-red)] text-white':'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-muted)]')}>{v?'Descontar DSR':'Não descontar'}</button>
         ))}
-      </div>
-    ):null}
+    </div>
   </div>
 );
 
@@ -39,6 +38,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  const[loading,setLoading]=useState(true);
  const[editReg,setEditReg]=useState<{funcionario_id:string;data:string;reg:PontoRegistro|null}|null>(null);
  const[reloadKey,setReloadKey]=useState(0);
+ // Tempo real: batidas, banco de horas e decisão do DSR (de outro admin/aba) atualizam a semana na hora.
+ const rtTick=useRealtimeReload(['ponto_registros','ponto_banco_horas','ponto_dsr_semanal','ponto_jornadas']);
  // Decisão do DSR da semana exibida: true/false salvo no Supabase; null = automático (sem decisão salva).
  const[dsrDecisao,setDsrDecisao]=useState<boolean|null>(null);
  const[dsrInfo,setDsrInfo]=useState<{alterado_por:string|null;alterado_em:string}|null>(null);
@@ -87,7 +88,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
      setLoading(false);
    })();
    return()=>{ok=false};
- },[colaboradorId,bounds.start,bounds.end,reloadKey]);
+ },[colaboradorId,bounds.start,bounds.end,reloadKey,rtTick]);
 
  // Admin corrige as batidas do dia (mesma gravação do Registro de Ponto no Controle de Ponto) e recarrega a semana.
  const salvarRegistro=async(fid:string,data:string,h:Partial<PontoRegistro>)=>{
@@ -143,6 +144,8 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
 
  // O controle do DSR fica logo acima do primeiro dia com falta injustificada (inteira ou só um período) da semana.
  const primeiroDiaFalta=semana.find(d=>d.dia.falta||!!d.dia.faltaParcial)?.data;
+
+ const faltasDescricao=semana.filter(d=>d.dia.falta||!!d.dia.faltaParcial).map(d=>new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})+(d.dia.faltaParcial?` (${d.dia.faltaParcial==='manha'?'manhã':'tarde'})`:' (dia inteiro)'));
 
  const card='bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-4 shadow-sm';
  if(loading)return <div className="p-8 text-center text-sm text-[var(--text-muted)]">Carregando Meu Ponto...</div>;
@@ -263,7 +266,7 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
     </div>
   )}
 
-  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th>{canEdit&&<th className="text-right">Editar</th>}</tr></thead><tbody>{semana.map(d=><React.Fragment key={d.data}>{d.data===primeiroDiaFalta&&<tr className="border-b border-[var(--border-color)]"><td colSpan={canEdit?7:6} className="py-2"><DsrControle desconta={sal.dsrDesconta} automatico={dsrDecisao===null} valor={descontoDSR} info={dsrInfo} podeEditar={canEdit} salvando={dsrSalvando} onChange={alterarDsr}/></td></tr>}<tr className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}{d.r?.editado_manual&&<span title="Editado manualmente" className="ml-1 text-emerald-400">✎</span>}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&sal.dsrDesconta)return'Folga perdida por falta (DSR descontado)';if(dow===0&&sal.dsrAplicavel)return'Folga mantida (DSR sem desconto)';if(d.dia.faltaParcial)return'falta parcial · '+(d.dia.faltaParcial==='manha'?'manhã':'tarde');if(d.dia.falta)return'falta injustificada';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome+(e.tipo==='feriado'&&d.a.previstos>0?' (abonado)':''):d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td>{canEdit&&<td className="text-right"><button type="button" title="Editar registro" onClick={()=>setEditReg({funcionario_id:func.id,data:d.data,reg:d.r||null})} className="p-1 rounded-lg text-[var(--text-muted)] hover:text-emerald-400 hover:bg-[var(--bg-card-sec)] cursor-pointer"><Pencil className="w-3.5 h-3.5"/></button></td>}</tr></React.Fragment>)}</tbody></table></div></div>
+  <div className={card}><h3 className="font-black mb-4">Jornada da semana ({formatLabelData(bounds.start)} a {formatLabelData(bounds.end)})</h3><div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]"><th className="pb-2">Dia</th><th>Entrada</th><th>Intervalo</th><th>Saída</th><th>Horas</th><th>Status</th>{canEdit&&<th className="text-right">Editar</th>}</tr></thead><tbody>{semana.map(d=><React.Fragment key={d.data}>{canEdit&&d.data===primeiroDiaFalta&&<tr className="border-b border-[var(--border-color)]"><td colSpan={canEdit?7:6} className="py-2"><DsrControle faltas={faltasDescricao} desconta={sal.dsrDesconta} automatico={dsrDecisao===null} valor={descontoDSR} info={dsrInfo} podeEditar={canEdit} salvando={dsrSalvando} onChange={alterarDsr}/></td></tr>}<tr className="border-b border-[var(--border-color)] last:border-0"><td className="py-2 font-bold">{new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}{d.r?.editado_manual&&<span title="Editado manualmente" className="ml-1 text-emerald-400">✎</span>}</td><td>{hhmm(d.r?.entrada)}</td><td>{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td><td>{hhmm(d.r?.saida)}</td><td className="font-bold">{fmtHM(d.a.trabalhados)}</td><td>{(()=>{const dow=new Date(d.data+'T12:00:00').getDay();if(dow===0&&sal.dsrDesconta)return'Folga perdida por falta (DSR descontado)';if(dow===0&&sal.dsrAplicavel)return'Folga mantida (DSR sem desconto)';if(d.dia.faltaParcial)return'falta parcial · '+(d.dia.faltaParcial==='manha'?'manhã':'tarde');if(d.dia.falta)return'falta injustificada';const e=diaEspecial(d.data);if(!e)return d.a.status;return d.a.trabalhados===0?(e.tipo==='feriado'?'Feriado':'Facultativo')+' · '+e.nome+(e.tipo==='feriado'&&d.a.previstos>0?' (abonado)':''):d.a.status+' · '+(e.tipo==='feriado'?'feriado em dobro':'facultativo')})()}</td>{canEdit&&<td className="text-right"><button type="button" title="Editar registro" onClick={()=>setEditReg({funcionario_id:func.id,data:d.data,reg:d.r||null})} className="p-1 rounded-lg text-[var(--text-muted)] hover:text-emerald-400 hover:bg-[var(--bg-card-sec)] cursor-pointer"><Pencil className="w-3.5 h-3.5"/></button></td>}</tr></React.Fragment>)}</tbody></table></div></div>
   
   <div className={card}>
     <h3 className="font-black mb-2">Feriados e Pontos Facultativos do Mês ({mesSelecao}/{anoSelecao})</h3>

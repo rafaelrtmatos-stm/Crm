@@ -322,24 +322,6 @@ export default function ComissoesAdminPanel() {
       setColaboradores(colabs);
       setSelected((prev) => (prev ? colabs.find((c) => c.id === prev.id) ?? null : prev));
 
-      // Limpeza automática de débito/saldo anterior acidental (R$ 400) para Caleb conforme pedido
-      const calebColab = colabs.find((c) => c.nome.toLowerCase().includes('caleb'));
-      if (calebColab) {
-        supabase
-          .from('comissoes_descontos')
-          .delete()
-          .eq('colaborador_id', calebColab.id)
-          .or('tipo.eq.debito_saldo_anterior,valor.eq.400')
-          .then(() => {});
-
-        supabase
-          .from('comissoes_caixas_semanais')
-          .update({ saldo_anterior: 0 })
-          .eq('colaborador_id', calebColab.id)
-          .eq('status', 'aberto')
-          .then(() => {});
-      }
-
       // 2. Busca dados da semana atual para cálculo do Total Estimado e contas de usuários
       const { start, end } = weekBounds;
       // O caixa, descontos, pagamentos e saldo anterior pertencem ao MESMO ciclo semanal.
@@ -595,6 +577,16 @@ export default function ComissoesAdminPanel() {
       })
       // Saldo anterior/final das semanas mudam quando um pagamento passado é editado (cascata).
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comissoes_caixas_semanais' }, () => {
+        loadData({ silent: true });
+      })
+      // Salário vem do ponto: DSR, batidas e banco de horas mudam o Total Estimado.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_dsr_semanal' }, () => {
+        loadData({ silent: true });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_registros' }, () => {
+        loadData({ silent: true });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ponto_banco_horas' }, () => {
         loadData({ silent: true });
       })
       .subscribe();

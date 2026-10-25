@@ -106,6 +106,8 @@ export async function calcularPontoSalarioPorColaborador(
   pontoWeekOffset: number
 ): Promise<Record<string, { base: number; debitoVal: number }>> {
   const pontoSalarioMap: Record<string, { base: number; debitoVal: number }> = {};
+  // Mesma regra de calcularPontoSalarioDoCiclo: semana do ponto que termina antes do início do sistema segue o salário fixo.
+  if (getWorkWeekBounds(pontoWeekOffset).end < PONTO_DATA_INICIO) return pontoSalarioMap;
   const colabsPonto = colabs.filter(c => {
     let localExtra: any = null;
     if (typeof window !== 'undefined' && c.id) {

@@ -1,6 +1,7 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{CalendarClock,CircleDollarSign,MinusCircle,Wallet,LockKeyhole,Clock,ChevronLeft,ChevronRight}from'lucide-react';
 import{supabase}from'../../supabase';
+import{useRealtimeReload}from'../../lib/useRealtimeReload';
 import{formatCurrency}from'../utils/storage';
 import{calculateDescontosNoPeriodo,getDescontosFromSupabase,calcularSalarioSemanal}from'../utils/supabaseStorage';
 import{getDescontosValesBounds,getWorkWeekBounds}from'../utils/caixaSemanalStorage';
@@ -13,6 +14,8 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
  const[ponto,setPonto]=useState<PontoSalarioSemana|null>(null);
 
  const[weekOffset,setWeekOffset]=useState<number>(-1);
+ // Tempo real: caixa, serviços, descontos, pagamentos e tudo do ponto (batidas, banco de horas, DSR) recalculam o salário.
+ const rtTick=useRealtimeReload(['comissoes_caixas_semanais','comissoes_servicos','comissoes_descontos','comissoes_pagamentos','ponto_registros','ponto_banco_horas','ponto_dsr_semanal','colaboradores']);
  const bounds=useMemo(()=>getWorkWeekBounds(weekOffset),[weekOffset]);
  const descBounds=useMemo(()=>getDescontosValesBounds(bounds.start,bounds.end),[bounds.start,bounds.end]);
  const salarioSemanal=calcularSalarioSemanal(salarioBase);
@@ -41,7 +44,7 @@ export const MeuSalarioView:React.FC<{colaboradorId:string;nome:string;salarioBa
      setPonto(pontoRes);
      setLoading(false);
    }
- })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end,utilizaPontoEletronico]);
+ })();return()=>{ok=false}},[colaboradorId,bounds.start,bounds.end,descBounds.start,descBounds.end,utilizaPontoEletronico,rtTick]);
 
  const[receitaLoja,setReceitaLoja]=useState(0);
  useEffect(()=>{if(modalidade!=='meta')return;let ok=true;supabase.from('vendas').select('total,status,down_payment').gte('created_at',bounds.start).lte('created_at',bounds.end + 'T23:59:59.999Z').is('deleted_at',null).then(({data})=>{if(!ok)return;setReceitaLoja((data||[]).filter((v:any)=>{if(v.status==='canceled')return false;const t=Number(v.total)||0,d=Number(v.down_payment)||0;return t>0&&(v.status==='completed'||d>=t)}).reduce((a:number,v:any)=>a+(Number(v.total)||0),0))});return()=>{ok=false}},[modalidade,bounds.start,bounds.end]);

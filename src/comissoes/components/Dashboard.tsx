@@ -31,6 +31,7 @@ import { buscarReceitaLojaQuitada, usaReceitaDaLoja } from '../utils/receitaLoja
 import { validarIntervaloISO } from '../../lib/intervaloDatas';
 import { getBasePontoDaSemana } from '../utils/caixaPonto';
 import { calcularPontoSalarioDoCiclo, pontoBoundsDoCiclo } from '../utils/pontoSalario';
+import { useRealtimeReload } from '../../lib/useRealtimeReload';
 import { ReceiptForecastCard } from './ReceiptForecastCard';
 import { AddServiceButton } from './AddServiceButton';
 import { ChartsSection } from './ChartsSection';
@@ -269,6 +270,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const pointWeekBounds = useMemo(() => pontoBoundsDoCiclo(commissionWeekBounds.start, commissionWeekBounds.end), [commissionWeekBounds.start, commissionWeekBounds.end]);
 
   const [pontoBaseSalaryCalculated, setPontoBaseSalaryCalculated] = useState<number | null>(null);
+  // Tempo real: batidas, banco de horas e DSR recalculam o salário do ponto.
+  const pontoRtTick = useRealtimeReload(['ponto_registros', 'ponto_banco_horas', 'ponto_dsr_semanal'], !!utilizaPontoEletronico);
 
   useEffect(() => {
     let ok = true;
@@ -281,7 +284,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (ok) setPontoBaseSalaryCalculated(r ? r.base : null);
     });
     return () => { ok = false; };
-  }, [utilizaPontoEletronico, colaboradorId, commissionWeekBounds.start, commissionWeekBounds.end]);
+  }, [utilizaPontoEletronico, colaboradorId, commissionWeekBounds.start, commissionWeekBounds.end, pontoRtTick]);
 
   const baseSalaryFinal = userSettings.modalidadeRemuneracao === 'meta'
     ? 0
