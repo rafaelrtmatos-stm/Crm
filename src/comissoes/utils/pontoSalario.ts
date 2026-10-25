@@ -8,6 +8,7 @@
 import { supabase } from '../../supabase';
 import { getWorkWeekBounds, addDaysISO } from './caixaSemanalStorage';
 import { hojeStr, limitarInicioPonto, PONTO_DATA_INICIO } from '../../lib/pontoCalc';
+import { buscarDecisaoDsr } from '../../lib/pontoDsr';
 import {
   analisarSemanaPonto,
   calcularSalarioPonto,
@@ -41,10 +42,12 @@ export async function calcularPontoSalarioColab(
     if (!f) return null;
     const pFuncId = f.id;
     const tol = f.tolerancia_minutos ?? 10;
-    const [bRes, rRes, jRes] = await Promise.all([
+    // Decisão do admin sobre o DSR desta semana (chave: funcionário + sábado que abre o ciclo). Sem decisão = automático.
+    const [bRes, rRes, jRes, dsrDecisao] = await Promise.all([
       supabase.from('ponto_banco_horas').select('minutos, tipo').eq('funcionario_id', pFuncId).gte('data', pointBounds.start).lte('data', pointBounds.end),
       supabase.from('ponto_registros').select('*').eq('funcionario_id', pFuncId).gte('data', limitarInicioPonto(pointBounds.start)).lte('data', pointBounds.end),
-      supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId)
+      supabase.from('ponto_jornadas').select('*').eq('funcionario_id', pFuncId),
+      buscarDecisaoDsr(pFuncId, pointBounds.start)
     ]);
 
     let debMin = 0;
@@ -63,6 +66,7 @@ export async function calcularPontoSalarioColab(
       destinacao: getDestinacaoExtras(c.id),
       modalidade: c.modalidade_remuneracao,
       debitoMin: debMin,
+      descontarDSR: dsrDecisao,
     });
     return { ...r, tolerancia: tol, bancoCreditoMin, dias };
 }
