@@ -365,8 +365,8 @@ export async function criarLinkPagamento(p: {
   for (const o of p.opcoes) {
     const desc = o.desconto_centavos ?? 0;
     const original = o.valor_centavos + desc;
-    if (!(o.valor_centavos > 0) || desc < 0 || original > p.restanteCentavos) {
-      return { ok: false, erro: `Valor inválido na opção "${o.label}": o desconto não pode zerar o Pix nem passar do saldo devido.` };
+    if (!(o.valor_centavos > 0) || desc < 0 || original > p.restanteCentavos || (desc > 0 && original !== p.restanteCentavos)) {
+      return { ok: false, erro: `Valor inválido na opção "${o.label}": o desconto só vale no pagamento integral do saldo e não pode zerar o Pix.` };
     }
   }
   const token = tokenAleatorio();

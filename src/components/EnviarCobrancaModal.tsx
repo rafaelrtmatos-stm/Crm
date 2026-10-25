@@ -75,11 +75,12 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
   const restanteCent = Math.round(restante * 100);
   const calculos = opcoesBase.map(o => ({
     opcao: o,
-    calc: calcularDescontoPix({ valorCentavos: o.valor_centavos, restanteCentavos: restanteCent, aplicar: aplicarDesconto, tipo: tipoDesconto, valor: valorDesconto }),
+    calc: calcularDescontoPix({ valorCentavos: o.valor_centavos, restanteCentavos: restanteCent, aplicar: aplicarDesconto && o.valor_centavos === restanteCent, tipo: tipoDesconto, valor: valorDesconto }),
   }));
-  const erroDesconto = calculos.find(c => !c.calc.ok)?.calc.erro || null;
+  const erroDesconto = calculos.find(c => !c.calc.ok)?.calc.erro
+    || (aplicarDesconto && opcoesBase.length > 0 && !opcoesBase.some(o => o.valor_centavos === restanteCent) ? 'O desconto à vista só vale para o pagamento integral do saldo (escolha "Saldo total").' : null);
   const opcoesParaEnviar: OpcaoCobranca[] = erroDesconto ? [] : calculos.map(({ opcao, calc }) => (
-    aplicarDesconto && calc.descontoCentavos > 0
+    calc.descontoCentavos > 0
       ? {
         ...opcao,
         valor_centavos: calc.finalCentavos,
@@ -238,7 +239,7 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
 
         <div className="space-y-1.5">
           <button type="button" className={chip(aplicarDesconto)} onClick={() => setAplicarDesconto(v => !v)}>
-            {aplicarDesconto ? '☑ ' : '☐ '}Aplicar desconto no Pix
+            {aplicarDesconto ? '☑ ' : '☐ '}Desconto à vista no Pix (pagamento integral do saldo)
           </button>
           {aplicarDesconto && (
             <div className="grid grid-cols-[auto_1fr] gap-1.5 items-center">
@@ -258,13 +259,13 @@ export const EnviarCobrancaModal: React.FC<Props> = ({ order, telefoneInicial, p
           )}
           {/* Prévia antes de gerar: valor original, desconto e valor final de cada opção. */}
           {opcoesBase.length > 0 && (
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] divide-y divide-white/5 text-[11px] font-semibold">
+            <div className="w-fit max-w-full rounded-xl border border-white/10 bg-white/[0.03] divide-y divide-white/5 text-[11px] font-semibold">
               {calculos.map(({ opcao, calc }) => (
-                <div key={opcao.id} className="px-3 py-2 space-y-0.5">
+                <div key={opcao.id} className="px-3 py-2 space-y-0.5 min-w-[220px] max-w-full">
                   <div className="text-[10px] uppercase font-black text-white/40">{opcao.label}</div>
                   <div className="flex justify-between text-white/60"><span>Valor original</span><span className="font-mono">{fmtBRL(calc.originalCentavos / 100)}</span></div>
-                  {aplicarDesconto && (
-                    <div className="flex justify-between text-amber-300"><span>Desconto</span><span className="font-mono">{calc.ok ? `- ${fmtBRL(calc.descontoCentavos / 100)}` : '—'}</span></div>
+                  {aplicarDesconto && calc.descontoCentavos > 0 && (
+                    <div className="flex justify-between text-amber-300"><span>Desconto</span><span className="font-mono">{`- ${fmtBRL(calc.descontoCentavos / 100)}`}</span></div>
                   )}
                   <div className="flex justify-between text-primary-200 font-black"><span>Valor final no Pix</span><span className="font-mono">{fmtBRL((calc.ok ? calc.finalCentavos : calc.originalCentavos) / 100)}</span></div>
                 </div>

@@ -465,7 +465,7 @@ export async function handlePagarLink(req, res) {
       const opcao = (Array.isArray(link.opcoes) ? link.opcoes : []).find((o) => o.id === String(req.body?.opcaoId || ''));
       if (!opcao || !(opcao.valor_centavos > 0)) { res.status(400).json({ erro: 'Opção inválida.' }); return; }
       const descOpcao = Number(opcao.desconto_centavos) || 0;
-      if (descOpcao < 0 || opcao.valor_centavos + descOpcao > Number(link.restante_centavos)) { res.status(400).json({ erro: 'Opção inválida.' }); return; }
+      if (descOpcao < 0 || opcao.valor_centavos + descOpcao > Number(link.restante_centavos) || (descOpcao > 0 && opcao.valor_centavos + descOpcao !== Number(link.restante_centavos))) { res.status(400).json({ erro: 'Opção inválida.' }); return; }
       // Uma tentativa por vez: encerra pendências abertas anteriores deste mesmo link.
       await rest(`pix_pendentes?sale_id=eq.${encodeURIComponent(`link:${token}`)}&status=eq.pendente`, {
         method: 'PATCH',

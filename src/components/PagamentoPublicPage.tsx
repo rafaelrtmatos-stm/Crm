@@ -262,7 +262,7 @@ export default function PagamentoPublicPage() {
           <p className="text-[15px] font-semibold text-slate-300">Toque no botão abaixo para ver<br />as opções de pagamento.</p>
         </div>
         {unica && descontoDe(unica) > 0 && (
-          <p className="text-center text-[13px] font-bold leading-snug text-amber-300">
+          <p className="mx-auto w-fit max-w-full rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-center text-[13px] font-bold leading-snug text-amber-300">
             <Tag size={15} className="mr-1 inline align-[-2px]" />
             Desconto de {fmt(descontoDe(unica))} no Pix<br />de {fmt(originalDe(unica))} por {fmt(unica.valor_centavos)}
           </p>

@@ -1,6 +1,7 @@
 // Desconto na cobrança Pix (QR + copia e cola e link de pagamento).
 // Tudo em CENTAVOS (inteiros) para o valor cobrado no Pix ser exatamente o valor final calculado.
-// O desconto é definido manualmente (percentual ou fixo) e só vale quando "aplicar" está ligado.
+// O desconto é definido manualmente (percentual ou fixo), só vale quando "aplicar" está ligado e SÓ para o pagamento
+// integral do saldo devido, em uma única vez (à vista).
 
 export type TipoDescontoPix = 'percentual' | 'fixo';
 
@@ -18,7 +19,7 @@ export interface ResultadoDescontoPix {
 /**
  * Calcula o desconto de UMA opção de cobrança.
  * Regras: sem desconto -> final = original; desconto nunca negativo, nunca maior ou igual ao valor da opção
- * (o Pix precisa ter valor > 0) e a opção nunca passa do saldo devido.
+ * (o Pix precisa ter valor > 0) e a opção nunca passa do saldo devido. Com desconto, a opção precisa ser o saldo integral.
  */
 export function calcularDescontoPix(p: {
   valorCentavos: number;
@@ -35,6 +36,8 @@ export function calcularDescontoPix(p: {
   if (!(original > 0)) return falha('Valor inválido.');
   if (original > restante) return falha('O valor não pode passar do saldo devido.');
   if (!p.aplicar) return { ok: true, originalCentavos: original, descontoCentavos: 0, finalCentavos: original };
+
+  if (original !== restante) return falha('O desconto à vista só vale para o pagamento integral do saldo, em uma única vez.');
 
   const bruto = typeof p.valor === 'number' ? p.valor : Number(String(p.valor).trim().replace(',', '.'));
   if (!Number.isFinite(bruto) || bruto <= 0) return falha('Informe um desconto maior que zero.');
