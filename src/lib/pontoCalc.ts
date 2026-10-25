@@ -181,6 +181,38 @@ export function analisarDia(
   return { ...base, atraso, extra, status: atraso > 0 ? 'atrasado' : 'presente' };
 }
 
+export type AusenciaParcial = 'manha' | 'tarde' | null;
+
+/**
+ * Ausência de UM período da jornada (manhã ou tarde) num dia em que o funcionário bateu ponto no outro período.
+ * Só olha as batidas registradas contra a jornada cadastrada do dia; atraso NUNCA vira falta de período:
+ * - manhã: nenhuma batida de entrada/ida ao intervalo, mas há volta/saída; ou a primeira entrada só aconteceu
+ *   a partir do início previsto do intervalo (chegou depois de a manhã terminar);
+ * - tarde (só em dia já encerrado): entrou e saiu até o início previsto do intervalo, sem voltar.
+ * Batida esquecida (ex.: entrada + ida ao intervalo e nada depois) continua "incompleto"/pendência, não é falta.
+ * Sem retorno para jornada sem almoço (não há dois períodos), dia sem batida (falta do dia inteiro, tratada à parte)
+ * ou dia futuro. Feriado é excluído por quem chama (este módulo não conhece feriados).
+ */
+export function detectarAusenciaParcial(
+  reg: PontoRegistro | null | undefined,
+  jornada: PontoJornada | null,
+  data: string,
+  hoje: string,
+  tolerancia: number,
+): AusenciaParcial {
+  if (data < PONTO_DATA_INICIO || data > hoje) return null;
+  if (!reg || !jornada || !jornada.trabalha || !jornadaTemAlmoco(jornada) || !temBatida(reg)) return null;
+  const pi = minValido(jornada.inicio_intervalo);
+  if (pi === null) return null;
+  const e = toMin(reg.entrada), i = toMin(reg.inicio_intervalo), f = toMin(reg.fim_intervalo), s = toMin(reg.saida);
+
+  const manha = (e === null && i === null && (f !== null || s !== null)) || (e !== null && i === null && e >= pi);
+  if (manha) return 'manha';
+
+  const tarde = data < hoje && e !== null && i === null && f === null && s !== null && s <= pi + tolerancia;
+  return tarde ? 'tarde' : null;
+}
+
 /** Jornada padrão para funcionário novo: segunda a sábado 08:00–17:00 com intervalo 12:00–13:00; domingo folga. */
 export function jornadaPadrao(): Omit<PontoJornada, 'vigente_desde'>[] {
   return [0, 1, 2, 3, 4, 5, 6].map((d) => ({

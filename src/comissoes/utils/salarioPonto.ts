@@ -7,10 +7,12 @@
 // - Feriado sem batida é abonado (jornada prevista paga, nunca é falta).
 // - Feriado trabalhado: adicional de 100% (as horas normais já estão no proporcional).
 // - Horas extras = minutos × 1,5 × valor da hora.
-// - DSR: uma diária (salário ÷ 30) quando há ao menos uma falta na semana.
+// - DSR: uma diária (salário ÷ 30), descontada UMA ÚNICA VEZ por semana quando há falta injustificada (dia inteiro ou
+//   só um período, ex.: uma manhã). Feriado sem batida é abonado e nunca conta como falta. O admin pode ativar/desativar
+//   o desconto da semana (`descontarDSR`, salvo em ponto_dsr_semanal); sem decisão salva vale a regra automática.
 // - Destinação das extras/adicional de feriado: 'pagar' (entra no salário) OU 'folga' (vai para o banco de horas).
 //   Nunca os dois: `minutosParaBanco` só é > 0 quando a destinação é 'folga'.
-import { analisarDia, AnaliseDia, PontoJornada, PontoRegistro } from '../../lib/pontoCalc';
+import { analisarDia, AnaliseDia, AusenciaParcial, detectarAusenciaParcial, PontoJornada, PontoRegistro } from '../../lib/pontoCalc';
 import { resumoExtras, detalheFeriado, ehFeriado, valorHora, valorDiaria, valorMinuto } from '../../lib/feriados';
 
 export type DestinacaoExtras = 'pagar' | 'folga';
@@ -37,6 +39,8 @@ export interface DiaPonto {
   extra: number; // minutos de extra apurados pelo ponto (fora da tolerância)
   /** Falta = ausente num dia de trabalho que não é feriado. Regra ÚNICA (antes havia 2 versões). */
   falta: boolean;
+  /** Ausência de só um período (manhã/tarde) com batidas no outro. Nunca em feriado nem em dia já marcado como `falta`. */
+  faltaParcial: AusenciaParcial;
   /** A jornada do dia é de trabalho (usado só na apuração do banco de horas). */
   jornadaTrabalha: boolean;
 }
@@ -67,6 +71,9 @@ export function analisarSemanaPonto(
     const j = jornadas.find((jj) => jj.dia_semana === dow) || jornadas[0];
     const a = analisarDia(r, j ?? null, data, hoje, tolerancia);
     const diaDeTrabalho = j ? !!j.trabalha : dow !== 0;
+    const falta = a.status === 'ausente' && diaDeTrabalho && !ehFeriado(data);
+    const faltaParcial: AusenciaParcial =
+      !falta && diaDeTrabalho && !ehFeriado(data) ? detectarAusenciaParcial(r, j ?? null, data, hoje, tolerancia) : null;
     lista.push({
       data,
       r,
@@ -77,7 +84,8 @@ export function analisarSemanaPonto(
         trabalhados: a.trabalhados,
         previstos: a.previstos,
         extra: a.extra,
-        falta: a.status === 'ausente' && diaDeTrabalho && !ehFeriado(data),
+        falta,
+        faltaParcial,
         jornadaTrabalha: !!(j && j.trabalha),
       },
     });
@@ -94,11 +102,25 @@ export interface EntradaSalarioPonto {
   modalidade?: string | null;
   /** Minutos negativos lançados no banco de horas na semana do ponto. */
   debitoMin?: number;
+  /**
+   * Decisão salva do admin para o DSR desta semana: true = desconta, false = não desconta.
+   * null/undefined = automático (desconta quando há falta injustificada).
+   */
+  descontarDSR?: boolean | null;
 }
 
 export interface ResultadoSalarioPonto {
   minutosTrabalhados: number;
+  /** Faltas de dia inteiro. */
   faltas: number;
+  /** Faltas de só um período (manhã/tarde). */
+  faltasParciais: number;
+  /** Há falta injustificada (dia inteiro ou parcial) na semana: o DSR pode ser descontado. */
+  dsrAplicavel: boolean;
+  /** Decisão salva (true/false) ou null quando está no automático. */
+  dsrDecisao: boolean | null;
+  /** DSR efetivamente descontado nesta semana (aplicável E ativado). */
+  dsrDesconta: boolean;
   extras: ReturnType<typeof resumoExtras>;
   pagaExtras: boolean;
   salarioHorasTrabalhadas: number;
@@ -119,6 +141,11 @@ export function calcularSalarioPonto(e: EntradaSalarioPonto): ResultadoSalarioPo
   const pagaExtras = e.destinacao === 'pagar';
   const minutosTrabalhados = e.dias.reduce((s, d) => s + d.trabalhados, 0);
   const faltas = e.dias.filter((d) => d.falta).length;
+  const faltasParciais = e.dias.filter((d) => !d.falta && !!d.faltaParcial).length;
+  const dsrAplicavel = faltas + faltasParciais > 0;
+  const dsrDecisao = typeof e.descontarDSR === 'boolean' ? e.descontarDSR : null;
+  // Uma única diária por semana, não importa quantas faltas; sem decisão salva vale a regra automática (descontar).
+  const dsrDesconta = dsrAplicavel && (dsrDecisao ?? true);
   const extras = resumoExtras(
     e.dias.map((d) => ({ data: d.data, trabalhados: d.trabalhados, previstos: d.previstos, extra: d.extra })),
     salarioMensal,
@@ -130,7 +157,7 @@ export function calcularSalarioPonto(e: EntradaSalarioPonto): ResultadoSalarioPo
   const valFer = extras.valorAbonos + valorFeriadosPago;
 
   const salarioHorasTrabalhadas = valorHora(salarioMensal) * (minutosTrabalhados / 60);
-  const descontoDSR = faltas > 0 ? valorDiaria(salarioMensal) : 0;
+  const descontoDSR = dsrDesconta ? valorDiaria(salarioMensal) : 0;
   const base = e.modalidade === 'meta' ? 0 : Math.max(0, salarioHorasTrabalhadas + valFer + valorExtrasPago - descontoDSR);
 
   const debitoMin = Math.max(0, Number(e.debitoMin) || 0);
@@ -139,6 +166,10 @@ export function calcularSalarioPonto(e: EntradaSalarioPonto): ResultadoSalarioPo
   return {
     minutosTrabalhados,
     faltas,
+    faltasParciais,
+    dsrAplicavel,
+    dsrDecisao,
+    dsrDesconta,
     extras,
     pagaExtras,
     salarioHorasTrabalhadas,
