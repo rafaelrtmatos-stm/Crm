@@ -1165,7 +1165,11 @@ export default function App() {
           last_client_message_at: quando,
         };
 
-        const isConcluidoOuArquivado = !ehGrupo && (leadRow.archived || leadRow.status === 'CONCLUIDO');
+        // Cliente em CONCLUIDO continua em CONCLUIDO quando manda mensagem nova: a mensagem so atualiza
+        // previa/espera/nao lido (e a notificacao). Quem tira da etapa e o usuario (manual) -- nao esta automacao.
+        const manterConcluido = !ehGrupo && leadRow.status === 'CONCLUIDO';
+        // Arquivado que NAO esta concluido: comportamento anterior (reativa na etapa inicial) permanece.
+        const isConcluidoOuArquivado = !ehGrupo && !manterConcluido && !!leadRow.archived;
 
         let patchRetornoFunil: Record<string, any> = {};
         if (isConcluidoOuArquivado) {
@@ -1215,7 +1219,7 @@ export default function App() {
         if (!aguardando) {
           // Mensagem que ja foi respondida por alguem da empresa: entra normalmente como ultima
           // mensagem (passo 1) e registra que existiu (pra nao ser "recuperada" de novo).
-          // Se o lead estava concluido/arquivado e mandou mensagem, reativa na primeira etapa do funil.
+          // Concluido permanece concluido; so arquivado nao concluido volta para a primeira etapa do funil.
           await safeUpdateLead({
             ...patchUltimaMensagem,
             ...patchUltimaMensagemDoCliente,
@@ -1225,15 +1229,15 @@ export default function App() {
         }
 
         // 2) Aguardando resposta: alem da ultima mensagem, atualiza espera e mensagens não lidas.
-        // REGRA: Quando um cliente cujo serviço/atendimento foi concluído manda mensagem novamente,
-        // ele é reativado (sai de concluído/arquivado) e volta imediatamente para a PRIMEIRA ETAPA DO FUNIL ("ENTRADA").
+        // REGRA: cliente CONCLUIDO que manda mensagem nova permanece em CONCLUIDO (status, etapa, arquivado e dados do
+        // pedido intactos). So um arquivado NAO concluido e reativado na primeira etapa do funil ("ENTRADA").
         await safeUpdateLead({
           ...patchUltimaMensagem,
           ...patchUltimaMensagemDoCliente,
           source_type: msgData.channel || leadRow.source_type || 'WhatsApp',
           waiting_since: leadRow.waiting_since || quando,
           unread: true,
-          archived: false,
+          ...(manterConcluido ? {} : { archived: false }),
           ...(isConcluidoOuArquivado
             ? patchRetornoFunil
             : (ehGrupo ? {} : (leadRow.status ? {} : { status: 'ENTRADA' }))),
@@ -1241,12 +1245,12 @@ export default function App() {
           ...(msgData.senderName && !ehGrupo && nomeEhPlaceholder(leadRow.full_name)
             ? { full_name: msgData.senderName, first_name: msgData.senderName.split(' ')[0], last_name: msgData.senderName.split(' ').slice(1).join(' ') || '' }
             : {}),
-          ...(stageId && !ehGrupo && (!leadRow.funnel_stage_id || isConcluidoOuArquivado) ? { funnel_stage_id: stageId } : {}),
+          ...(stageId && !ehGrupo && !manterConcluido && (!leadRow.funnel_stage_id || isConcluidoOuArquivado) ? { funnel_stage_id: stageId } : {}),
           // `quando` = agora ao vivo; na recuperacao e a hora real da mensagem (senao a lista
           // mostrava a hora da recuperacao como se fosse a da mensagem)
           updated_at: quando,
         });
-        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] (concluído/arquivado reativado: ${isConcluidoOuArquivado}).`);
+        console.log(`CRM Automation: Existing Lead updated from channel [${msgData.channel}] (arquivado reativado: ${isConcluidoOuArquivado}; concluído mantido: ${manterConcluido}).`);
       }
     };
 
