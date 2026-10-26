@@ -536,7 +536,7 @@ export const MessagesSidebarPopup: React.FC<MessagesSidebarPopupProps> = ({
             lastMessageReadAt: row.read_at || undefined,
             lastMessageDeliveredAt: row.delivered_at || undefined,
             ...(entrada
-              ? { lastClientMessageAt: row.created_at, lastClientMessageText: row.text || '', waitingSince: row.created_at, archived: false, status: 'ENTRADA' }
+              ? { lastClientMessageAt: row.created_at, lastClientMessageText: row.text || '', waitingSince: row.created_at, ...(prev[idx].status === 'CONCLUIDO' ? {} : { archived: false, status: 'ENTRADA' }) }
               : { waitingSince: null }),
           } as any as Lead;
           console.log('[CRM SIDEBAR] conversa movida para o topo');
