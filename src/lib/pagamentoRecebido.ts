@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabase';
-import { showMessageToast } from './notify';
+import { showMessageToast, showAlert } from './notify';
 import type { AppUser } from '../types';
 
 // NOTIFICAÇÃO DE PAGAMENTO RECEBIDO POR LINK (tabela crm_payment_notifications -- SQL em
@@ -134,12 +134,36 @@ export function usePagamentosRecebidos(
     if (alvo.length === 0) return;
     const agora = new Date().toISOString();
     setItens(prev => prev.map(i => (alvo.includes(i.id) ? { ...i, visualizadaEm: agora } : i)));
-    const { error } = await supabase
-      .from('crm_payment_notifications')
-      .update({ visualizada_em: agora, visualizada_por: userIdRef.current ? String(userIdRef.current) : null })
-      .in('id', alvo)
-      .is('visualizada_em', null);
-    if (error) console.warn('Não foi possível marcar a notificação de pagamento como vista:', error.message || error);
+    // Falhou ao salvar: devolve o item ao sino (nao pode parecer visualizado se o banco nao gravou) e avisa.
+    const desfazer = () => setItens(prev => prev.map(i => (alvo.includes(i.id) && i.visualizadaEm === agora ? { ...i, visualizadaEm: null } : i)));
+    try {
+      const { error } = await supabase
+        .from('crm_payment_notifications')
+        .update({ visualizada_em: agora, visualizada_por: userIdRef.current ? String(userIdRef.current) : null })
+        .in('id', alvo)
+        .is('visualizada_em', null);
+      if (error) {
+        console.warn('Não foi possível marcar a notificação de pagamento como vista:', error.message || error);
+        desfazer();
+        showAlert('Não foi possível marcar o pagamento como visualizado. Ele continua pendente.');
+        return;
+      }
+      // UPDATE sem erro mas sem efeito (permissao/filtro) tambem nao conta: confere no banco.
+      const { data: restantes, error: erroConfere } = await supabase
+        .from('crm_payment_notifications')
+        .select('id')
+        .in('id', alvo)
+        .is('visualizada_em', null);
+      if (erroConfere || (restantes && restantes.length > 0)) {
+        console.warn('Notificação de pagamento continua não visualizada no banco:', erroConfere?.message || restantes);
+        desfazer();
+        showAlert('Não foi possível marcar o pagamento como visualizado. Ele continua pendente.');
+      }
+    } catch (e) {
+      console.warn('Falha ao marcar pagamento como visto:', e);
+      desfazer();
+      showAlert('Não foi possível marcar o pagamento como visualizado. Ele continua pendente.');
+    }
   }, []);
 
   const abrirPagamento = useCallback((p: PagamentoRecebido) => {
@@ -204,7 +228,8 @@ export function usePagamentosRecebidos(
         const p = mapear(payload.new);
         setItens(prev => prev.map(i => (i.id === p.id ? p : i)));
       })
-      .subscribe();
+      // Conexao caiu e voltou: recupera por releitura o que foi visualizado/recebido enquanto estava fora.
+      .subscribe((status: string) => { if (status === 'SUBSCRIBED') void recarregar(); });
     const timer = setInterval(() => { void recarregar(); }, 60000);
     const aoVoltar = () => { if (document.visibilityState === 'visible') void recarregar(); };
     document.addEventListener('visibilitychange', aoVoltar);
