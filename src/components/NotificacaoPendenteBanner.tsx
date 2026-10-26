@@ -4,7 +4,7 @@ import { AlertTriangle, BadgeDollarSign, Bell, BellRing, Check, CheckCircle2, Us
 import { supabase } from '../supabase';
 import type { AppUser } from '../types';
 import { cn } from './SharedUI';
-import { FotoNotificacao } from '../lib/notify';
+import { FotoNotificacao, showAlert } from '../lib/notify';
 import { ehUuid } from '../lib/uuid';
 import { chaveDoContato, variantesTelefoneBR } from '../lib/phone';
 import { numeroDoPedido, tituloDoPagamento, type PagamentoRecebido } from '../lib/pagamentoRecebido';
@@ -106,7 +106,8 @@ export function useNotificacaoPendente(phone?: string | null, refreshKey?: numbe
         const alvo = payload?.new?.phone ?? payload?.old?.phone;
         if (alvo === undefined || mesmaConversa(alvo, phone)) recarregar();
       })
-      .subscribe();
+      // Conexao caiu e voltou (computador dormiu, rede oscilou): eventos perdidos nesse intervalo sao recuperados por releitura.
+      .subscribe((status: string) => { if (status === 'SUBSCRIBED') recarregar(); });
     return () => { supabase.removeChannel(channel); };
   }, [phone, recarregar]);
 
@@ -125,17 +126,31 @@ export async function marcarNotificacoesResolvidas(ids: string[], resolvidoPor?:
   // Em lotes: `.in('id', ...)` vai na URL, e centenas de ids de uma vez (grupo movimentado) passam do limite dela.
   const quando = new Date().toISOString();
   for (let i = 0; i < ids.length; i += 100) {
+    const lote = ids.slice(i, i + 100);
     // Ha UMA linha por conversa: mensagem nova atualiza a MESMA linha (message_at avanca). `ateMensagemEm` (message_at
     // que o usuario viu, string original do banco) impede que o clique resolva tambem uma mensagem que chegou depois.
     let consulta = supabase
       .from('crm_notifications')
       .update({ status: 'resolved', resolved_at: quando, resolved_by: resolvidoPor || null })
-      .in('id', ids.slice(i, i + 100))
+      .in('id', lote)
       .eq('status', 'pending');
     if (ateMensagemEm) consulta = consulta.lte('message_at', ateMensagemEm);
     const { error } = await consulta;
     if (error) {
       console.error('Erro ao marcar notificacao como resolvida:', error);
+      return false;
+    }
+    // O UPDATE nao avisa quando nenhuma linha foi alterada (RLS/filtro): confere no banco se alguma continua pendente
+    // com a mensagem que o usuario viu. Se continua, NAO foi resolvida -- quem chamou nao pode mostrar sucesso.
+    let restantes = supabase.from('crm_notifications').select('id').in('id', lote).eq('status', 'pending');
+    if (ateMensagemEm) restantes = restantes.lte('message_at', ateMensagemEm);
+    const { data: aindaPendentes, error: erroConfere } = await restantes;
+    if (erroConfere) {
+      console.error('Erro ao conferir notificacao resolvida:', erroConfere);
+      return false;
+    }
+    if (aindaPendentes && aindaPendentes.length > 0) {
+      console.error('Notificacao continua pendente apos o UPDATE (nenhuma linha alterada):', aindaPendentes.map((r: any) => r.id));
       return false;
     }
   }
@@ -193,6 +208,8 @@ export const resolverConversaPorTelefone = async (
     .in('phone', variantesDaConversa(phone)).eq('status', 'pending');
   if (error) { console.error('Erro ao buscar notificacoes da conversa:', error); return false; }
   const ok = await marcarNotificacoesResolvidas((data || []).map((r: any) => r.id), opts.resolvidoPor, opts.ateMensagemEm);
+  // Falhou ao salvar a notificacao: nao mexe no lead (senao o lembrete some e a notificacao fica pendente sem ninguem saber).
+  if (!ok) return false;
   const { ids } = await buscarLeadsDaConversa(phone, opts.leadId);
   if (ids.length) {
     const { error: e2 } = await supabase.from('leads')
@@ -200,7 +217,7 @@ export const resolverConversaPorTelefone = async (
       .in('id', ids);
     if (e2) { console.error('Erro ao limpar espera do lead:', e2); return false; }
   }
-  return ok;
+  return true;
 };
 
 export const NotificacaoPendenteBanner = ({
@@ -399,7 +416,7 @@ export function useNotificacoesPendentes(user?: AppUser | null) {
     const channel = supabase
       .channel('notificacoes-pendentes-globais')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_notifications', filter: 'company_id=eq.rafa-arts' }, recarregarSemAtropelar)
-      .subscribe();
+      .subscribe((status: string) => { if (status === 'SUBSCRIBED') recarregarSemAtropelar(); });
     const timer = setInterval(recarregarSemAtropelar, 60000);
     // Aba/celular em segundo plano: o navegador segura timers e pausa a conexao em tempo real, entao os avisos
     // "chegavam atrasados". Ao voltar pra tela (ou a internet voltar), le na hora.
@@ -477,10 +494,15 @@ export const NotificacoesPendentesBell = ({
   const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const [resolvendoPhones, setResolvendoPhones] = useState<Set<string>>(new Set());
   const [resolvendoTodas, setResolvendoTodas] = useState(false);
+  // Itens resolvidos COM sucesso neste computador (conversa + horario da mensagem vista): somem do sino na hora, sem esperar o
+  // Realtime. Nunca entra aqui o que falhou ao salvar, e uma mensagem nova (horario diferente) volta a aparecer normalmente.
+  const [resolvidasLocal, setResolvidasLocal] = useState<Set<string>>(new Set());
+  const chaveResolvida = (n: NotificacaoPendente) => `${n.phone}|${n.lastMessageAt || ''}`;
   const botaoRef = useRef<HTMLButtonElement>(null);
   const pagamentosPendentes = pagamentos.filter(p => !p.visualizadaEm);
+  const itensVisiveis = itens.filter(n => !resolvidasLocal.has(chaveResolvida(n)));
   // Contador do sino = conversas pendentes + pagamentos por link ainda nao vistos
-  const total = itens.length + pagamentosPendentes.length;
+  const total = itensVisiveis.length + pagamentosPendentes.length;
 
   const calcularPosicao = useCallback(() => {
     const btn = botaoRef.current;
@@ -513,12 +535,16 @@ export const NotificacoesPendentesBell = ({
     if (resolvendoPhones.has(n.phone)) return;
     setResolvendoPhones(prev => new Set(prev).add(n.phone));
     try {
-      if (onResolver) {
-        onResolver(n);
+      const ok = await resolverConversaPorTelefone(n.phone, { leadId: n.leadId, ateMensagemEm: n.lastMessageAt });
+      if (!ok) {
+        showAlert('Não foi possível marcar como resolvido. A notificação continua pendente.');
+        return;
       }
-      await resolverConversaPorTelefone(n.phone, { leadId: n.leadId, ateMensagemEm: n.lastMessageAt });
+      setResolvidasLocal(prev => new Set(prev).add(chaveResolvida(n)));
+      onResolver?.(n);
     } catch (err) {
       console.error('Erro ao resolver notificacao pelo sino:', err);
+      showAlert('Não foi possível marcar como resolvido. A notificação continua pendente.');
     } finally {
       setResolvendoPhones(prev => {
         const next = new Set(prev);
@@ -535,14 +561,23 @@ export const NotificacoesPendentesBell = ({
     setResolvendoTodas(true);
     try {
       // So as conversas que ESTE usuario ve no sino (permissao de grupos preservada), cada uma ate a mensagem vista.
-      for (const n of itens) {
-        await resolverConversaPorTelefone(n.phone, { leadId: n.leadId, ateMensagemEm: n.lastMessageAt });
+      let falhas = 0;
+      const resolvidas: string[] = [];
+      for (const n of itensVisiveis) {
+        const salvou = await resolverConversaPorTelefone(n.phone, { leadId: n.leadId, ateMensagemEm: n.lastMessageAt });
+        if (salvou) resolvidas.push(chaveResolvida(n)); else falhas++;
       }
+      if (resolvidas.length) setResolvidasLocal(prev => new Set([...prev, ...resolvidas]));
 
       onMarcarTodosPagamentos?.();
-      setAberto(false);
+      if (falhas > 0) {
+        showAlert(`Não foi possível resolver ${falhas} notificação(ões). Elas continuam pendentes.`);
+      } else {
+        setAberto(false);
+      }
     } catch (err) {
       console.error('Erro ao resolver todas as notificacoes:', err);
+      showAlert('Não foi possível resolver todas as notificações.');
     } finally {
       setResolvendoTodas(false);
     }
@@ -635,7 +670,7 @@ export const NotificacoesPendentesBell = ({
                     </button>
                   </div>
                 ))}
-                {itens.map(n => {
+                {itensVisiveis.map(n => {
                   const nome = nomeDaNotificacao(n);
                   const hora = formatarHoraNotificacao(n.lastMessageAt);
                   const estaResolvendo = resolvendoPhones.has(n.phone);

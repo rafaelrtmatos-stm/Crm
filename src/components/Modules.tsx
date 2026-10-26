@@ -4745,6 +4745,11 @@ export const ChatPanel = ({
     setIsLocallyResolved(false);
   }, [conversation?.id]);
 
+  // Mensagem nova do cliente volta a marcar a espera (waitingSince): o "resolvido" local nao pode escondê-la.
+  useEffect(() => {
+    if (conversation?.waitingSince) setIsLocallyResolved(false);
+  }, [conversation?.waitingSince]);
+
   // Identifica se a conversa está aguardando resposta e calcula a partir da PRIMEIRA mensagem em espera:
   // 1) Se mensagens já carregadas, localiza a PRIMEIRA mensagem do cliente deste bloco atual não respondido
   // 2) Caso contrário, usa conversation.waitingSince ou a primeira indicação disponível
@@ -5553,6 +5558,17 @@ export const ChatPanel = ({
     if (!conversation?.id) return;
     setIsLocallyResolved(true);
     try {
+      // 1) Salva a notificacao primeiro. Se o banco recusar, NADA e dado como resolvido (nem aviso, nem espera do lead).
+      if (conversation.phone) {
+        // Igualdade exata por telefone (variantes), so ate a mensagem que o usuario viu: nao resolve outro cliente
+        // nem uma mensagem que chegou depois.
+        const salvou = await resolverConversaPorTelefone(String(conversation.phone), { leadId: conversation.id, resolvidoPor: user?.name, ateMensagemEm: notificacaoPendente?.lastMessageAt });
+        if (!salvou) {
+          setIsLocallyResolved(false);
+          showAlert('Não foi possível marcar como resolvido. A notificação continua pendente.');
+          return;
+        }
+      }
       const { error } = await supabase.from('leads').update({
         waiting_since: null,
         unread: false,
@@ -5561,6 +5577,7 @@ export const ChatPanel = ({
       }).eq('id', conversation.id);
       if (error) {
         console.error('Erro ao marcar conversa como resolvida:', error);
+        setIsLocallyResolved(false);
         showAlert('Não foi possível marcar como resolvido.');
         return;
       }
@@ -5569,19 +5586,11 @@ export const ChatPanel = ({
         unread: false,
         lastMessageDirection: 'resolved' as any
       });
-      if (conversation.phone) {
-        // Igualdade exata por telefone (variantes), so ate a mensagem que o usuario viu: nao resolve outro cliente
-        // nem uma mensagem que chegou depois.
-        try {
-          await resolverConversaPorTelefone(String(conversation.phone), { leadId: conversation.id, resolvidoPor: user?.name, ateMensagemEm: notificacaoPendente?.lastMessageAt });
-        } catch (e) {
-          console.warn('Erro ao resolver crm_notifications:', e);
-        }
-      }
       limparNotificacaoPendente();
       showAlert('Conversa marcada como resolvida.');
     } catch (err) {
       console.error('Erro ao marcar conversa como resolvida:', err);
+      setIsLocallyResolved(false);
       showAlert('Não foi possível marcar como resolvido.');
     }
   };
