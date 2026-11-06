@@ -5,15 +5,21 @@
 // Ponto facultativo só avisa: não dobra o dia.
 import { somarDias } from './pontoCalc';
 
-export type TipoDiaEspecial = 'feriado' | 'facultativo';
+// 'folga_abonada' só é exibida (aviso): não dobra e, por enquanto, não altera o cálculo de pagamento/faltas.
+export type TipoDiaEspecial = 'feriado' | 'facultativo' | 'folga_abonada';
 
 export interface DiaEspecial {
   data: string;
   nome: string;
   tipo: TipoDiaEspecial;
+  /** Facultativo/folga só a partir deste horário ("HH:MM"), ex.: 24/12 e 31/12 após as 14h. */
+  apartirDe?: string;
 }
 
-// Datas locais (Pará / Santarém) -- CONFERIR/AJUSTAR conforme a cidade da empresa. Formato "MM-DD".
+// Datas locais (Pará / Santarém). Formato "MM-DD". Só entra aqui o que tem base legal confirmada:
+// 15/08 (feriado estadual do Pará) e 22/06 (aniversário de Santarém, feriado municipal).
+// 02/10 e 08/12 NÃO são presumidos como feriado oficial: se a empresa confirmar (lei/decreto municipal), cadastre
+// com `cadastrarDiasEspeciais` (abaixo) ou inclua nesta lista.
 const REGIONAIS: { mmdd: string; nome: string; tipo: TipoDiaEspecial }[] = [
   { mmdd: '06-22', nome: 'Aniversário de Santarém', tipo: 'feriado' },
   { mmdd: '08-15', nome: 'Adesão do Pará à Independência', tipo: 'feriado' },
@@ -45,10 +51,26 @@ export function pascoa(ano: number): string {
   return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
 }
 
+// Vésperas de Natal e Ano-Novo: ponto facultativo a partir das 14h (não é feriado: sem dobra).
+const FACULTATIVOS_FIXOS: { mmdd: string; nome: string; apartirDe: string }[] = [
+  { mmdd: '12-24', nome: 'Véspera de Natal', apartirDe: '14:00' },
+  { mmdd: '12-31', nome: 'Véspera de Ano-Novo', apartirDe: '14:00' },
+];
+
+// Cadastro futuro (feriados, facultativos e folgas abonadas de qualquer ano). Funções puras: quem carrega os dados
+// (ex.: tabela do Supabase, quando existir) chama `cadastrarDiasEspeciais` na inicialização. O cadastro prevalece
+// sobre o calendário embutido na mesma data.
+let CADASTRADOS: DiaEspecial[] = [];
+
+/** Substitui o cadastro de dias especiais. Ignora entradas com data inválida. */
+export function cadastrarDiasEspeciais(lista: DiaEspecial[]): void {
+  CADASTRADOS = lista.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.data) && !!d.nome);
+}
+
 /** Todos os feriados e pontos facultativos do ano, ordenados por data. */
 export function diasEspeciaisDoAno(ano: number): DiaEspecial[] {
   const p = pascoa(ano);
-  const lista: DiaEspecial[] = [
+  const base: DiaEspecial[] = [
     ...NACIONAIS_FIXOS.map((x) => ({ data: `${ano}-${x.mmdd}`, nome: x.nome, tipo: 'feriado' as const })),
     ...REGIONAIS.map((x) => ({ data: `${ano}-${x.mmdd}`, nome: x.nome, tipo: x.tipo })),
     { data: somarDias(p, -48), nome: 'Carnaval (segunda)', tipo: 'facultativo' },
@@ -56,7 +78,10 @@ export function diasEspeciaisDoAno(ano: number): DiaEspecial[] {
     { data: somarDias(p, -46), nome: 'Quarta-feira de Cinzas', tipo: 'facultativo' },
     { data: somarDias(p, -2), nome: 'Sexta-feira Santa', tipo: 'feriado' },
     { data: somarDias(p, 60), nome: 'Corpus Christi', tipo: 'facultativo' },
+    ...FACULTATIVOS_FIXOS.map((x) => ({ data: `${ano}-${x.mmdd}`, nome: x.nome, tipo: 'facultativo' as const, apartirDe: x.apartirDe })),
   ];
+  const cad = CADASTRADOS.filter((d) => d.data.startsWith(`${ano}-`));
+  const lista = [...base.filter((d) => !cad.some((c) => c.data === d.data)), ...cad];
   return lista.sort((x, y) => x.data.localeCompare(y.data));
 }
 
