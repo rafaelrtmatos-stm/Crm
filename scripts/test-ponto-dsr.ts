@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { detectarAusenciaParcial, PontoJornada, PontoRegistro } from '../src/lib/pontoCalc';
 import { analisarSemanaPonto, calcularSalarioPonto } from '../src/comissoes/utils/salarioPonto';
+import { diaEspecial, diasEspeciaisDoAno, ehFeriado, pascoa, cadastrarDiasEspeciais } from '../src/lib/feriados';
 
 let ok = 0;
 const t = (nome: string, fn: () => void) => { fn(); ok++; console.log('  ok -', nome); };
@@ -124,6 +125,46 @@ t('falta parcial + falta de dia inteiro na mesma semana = um único DSR', () => 
 t('atraso sozinho não ativa DSR', () => {
   const { r } = calc(SEMANA2, semanaCheiaExceto(SEMANA2, ['2026-10-20'], [reg('2026-10-20', '10:30', '12:00', '13:00', '17:00')]));
   assert.equal(r.dsrAplicavel, false); assert.equal(r.descontoDSR, 0);
+});
+
+console.log('Calendário de feriados (Santarém/PA)');
+t('datas móveis de 2026 a partir da Páscoa (05/04)', () => {
+  assert.equal(pascoa(2026), '2026-04-05');
+  assert.equal(diaEspecial('2026-04-03')?.tipo, 'feriado'); // Sexta-feira Santa
+  assert.equal(diaEspecial('2026-02-16')?.tipo, 'facultativo'); // Carnaval
+  assert.equal(diaEspecial('2026-06-04')?.tipo, 'facultativo'); // Corpus Christi
+});
+t('feriados estadual e municipal de Santarém/PA', () => {
+  assert.equal(diaEspecial('2026-06-22')?.tipo, 'feriado');
+  assert.equal(diaEspecial('2026-08-15')?.tipo, 'feriado');
+});
+t('24/12 e 31/12 são facultativos após as 14h, sem dobra', () => {
+  for (const d of ['2026-12-24', '2026-12-31']) {
+    const e = diaEspecial(d);
+    assert.equal(e?.tipo, 'facultativo'); assert.equal(e?.apartirDe, '14:00'); assert.equal(ehFeriado(d), false);
+  }
+  assert.equal(diaEspecial('2026-12-25')?.tipo, 'feriado');
+});
+t('02/10 e 08/12 não são presumidos como feriado oficial', () => {
+  assert.equal(diaEspecial('2026-10-02'), null); assert.equal(diaEspecial('2026-12-08'), null);
+});
+t('cadastro futuro: feriado/facultativo/folga abonada entram e prevalecem na data', () => {
+  cadastrarDiasEspeciais([
+    { data: '2026-12-08', nome: 'Nossa Senhora da Conceição', tipo: 'feriado' },
+    { data: '2027-03-10', nome: 'Folga da equipe', tipo: 'folga_abonada' },
+    { data: '2026-12-24', nome: 'Véspera de Natal', tipo: 'facultativo', apartirDe: '12:00' },
+    { data: 'inválida', nome: 'x', tipo: 'feriado' },
+  ]);
+  assert.equal(ehFeriado('2026-12-08'), true);
+  assert.equal(diaEspecial('2027-03-10')?.tipo, 'folga_abonada'); assert.equal(ehFeriado('2027-03-10'), false);
+  assert.equal(diaEspecial('2026-12-24')?.apartirDe, '12:00');
+  assert.equal(diasEspeciaisDoAno(2026).filter((d) => d.data === '2026-12-24').length, 1);
+  cadastrarDiasEspeciais([]);
+  assert.equal(diaEspecial('2026-12-08'), null);
+});
+t('facultativo sem dobra: semana 19-25/12 só dobra o Natal (24/12 trabalhado não conta)', () => {
+  const { r } = calc('2026-12-19', semanaCheiaExceto('2026-12-19', []));
+  assert.equal(r.extras.feriadosTrabalhados, 1);
 });
 
 console.log(`\n${ok} testes passaram`);
