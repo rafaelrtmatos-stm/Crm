@@ -105,11 +105,15 @@ export default async function handler(req, res) {
 
     // --- Fluxo normal: garante que a instancia existe, com o webhook configurado, e devolve o QR ---
     // 1) Tenta criar a instancia (se ja existir, a Evolution API devolve erro — ignora e segue)
-    const siteUrl = `https://${req.headers.host}`;
+    // Endereço FIXO do CRM em produção (não depende de onde o CRM foi aberto): antes usava o host
+    // da requisição, e conectar por outro domínio (vercel.app, preview) reescrevia o webhook da
+    // Evolution apontando pro lugar errado. Dá pra trocar via APP_BASE_URL na Vercel, se precisar.
+    const siteUrl = (process.env.APP_BASE_URL || 'https://pro.rafaartsgraphics.com.br').replace(/\/+$/, '');
     const webhookConfig = {
       url: `${siteUrl}/api/whatsapp-webhook`,
       headers: { 'x-webhook-secret': EVOLUTION_WEBHOOK_SECRET || '' },
-      events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+      // Todos os eventos que o api/whatsapp-webhook.js realmente trata (antes só iam 2 e o resto sumia).
+      events: ['MESSAGES_UPSERT', 'SEND_MESSAGE', 'CONNECTION_UPDATE', 'MESSAGES_UPDATE', 'MESSAGES_EDITED', 'PRESENCE_UPDATE', 'GROUPS_UPSERT', 'GROUP_UPDATE'],
     };
     await fetch(`${EVOLUTION_API_URL}/instance/create`, {
       method: 'POST',
