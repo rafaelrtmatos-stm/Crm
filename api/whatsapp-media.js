@@ -30,9 +30,10 @@ export default async function handler(req, res) {
     const { bytes, mimetype } = await buscarMidiaEvolution(messageId);
     const total = bytes.length;
     res.setHeader('Content-Type', mimetype);
-    // Cache curto: evita rebuscar na Evolution a cada re-render, sem guardar pra sempre
-    // (mídia pode não estar mais disponível depois de um tempo).
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    // Cache de 1 dia no navegador: a mídia de uma mensagem não muda, então não precisa rebuscar na
+    // Evolution (e passar os bytes de novo pela Vercel) a cada vez. 'private' = não vai pro cache
+    // compartilhado, porque são conversas de clientes.
+    res.setHeader('Cache-Control', 'private, max-age=86400');
     // <audio>/<video> pedem a mídia por partes (Range). O Safari nem toca sem suporte a isso.
     res.setHeader('Accept-Ranges', 'bytes');
 
