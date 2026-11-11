@@ -185,9 +185,10 @@ export function calcularSalarioPonto(e: EntradaSalarioPonto): ResultadoSalarioPo
 }
 
 /**
- * Diferença de minutos da semana que entra no saldo do banco de horas (cálculo em tela, sem gravar nada).
- * Sem duplicidade: com destinação 'pagar' as horas extras já foram pagas no salário, então NÃO entram no banco;
- * com 'folga' entram no banco (e não no salário).
+ * Crédito positivo de minutos da semana destinado ao banco (cálculo em tela, sem gravar nada).
+ * Déficits por faltas/ausências NÃO são lançados automaticamente no banco: permanecem como falta.
+ * Com destinação 'folga', somente o excedente positivo pode aparecer como crédito; lançamentos de débito
+ * exigem ação explícita do administrador em Banco de Horas.
  */
 export function minutosDiferencaSemanaBanco(
   dias: DiaPonto[],
@@ -201,7 +202,7 @@ export function minutosDiferencaSemanaBanco(
     // Feriado: nunca gera débito (faltou = abonado). Se o adicional for para o banco, entra como crédito.
     const fer = detalheFeriado({ data: d.data, trabalhados: d.trabalhados, previstos: d.previstos, extra: d.extra }, tolerancia);
     if (fer) return s + (paga ? 0 : fer.adicionalMin + fer.extraAlemMin);
-    if (d.jornadaTrabalha) return s + (d.trabalhados - d.previstos - (paga ? d.extra : 0));
+    if (d.jornadaTrabalha) return s + Math.max(0, d.trabalhados - d.previstos - (paga ? d.extra : 0));
     return s;
   }, 0);
 }
