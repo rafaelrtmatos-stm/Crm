@@ -283,29 +283,40 @@ export function RegistroModal({
 
   return (
     <Modal title={`Registro de Ponto • ${ctx.data.split('-').reverse().join('/')}`} onClose={onClose}>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Entrada">
-          <input type="time" className={inputCls} value={h.entrada} onChange={set('entrada')} />
-        </Field>
-        <Field label="Saída">
-          <input type="time" className={inputCls} value={h.saida} onChange={set('saida')} />
-        </Field>
-        <Field label="Início do intervalo">
-          <input
-            type="time"
-            className={inputCls}
-            value={h.inicio_intervalo}
-            onChange={set('inicio_intervalo')}
-          />
-        </Field>
-        <Field label="Fim do intervalo">
-          <input
-            type="time"
-            className={inputCls}
-            value={h.fim_intervalo}
-            onChange={set('fim_intervalo')}
-          />
-        </Field>
+      <div className="space-y-4">
+        <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+          <h4 className="text-xs font-black uppercase text-emerald-400 tracking-wider">Período da Manhã</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Entrada da Manhã">
+              <input type="time" className={inputCls} value={h.entrada} onChange={set('entrada')} />
+            </Field>
+            <Field label="Saída para Almoço">
+              <input
+                type="time"
+                className={inputCls}
+                value={h.inicio_intervalo}
+                onChange={set('inicio_intervalo')}
+              />
+            </Field>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+          <h4 className="text-xs font-black uppercase text-sky-400 tracking-wider">Período da Tarde</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Retorno / Entrada Tarde">
+              <input
+                type="time"
+                className={inputCls}
+                value={h.fim_intervalo}
+                onChange={set('fim_intervalo')}
+              />
+            </Field>
+            <Field label="Saída do Expediente">
+              <input type="time" className={inputCls} value={h.saida} onChange={set('saida')} />
+            </Field>
+          </div>
+        </div>
       </div>
       <Field label="Observação / Justificativa">
         <input
