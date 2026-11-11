@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, AlertTriangle, UserCheck, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { showAlert } from '../../lib/notify';
-import { hojeStr, jornadaPadrao } from '../../lib/pontoCalc';
+import { hojeStr, jornadaPadrao, PontoJornada } from '../../lib/pontoCalc';
 import { getJornadaPadraoEmpresa } from '../../lib/pontoSetores';
 import {
   EstadoFuncionario,
@@ -62,12 +62,14 @@ async function carregarEstado(
 export function PontoImportModal({
   funcs,
   colabs,
+  jornadas,
   onClose,
   onFuncionarioCriado,
   onImportado,
 }: {
   funcs: FuncionarioItem[];
   colabs: ColaboradorOption[];
+  jornadas: Array<PontoJornada & { funcionario_id: string }>;
   onClose: () => void;
   onFuncionarioCriado: () => Promise<void>;
   onImportado: () => Promise<void>;
@@ -132,8 +134,8 @@ export function PontoImportModal({
   }, [arquivo, funcs, faixas]);
 
   const plano = useMemo(
-    () => (arquivo ? montarPlano(arquivo.leitura.marcacoes, funcs, estados, hoje) : null),
-    [arquivo, funcs, estados, hoje]
+    () => (arquivo ? montarPlano(arquivo.leitura.marcacoes, funcs, estados, hoje, jornadas) : null),
+    [arquivo, funcs, estados, hoje, jornadas]
   );
 
   const funcPorId = useMemo(() => new Map(funcs.map((f) => [f.id, f])), [funcs]);
