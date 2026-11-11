@@ -169,7 +169,7 @@ t('facultativo sem dobra: semana 19-25/12 só dobra o Natal (24/12 trabalhado n�
 
 console.log('Jornada de 44h e banco sem débito automático');
 t('jornada padrão de novo funcionário totaliza 44 horas semanais', () => {
-  const padrao = jornadaPadrao();
+  const padrao = jornadaPadrao().map((j) => ({ ...j, vigente_desde: '2000-01-01' }));
   assert.equal(padrao.reduce((s, j) => s + minutosPrevistos(j), 0), 44 * 60);
 });
 const jornada44: PontoJornada = {
