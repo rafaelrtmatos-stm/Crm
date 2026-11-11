@@ -32,6 +32,7 @@ import {
   PontoJornada,
   minutosTrabalhados,
   minutosPrevistos,
+  detectarAusenciaParcial,
   inicioDaSemana,
   somarDias,
 } from '../../lib/pontoCalc';
@@ -189,7 +190,7 @@ export function PontoPerfil({
       minMes += a.trabalhados;
       if (a.trabalhados > 0) diasTrabalhados++;
       if (a.status === 'atrasado') atrasos++;
-      if (a.status === 'ausente') faltas++;
+      if (a.status === 'ausente' || detectarAusenciaParcial(r, j, d, hoje, func.tolerancia_minutos)) faltas++;
     }
   });
 
@@ -251,6 +252,19 @@ export function PontoPerfil({
           </span>
         );
     }
+  };
+
+  // Exibe a falta parcial separadamente do atraso quando a primeira batida ocorre após o fim da manhã.
+  const statusPillComAusencia = (status: StatusDia, data: string, registro: PontoRegistro | null) => {
+    const parcial = detectarAusenciaParcial(registro, jornadaDoDia(jornadas, data), data, hoje, func.tolerancia_minutos);
+    if (parcial) {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+          Falta parcial · {parcial === 'manha' ? 'manhã' : 'tarde'}
+        </span>
+      );
+    }
+    return statusPill(status);
   };
 
   // Últimos registros para a tabela do perfil
@@ -702,7 +716,7 @@ export function PontoPerfil({
                           <td className="py-2.5 pr-3 font-semibold text-white">
                             {fmtHM(a.trabalhados)}
                           </td>
-                          <td className="py-2.5 pr-3">{statusPill(a.status)}</td>
+                          <td className="py-2.5 pr-3">{statusPillComAusencia(a.status, d, r)}</td>
                           <td className="py-2.5 text-right">
                             <button
                               onClick={() => onEditarRegistro(d, r)}
@@ -852,7 +866,7 @@ export function PontoPerfil({
                       <td className="py-2.5 pr-3 font-semibold text-emerald-400">
                         {a.extra ? fmtHM(a.extra) : '—'}
                       </td>
-                      <td className="py-2.5 pr-3">{statusPill(a.status)}</td>
+                      <td className="py-2.5 pr-3">{statusPillComAusencia(a.status, d, r)}</td>
                       <td className="py-2.5 text-right">
                         <button
                           onClick={() => onEditarRegistro(d, r)}
@@ -954,7 +968,7 @@ export function PontoPerfil({
                       <td className="p-2 border-r border-white/10 font-bold text-white">
                         {fmtHM(a.trabalhados)}
                       </td>
-                      <td className="p-2">{statusPill(a.status)}</td>
+                      <td className="p-2">{statusPillComAusencia(a.status, d, r)}</td>
                     </tr>
                   );
                 })}
@@ -1020,7 +1034,7 @@ export function PontoPerfil({
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      {statusPill(a.status)}
+                      {statusPillComAusencia(a.status, d, r)}
                       <button
                         onClick={() => onEditarRegistro(d, r)}
                         className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer"
