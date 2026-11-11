@@ -213,14 +213,18 @@ export function detectarAusenciaParcial(
   return tarde ? 'tarde' : null;
 }
 
-/** Jornada padrão para funcionário novo: segunda a sábado 08:00–17:00 com intervalo 12:00–13:00; domingo folga. */
+/** Jornada padrão de 44h: segunda a sexta 08:00–12:00 e 14:00–18:00; sábado 08:00–12:00; domingo folga. */
 export function jornadaPadrao(): Omit<PontoJornada, 'vigente_desde'>[] {
-  return [0, 1, 2, 3, 4, 5, 6].map((d) => ({
-    dia_semana: d,
-    trabalha: d !== 0,
-    entrada: d !== 0 ? '08:00' : null,
-    inicio_intervalo: d !== 0 ? '12:00' : null,
-    fim_intervalo: d !== 0 ? '13:00' : null,
-    saida: d !== 0 ? '17:00' : null,
-  }));
+  return [0, 1, 2, 3, 4, 5, 6].map((d) => {
+    const diaUtil = d >= 1 && d <= 5;
+    const sabado = d === 6;
+    return {
+      dia_semana: d,
+      trabalha: d !== 0,
+      entrada: d !== 0 ? '08:00' : null,
+      inicio_intervalo: diaUtil ? '12:00' : null,
+      fim_intervalo: diaUtil ? '14:00' : null,
+      saida: diaUtil ? '18:00' : sabado ? '12:00' : null,
+    };
+  });
 }
