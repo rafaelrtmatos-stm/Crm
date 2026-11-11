@@ -48,8 +48,9 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
  // Semana de pagamento do ponto: sempre o ciclo anterior ao exibido (ex.: ciclo 17/10 a 23/10, inclusive no sábado 24/10 -> ponto de 10/10 a 16/10).
  const pagamentoOffset=-1;
  const[weekOffset,setWeekOffset]=useState<number>(pagamentoOffset);
- const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => getDestinacaoExtras(colaboradorId));
+ const [destinacaoExtra, setDestinacaoExtra] = useState<'pagar' | 'folga'>(() => canEdit ? getDestinacaoExtras(colaboradorId) : 'pagar');
  const handleSetDestinacao = (val: 'pagar' | 'folga') => {
+   if (!canEdit) return;
    setDestinacaoExtra(val);
    setDestinacaoExtras(colaboradorId, val);
  };
@@ -252,11 +253,15 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
         )}
         <div className="flex items-center justify-between gap-2 pt-1">
           <span className="text-xs text-[var(--text-muted)]">Adicional de feriado e horas extras:</span>
-          <div className="flex gap-1">
-            {(['pagar','folga'] as const).map(v=>(
-              <button key={v} type="button" onClick={()=>handleSetDestinacao(v)} className={'px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer '+(destinacaoExtra===v?'bg-[var(--accent-red)] border-[var(--accent-red)] text-white':'bg-[var(--bg-card-sec)] border-[var(--border-color)] text-[var(--text-muted)]')}>{v==='pagar'?'Pagar':'Banco de horas'}</button>
-            ))}
-          </div>
+          {canEdit ? (
+            <div className="flex gap-1">
+              {(['pagar','folga'] as const).map(v=>(
+                <button key={v} type="button" onClick={()=>handleSetDestinacao(v)} className={'px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer '+(destinacaoExtra===v?'bg-[var(--accent-red)] border-[var(--accent-red)] text-white':'bg-[var(--bg-card-sec)] border-[var(--border-color)] text-[var(--text-muted)]')}>{v==='pagar'?'Pagar':'Banco de horas'}</button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-xs text-[var(--text-muted)]">{destinacaoExtra==='pagar'?'Pagamento':'Banco de horas (definido pelo administrador)'}</span>
+          )}
         </div>
         <div className="pt-2 border-t border-[var(--border-color)] flex justify-between text-base font-black">
           <span className="text-[var(--text-main)]">Total a Receber na Semana:</span>
