@@ -973,6 +973,7 @@ export function PontoApp() {
         <PontoImportModal
           funcs={funcs}
           colabs={colabs}
+          jornadas={jornadas}
           onClose={() => setImportOpen(false)}
           onFuncionarioCriado={carregar}
           onImportado={async () => {

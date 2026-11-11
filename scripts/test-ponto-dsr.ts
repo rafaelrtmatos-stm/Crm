@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { detectarAusenciaParcial, jornadaPadrao, minutosPrevistos, minutosTrabalhados, PontoJornada, PontoRegistro } from '../src/lib/pontoCalc';
 import { analisarSemanaPonto, calcularSalarioPonto, minutosDiferencaSemanaBanco } from '../src/comissoes/utils/salarioPonto';
 import { diaEspecial, diasEspeciaisDoAno, ehFeriado, pascoa, cadastrarDiasEspeciais } from '../src/lib/feriados';
+import { distribuirBatidas } from '../src/lib/pontoImport';
 
 let ok = 0;
 const t = (nome: string, fn: () => void) => { fn(); ok++; console.log('  ok -', nome); };
@@ -165,6 +166,20 @@ t('cadastro futuro: feriado/facultativo/folga abonada entram e prevalecem na dat
 t('facultativo sem dobra: semana 19-25/12 só dobra o Natal (24/12 trabalhado não conta)', () => {
   const { r } = calc('2026-12-19', semanaCheiaExceto('2026-12-19', []));
   assert.equal(r.extras.feriadosTrabalhados, 1);
+});
+
+console.log('Importação de batidas da tarde');
+const jornadaArlisson: PontoJornada = {
+  dia_semana: 2, trabalha: true, entrada: '08:30', inicio_intervalo: '12:00',
+  fim_intervalo: '14:00', saida: '18:30', vigente_desde: '2026-10-13',
+};
+t('primeira batida às 14h é retorno da tarde, não entrada', () => {
+  const r = distribuirBatidas(['14:00:24'], jornadaArlisson);
+  assert.equal(r.entrada, null); assert.equal(r.fim_intervalo, '14:00:24');
+});
+t('duas batidas após início da tarde ficam em retorno e saída', () => {
+  const r = distribuirBatidas(['14:17:42', '18:59:39'], jornadaArlisson);
+  assert.equal(r.entrada, null); assert.equal(r.fim_intervalo, '14:17:42'); assert.equal(r.saida, '18:59:39');
 });
 
 console.log('Jornada de 44h e banco sem débito automático');
