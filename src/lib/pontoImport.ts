@@ -7,7 +7,7 @@
 //     e tudo até a data de corte (último dia já importado daquele funcionário) também.
 //  3. Só entram dias NOVOS, depois da data de corte. Duplicidade nunca gera registro novo.
 //  4. ID sem funcionário cadastrado NÃO cria funcionário: fica "não identificado" até o admin associar.
-import { PONTO_DATA_INICIO } from './pontoCalc';
+import { jornadaDoDia, PONTO_DATA_INICIO, PontoJornada } from './pontoCalc';
 
 
 export interface Marcacao {
@@ -92,9 +92,16 @@ export interface Batidas {
  * 1 = entrada · 2 = entrada+saída · 3 = entrada+intervalo (saída fica faltando, o dia aparece em Ajustes) · 4 = completo.
  * Mais de 4: primeira = entrada, última = saída, 2ª e 3ª = intervalo, e fica anotado pra conferir.
  */
-export function distribuirBatidas(horas: string[]): Batidas {
+export function distribuirBatidas(horas: string[], jornada?: PontoJornada | null): Batidas {
   const v = (i: number) => horas[i] ?? null;
   const n = horas.length;
+  const fimManha = jornada?.trabalha ? jornada.fim_intervalo : null;
+  const limiteTarde = fimManha ? Number(fimManha.slice(0, 2)) * 60 + Number(fimManha.slice(3, 5)) - 10 : null;
+  const primeira = v(0) ? Number(v(0)!.slice(0, 2)) * 60 + Number(v(0)!.slice(3, 5)) : null;
+  // Primeira marcação no horário de retorno do almoço ou depois é retorno da tarde, nunca entrada do dia.
+  const comecouNaTarde = n > 0 && limiteTarde !== null && primeira !== null && primeira >= limiteTarde;
+  if (comecouNaTarde && n === 1) return { entrada: null, inicio_intervalo: null, fim_intervalo: v(0), saida: null, observacao: 'Primeira batida após o intervalo previsto: retorno da tarde; conferir falta da manhã.' };
+  if (comecouNaTarde && n === 2) return { entrada: null, inicio_intervalo: null, fim_intervalo: v(0), saida: v(1), observacao: 'Batidas somente no período da tarde; manhã sem registro.' };
   if (n === 1) return { entrada: v(0), inicio_intervalo: null, fim_intervalo: null, saida: null, observacao: null };
   if (n === 2) return { entrada: v(0), inicio_intervalo: null, fim_intervalo: null, saida: v(1), observacao: null };
   if (n === 3)
@@ -161,7 +168,8 @@ export function montarPlano(
   marcacoes: Marcacao[],
   funcs: FuncRef[],
   estados: Map<string, EstadoFuncionario>,
-  hoje: string
+  hoje: string,
+  jornadas: Array<PontoJornada & { funcionario_id: string }> = [],
 ): PlanoImportacao {
   const porNumero = new Map<string, FuncRef>();
   funcs.forEach((f) => porNumero.set(normalizarId(f.numero_relogio), f));
@@ -230,7 +238,8 @@ export function montarPlano(
         preservados++;
         continue;
       }
-      diasNovos.push({ funcionario_id: func.id, data, batidas: limpas.length, ...distribuirBatidas(limpas) });
+      const jornada = jornadaDoDia(jornadas.filter((j) => j.funcionario_id === func.id), data);
+      diasNovos.push({ funcionario_id: func.id, data, batidas: limpas.length, ...distribuirBatidas(limpas, jornada) });
     }
 
     ids.push({
