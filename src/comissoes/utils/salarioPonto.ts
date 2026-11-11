@@ -12,7 +12,7 @@
 //   o desconto da semana (`descontarDSR`, salvo em ponto_dsr_semanal); sem decisão salva vale a regra automática.
 // - Destinação das extras/adicional de feriado: 'pagar' (entra no salário) OU 'folga' (vai para o banco de horas).
 //   Nunca os dois: `minutosParaBanco` só é > 0 quando a destinação é 'folga'.
-import { analisarDia, AnaliseDia, AusenciaParcial, detectarAusenciaParcial, PontoJornada, PontoRegistro } from '../../lib/pontoCalc';
+import { analisarDia, AnaliseDia, AusenciaParcial, detectarAusenciaParcial, jornadaDoDia, PontoJornada, PontoRegistro } from '../../lib/pontoCalc';
 import { resumoExtras, detalheFeriado, ehFeriado, valorHora, valorDiaria, valorMinuto } from '../../lib/feriados';
 
 export type DestinacaoExtras = 'pagar' | 'folga';
@@ -68,7 +68,8 @@ export function analisarSemanaPonto(
     const data = new Date(startD.getTime() + i * 86400000).toISOString().split('T')[0];
     const dow = new Date(data + 'T12:00:00').getDay();
     const r = rMap.get(data);
-    const j = jornadas.find((jj) => jj.dia_semana === dow) || jornadas[0];
+    // Seleciona a versão da jornada vigente na data; não reutiliza uma escala antiga só porque veio primeiro do banco.
+    const j = jornadaDoDia(jornadas, data) || null;
     const a = analisarDia(r, j ?? null, data, hoje, tolerancia);
     const diaDeTrabalho = j ? !!j.trabalha : dow !== 0;
     const falta = a.status === 'ausente' && diaDeTrabalho && !ehFeriado(data);
