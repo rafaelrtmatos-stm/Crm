@@ -1,8 +1,8 @@
 // Testes das regras de DSR semanal / falta parcial / feriado do ponto. Rodar: npm test
 // (funções puras: não acessam Supabase; a gravação em ponto_dsr_semanal é só upsert por funcionário+semana).
 import assert from 'node:assert/strict';
-import { detectarAusenciaParcial, PontoJornada, PontoRegistro } from '../src/lib/pontoCalc';
-import { analisarSemanaPonto, calcularSalarioPonto } from '../src/comissoes/utils/salarioPonto';
+import { detectarAusenciaParcial, jornadaPadrao, minutosPrevistos, minutosTrabalhados, PontoJornada, PontoRegistro } from '../src/lib/pontoCalc';
+import { analisarSemanaPonto, calcularSalarioPonto, minutosDiferencaSemanaBanco } from '../src/comissoes/utils/salarioPonto';
 import { diaEspecial, diasEspeciaisDoAno, ehFeriado, pascoa, cadastrarDiasEspeciais } from '../src/lib/feriados';
 
 let ok = 0;
@@ -167,4 +167,30 @@ t('facultativo sem dobra: semana 19-25/12 só dobra o Natal (24/12 trabalhado n�
   assert.equal(r.extras.feriadosTrabalhados, 1);
 });
 
+console.log('Jornada de 44h e banco sem débito automático');
+t('jornada padrão de novo funcionário totaliza 44 horas semanais', () => {
+  const padrao = jornadaPadrao().map((j) => ({ ...j, vigente_desde: '2000-01-01' }));
+  assert.equal(padrao.reduce((s, j) => s + minutosPrevistos(j), 0), 44 * 60);
+});
+const jornada44: PontoJornada = {
+  dia_semana: 2, trabalha: true, entrada: '08:00', inicio_intervalo: '12:00',
+  fim_intervalo: '14:00', saida: '18:00', vigente_desde: '2026-01-01',
+};
+t('entrada às 13h é reconhecida como falta da manhã', () => {
+  const r = reg('2026-10-20', '13:00', null, null, '18:00');
+  assert.equal(detectarAusenciaParcial(r, jornada44, r.data, HOJE, TOL), 'manha');
+  assert.equal(minutosTrabalhados(r), 300);
+});
+t('entrada às 13h30 é reconhecida como falta da manhã', () => {
+  const r = reg('2026-10-20', '13:30', null, null, '18:00');
+  assert.equal(detectarAusenciaParcial(r, jornada44, r.data, HOJE, TOL), 'manha');
+  assert.equal(minutosTrabalhados(r), 270);
+});
+t('déficit por falta parcial não vira débito automático no banco', () => {
+  const dia = {
+    data: '2026-10-20', trabalhados: 300, previstos: 480, extra: 0,
+    falta: false, faltaParcial: 'manha' as const, jornadaTrabalha: true,
+  };
+  assert.equal(minutosDiferencaSemanaBanco([dia], 'folga', TOL, HOJE), 0);
+});
 console.log(`\n${ok} testes passaram`);

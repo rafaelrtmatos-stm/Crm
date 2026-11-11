@@ -438,9 +438,14 @@ export function JornadaEditorModal({
         return v === '00:00' ? '' : v;
       };
 
-      let ini = j && j.trabalha ? hSalvo(j.inicio_intervalo) : '12:00';
-      const fimInt = j && j.trabalha ? hSalvo(j.fim_intervalo) : '13:00';
-      let sai = j ? hSalvo(j.saida) : '17:00';
+      const ehDiaUtil = dow >= 1 && dow <= 5;
+      const entradaPadrao = '08:00';
+      const inicioIntervaloPadrao = ehDiaUtil ? '12:00' : '';
+      const fimIntervaloPadrao = ehDiaUtil ? '14:00' : '';
+      const saidaPadrao = ehDiaUtil ? '18:00' : dow === 6 ? '12:00' : '';
+      let ini = j && j.trabalha ? hSalvo(j.inicio_intervalo) : inicioIntervaloPadrao;
+      const fimInt = j && j.trabalha ? hSalvo(j.fim_intervalo) : fimIntervaloPadrao;
+      let sai = j && j.trabalha ? hSalvo(j.saida) : saidaPadrao;
       // Cadastro antigo sem almoço (entrada, 12:30 no início do intervalo, saída 00:00): o 12:30 é a saída.
       if (j && j.trabalha && !fimInt && !sai && ini) {
         sai = ini;
@@ -451,10 +456,10 @@ export function JornadaEditorModal({
         dow,
         nome,
         trabalha: j !== undefined ? j.trabalha : dow !== 0,
-        entrada: j ? hSalvo(j.entrada) || '08:00' : '08:00',
+        entrada: j ? hSalvo(j.entrada) || entradaPadrao : entradaPadrao,
         inicio_intervalo: ini,
         fim_intervalo: fimInt,
-        saida: sai || '17:00',
+        saida: sai || saidaPadrao,
       };
     })
   );
