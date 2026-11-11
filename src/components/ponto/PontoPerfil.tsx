@@ -122,10 +122,11 @@ export function PontoPerfil({
       .sort((a, b) => b.vigente_desde.localeCompare(a.vigente_desde));
     const j = cand[0];
     const trabalha = j !== undefined ? j.trabalha : d.dow !== 0;
-    const entrada = j?.entrada?.slice(0, 5) || (trabalha ? '08:00' : '—');
-    const inicio_intervalo = j?.inicio_intervalo?.slice(0, 5) || (trabalha ? '12:00' : '—');
-    const fim_intervalo = j?.fim_intervalo?.slice(0, 5) || (trabalha ? '13:00' : '—');
-    const saida = j?.saida?.slice(0, 5) || (trabalha ? '17:00' : '—');
+    const ehDiaUtil = d.dow >= 1 && d.dow <= 5;
+    const entrada = j ? (j.entrada?.slice(0, 5) || '—') : (trabalha ? '08:00' : '—');
+    const inicio_intervalo = j ? (j.inicio_intervalo?.slice(0, 5) || '—') : (trabalha && ehDiaUtil ? '12:00' : '—');
+    const fim_intervalo = j ? (j.fim_intervalo?.slice(0, 5) || '—') : (trabalha && ehDiaUtil ? '14:00' : '—');
+    const saida = j ? (j.saida?.slice(0, 5) || '—') : (trabalha ? (ehDiaUtil ? '18:00' : d.dow === 6 ? '12:00' : '—') : '—');
     const minDia = trabalha ? minutosTrabalhados({
       entrada: entrada !== '—' ? `${entrada}:00` : null,
       inicio_intervalo: inicio_intervalo !== '—' ? `${inicio_intervalo}:00` : null,
