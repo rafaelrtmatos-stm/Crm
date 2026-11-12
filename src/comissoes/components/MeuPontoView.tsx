@@ -12,6 +12,9 @@ import{salvarRegistroPonto}from'../../lib/pontoRegistroSalvar';
 import{buscarDecisaoDsr,buscarUltimaAlteracaoDsr,salvarDecisaoDsr}from'../../lib/pontoDsr';
 import{showAlert}from'../../lib/notify';
 import{useRealtimeReload}from'../../lib/useRealtimeReload';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
 
 const DsrControle:React.FC<{faltas:string[];desconta:boolean;automatico:boolean;valor:number;info:{alterado_por:string|null;alterado_em:string}|null;salvando:boolean;onChange:(v:boolean)=>void}>=({faltas,desconta,automatico,valor,info,salvando,onChange})=>(
   <div className={'rounded-xl border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 '+(desconta?'border-rose-500/30 bg-rose-500/10':'border-[var(--border-color)] bg-[var(--bg-card-sec)]')}>
@@ -281,112 +284,126 @@ export const MeuPontoView:React.FC<{colaboradorId:string;nome:string;salarioBase
       </span>
     </div>
 
-    {/* Tabela compacta com fonte menor para mobile e sem quebra de horários/números */}
-    <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-      <table className="w-full text-[11px] sm:text-xs whitespace-nowrap">
-        <thead>
-          <tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-color)]">
-            <th className="pb-2.5 font-bold uppercase tracking-wider pr-3">Dia</th>
-            <th className="pb-2.5 font-bold uppercase tracking-wider px-2">Entrada</th>
-            <th className="pb-2.5 font-bold uppercase tracking-wider px-2">Intervalo</th>
-            <th className="pb-2.5 font-bold uppercase tracking-wider px-2">Saída</th>
-            <th className="pb-2.5 font-bold uppercase tracking-wider px-2">Trabalhado</th>
-            <th className="pb-2.5 font-bold uppercase tracking-wider px-2">Saldo</th>
-            <th className="pb-2.5 font-bold uppercase tracking-wider px-2">Status</th>
-            {canEdit && <th className="pb-2.5 text-right font-bold uppercase tracking-wider pl-2">Editar</th>}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[var(--border-color)]">
-          {semana.map(d => {
-            const prevDia = minutosPrevistos(d.j);
-            const isFer = ehFeriado(d.data);
-            const saldoDia = isFer && d.a.trabalhados === 0 ? 0 : d.a.trabalhados - prevDia;
-            const isTrabalha = d.j?.trabalha;
-            const dow = new Date(d.data + 'T12:00:00').getDay();
+    {/* Lista de dias da semana em cards organizados (sem precisar rolar pro lado no mobile) */}
+    <div className="space-y-3">
+      {semana.map(d => {
+        const prevDia = minutosPrevistos(d.j);
+        const isFer = ehFeriado(d.data);
+        const saldoDia = isFer && d.a.trabalhados === 0 ? 0 : d.a.trabalhados - prevDia;
+        const isTrabalha = d.j?.trabalha;
+        const dow = new Date(d.data + 'T12:00:00').getDay();
+        const dataFmt = new Date(d.data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+        
+        return (
+          <React.Fragment key={d.data}>
+            {canEdit && d.data === primeiroDiaFalta && (
+              <div className="mb-2">
+                <DsrControle faltas={faltasDescricao} desconta={sal.dsrDesconta} automatico={dsrDecisao===null} valor={descontoDSR} info={dsrInfo} podeEditar={canEdit} salvando={dsrSalvando} onChange={alterarDsr}/>
+              </div>
+            )}
             
-            return (
-              <React.Fragment key={d.data}>
-                {canEdit && d.data === primeiroDiaFalta && (
-                  <tr>
-                    <td colSpan={canEdit ? 8 : 7} className="py-2.5">
-                      <DsrControle faltas={faltasDescricao} desconta={sal.dsrDesconta} automatico={dsrDecisao===null} valor={descontoDSR} info={dsrInfo} podeEditar={canEdit} salvando={dsrSalvando} onChange={alterarDsr}/>
-                    </td>
-                  </tr>
-                )}
-                <tr className="hover:bg-white/[0.02] transition-colors">
-                  <td className="py-3 font-bold pr-3">
-                    {new Date(d.data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                    {d.r?.editado_manual && <span title="Editado manualmente" className="ml-1 text-emerald-400">✎</span>}
-                  </td>
-                  <td className="py-3 font-mono text-[var(--text-main)] px-2">{hhmm(d.r?.entrada)}</td>
-                  <td className="py-3 font-mono text-[var(--text-muted)] px-2">{hhmm(d.r?.inicio_intervalo)} — {hhmm(d.r?.fim_intervalo)}</td>
-                  <td className="py-3 font-mono text-[var(--text-main)] px-2">{hhmm(d.r?.saida)}</td>
-                  <td className="py-3 font-mono font-bold text-[var(--text-main)] px-2">{fmtHM(d.a.trabalhados)}</td>
-                  <td className="py-3 font-mono font-bold px-2">
-                    {isTrabalha ? (
-                      <span className={saldoDia < 0 ? 'text-rose-400' : saldoDia > 0 ? 'text-emerald-400' : 'text-[var(--text-muted)]'}>
-                        {saldoDia > 0 ? `+${fmtHM(saldoDia)}` : saldoDia < 0 ? fmtHM(saldoDia) : '0h 00min'}
-                      </span>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">Folga</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-2">
-                    {(() => {
-                      if (dow === 0 && sal.dsrDesconta) return <span className="text-rose-400 font-semibold">Folga perdida por falta (DSR)</span>;
-                      if (dow === 0 && sal.dsrAplicavel) return <span className="text-emerald-400 font-semibold">Folga mantida (sem desconto)</span>;
-                      if (d.dia.faltaParcial) return <span className="text-rose-400 font-semibold">Falta parcial ({d.dia.faltaParcial === 'manha' ? 'manhã' : 'tarde'})</span>;
-                      if (d.dia.falta) return <span className="text-rose-400 font-bold">Falta injustificada</span>;
-                      const x = diaEspecial(d.data);
-                      if (!x) return <span className="text-[var(--text-muted)] capitalize">{d.a.status}</span>;
-                      return d.a.trabalhados === 0 ? (
-                        <span className="text-amber-400 font-semibold">{x.tipo === 'feriado' ? 'Feriado' : 'Facultativo'} · {x.nome}</span>
-                      ) : (
-                        <span className="text-emerald-400 font-semibold">{d.a.status} · {x.tipo === 'feriado' ? 'dobro' : 'facultativo'}</span>
-                      );
-                    })()}
-                  </td>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2.5 hover:border-white/20 transition-all">
+              {/* Cabeçalho do Dia */}
+              <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <span className="font-black text-xs uppercase text-white tracking-wider">{dataFmt}</span>
+                  {d.r?.editado_manual && <span title="Editado manualmente" className="text-[10px] text-emerald-400 font-bold">✎ Manual</span>}
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <span className="text-[10px] text-white/50 block font-bold">Trabalhado / Saldo</span>
+                    <span className="text-xs font-mono font-black text-white">{fmtHM(d.a.trabalhados)}</span>
+                    <span className={cn("text-[10px] font-mono font-bold ml-1.5", saldoDia < 0 ? 'text-rose-400' : saldoDia > 0 ? 'text-emerald-400' : 'text-white/50')}>
+                      ({saldoDia > 0 ? `+${fmtHM(saldoDia)}` : saldoDia < 0 ? fmtHM(saldoDia) : '0h'})
+                    </span>
+                  </div>
+                  
                   {canEdit && (
-                    <td className="py-3 text-right pl-2">
-                      <button
-                        type="button"
-                        title="Editar registro"
-                        onClick={() => setEditReg({ funcionario_id: func.id, data: d.data, reg: d.r || null })}
-                        className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-emerald-400 hover:bg-[var(--bg-card-sec)] cursor-pointer transition-colors"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
+                    <button
+                      type="button"
+                      title="Editar registro"
+                      onClick={() => setEditReg({ funcionario_id: func.id, data: d.data, reg: d.r || null })}
+                      className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-emerald-400 cursor-pointer transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                   )}
-                </tr>
-              </React.Fragment>
+                </div>
+              </div>
+
+              {/* Turnos Separados: Manhã e Tarde */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                {/* Manhã */}
+                <div className="bg-white/[0.03] border border-white/5 rounded-xl p-2 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Manhã</span>
+                  <div className="flex items-center gap-2 text-white/90">
+                    <span>Entrada: <strong className="text-white">{hhmm(d.r?.entrada)}</strong></span>
+                    <span>→</span>
+                    <span>Almoço: <strong className="text-white">{hhmm(d.r?.inicio_intervalo)}</strong></span>
+                  </div>
+                </div>
+
+                {/* Tarde */}
+                <div className="bg-white/[0.03] border border-white/5 rounded-xl p-2 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Tarde</span>
+                  <div className="flex items-center gap-2 text-white/90">
+                    <span>Retorno: <strong className="text-white">{hhmm(d.r?.fim_intervalo)}</strong></span>
+                    <span>→</span>
+                    <span>Saída: <strong className="text-white">{hhmm(d.r?.saida)}</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status do Dia */}
+              <div className="flex items-center justify-between text-[11px] pt-1">
+                <span className="text-white/50 font-bold">Status:</span>
+                <span className="font-semibold">
+                  {(() => {
+                    if (dow === 0 && sal.dsrDesconta) return <span className="text-rose-400">Folga perdida por falta (DSR)</span>;
+                    if (dow === 0 && sal.dsrAplicavel) return <span className="text-emerald-400">Folga mantida (sem desconto)</span>;
+                    if (d.dia.faltaParcial) return <span className="text-rose-400">Falta parcial ({d.dia.faltaParcial === 'manha' ? 'manhã' : 'tarde'})</span>;
+                    if (d.dia.falta) return <span className="text-rose-400 font-bold">Falta injustificada</span>;
+                    const x = diaEspecial(d.data);
+                    if (!x) return <span className="text-white/75 capitalize">{d.a.status}</span>;
+                    return d.a.trabalhados === 0 ? (
+                      <span className="text-amber-400">{x.tipo === 'feriado' ? 'Feriado' : 'Facultativo'} · {x.nome}</span>
+                    ) : (
+                      <span className="text-emerald-400">{d.a.status} · {x.tipo === 'feriado' ? 'dobro' : 'facultativo'}</span>
+                    );
+                  })()}
+                </span>
+              </div>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+
+    {/* Rodapé Total da Semana */}
+    <div className="mt-4 p-3.5 rounded-2xl bg-[var(--bg-card-sec)] border border-[var(--border-color)] flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <span className="text-[10px] text-white/50 uppercase font-bold block">Resumo Acumulado</span>
+        <span className="text-xs font-black text-white uppercase tracking-wider">Total da Semana</span>
+      </div>
+      
+      <div className="flex items-center gap-4 text-xs font-mono font-black">
+        <div>
+          <span className="text-[10px] text-white/50 block font-bold text-right">Trabalhado</span>
+          <span className="text-emerald-400 text-sm">{fmtHM(horas)}</span>
+        </div>
+        <div>
+          <span className="text-[10px] text-white/50 block font-bold text-right">Saldo Geral</span>
+          {(() => {
+            const saldoSemana = horas - prev;
+            return (
+              <span className={cn("text-sm", saldoSemana < 0 ? 'text-rose-400' : saldoSemana > 0 ? 'text-emerald-400' : 'text-white/50')}>
+                {saldoSemana > 0 ? `+${fmtHM(saldoSemana)}` : saldoSemana < 0 ? fmtHM(saldoSemana) : '0h 00min'}
+              </span>
             );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-[var(--border-color)] bg-[var(--bg-card-sec)]/50 font-bold">
-            <td colSpan={4} className="py-3 px-3 uppercase text-[var(--text-main)] font-black text-xs">
-              Total da Semana:
-            </td>
-            <td className="py-3 font-mono text-emerald-400 font-black text-xs px-2">
-              {fmtHM(horas)}
-            </td>
-            <td className="py-3 font-mono font-black text-xs px-2">
-              {(() => {
-                const saldoSemana = horas - prev;
-                return (
-                  <span className={saldoSemana < 0 ? 'text-rose-400' : saldoSemana > 0 ? 'text-emerald-400' : 'text-[var(--text-muted)]'}>
-                    {saldoSemana > 0 ? `+${fmtHM(saldoSemana)}` : saldoSemana < 0 ? fmtHM(saldoSemana) : '0h 00min'}
-                  </span>
-                );
-              })()}
-            </td>
-            <td colSpan={canEdit ? 2 : 1} className="py-3 text-right text-[var(--text-muted)] font-normal text-[10px] px-2">
-              Meta: {fmtHM(prev)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+          })()}
+        </div>
+      </div>
     </div>
   </div>
   

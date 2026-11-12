@@ -1598,35 +1598,50 @@ export const POSModule = ({ currentCompany, addPendingOrder }: POSModuleProps) =
             {/* Products Grid */}
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                {filteredProducts.map(product => (
-                  <div
-                    key={product.id}
-                    onClick={() => handleAddProductToCart(product)}
-                    className="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-primary-500/40 rounded-2xl p-3 cursor-pointer transition-all flex flex-col justify-between group active:scale-95"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[9px] font-mono text-white/40 uppercase truncate">
-                          {product.code || product.category || 'ITEM'}
+                {filteredProducts.map(product => {
+                  const inCartIndex = cart.findIndex(ci => ci.product.id === product.id);
+                  const isInCart = inCartIndex >= 0;
+                  return (
+                    <div
+                      key={product.id}
+                      onClick={() => {
+                        if (isInCart) {
+                          setCart(cart.filter((_, idx) => idx !== inCartIndex));
+                        } else {
+                          handleAddProductToCart(product);
+                        }
+                      }}
+                      className={cn(
+                        "border rounded-2xl p-3 cursor-pointer transition-all flex flex-col justify-between group active:scale-95",
+                        isInCart
+                          ? "bg-primary-950/25 border-primary-500/40 opacity-50 hover:opacity-80"
+                          : "bg-white/5 hover:bg-white/10 border-white/10 hover:border-primary-500/40"
+                      )}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={cn("text-[9px] font-mono uppercase truncate", isInCart ? "text-primary-300 font-bold" : "text-white/40")}>
+                            {isInCart ? '✓ Adicionado' : (product.code || product.category || 'ITEM')}
+                          </span>
+                          <span className="text-[9px] font-black text-primary-400 bg-primary-500/10 px-1.5 py-0.5 rounded">
+                            {product.unitType === 'm2' ? 'm²' : product.unitType === 'metro' ? 'm' : 'un'}
+                          </span>
+                        </div>
+                        <h4 className={cn("text-xs font-bold line-clamp-2 leading-snug", isInCart ? "text-white/80" : "text-white group-hover:text-primary-300")}>
+                          {product.name}
+                        </h4>
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between">
+                        <span className="text-xs font-black text-emerald-400 font-mono">
+                          R$ {product.price.toFixed(2)}
                         </span>
-                        <span className="text-[9px] font-black text-primary-400 bg-primary-500/10 px-1.5 py-0.5 rounded">
-                          {product.unitType === 'm2' ? 'm²' : product.unitType === 'metro' ? 'm' : 'un'}
+                        <span className={cn("text-[10px] font-bold", isInCart ? "text-rose-400" : "text-white/40")}>
+                          {isInCart ? 'Remover' : (product.stock !== undefined ? `${product.stock} em est.` : '')}
                         </span>
                       </div>
-                      <h4 className="text-xs font-bold text-white group-hover:text-primary-300 line-clamp-2 leading-snug">
-                        {product.name}
-                      </h4>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between">
-                      <span className="text-xs font-black text-emerald-400 font-mono">
-                        R$ {product.price.toFixed(2)}
-                      </span>
-                      <span className="text-[10px] text-white/40 font-bold">
-                        {product.stock !== undefined ? `${product.stock} em est.` : ''}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

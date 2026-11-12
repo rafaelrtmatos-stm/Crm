@@ -18,8 +18,8 @@ const SUPABASE_ANON_KEY = (typeof import.meta !== 'undefined' && import.meta.env
  * mais folga. Upload/download de arquivos (storage) e funcoes ficam sem limite: podem demorar de
  * verdade e nao fazem parte do fluxo de venda.
  */
-export const LIMITE_ESCRITA_MS = 10_000;
-export const LIMITE_LEITURA_MS = 30_000;
+export const LIMITE_ESCRITA_MS = 25_000;
+export const LIMITE_LEITURA_MS = 60_000;
 
 export function criarFetchComTempoLimite(
   limiteEscritaMs: number = LIMITE_ESCRITA_MS,
