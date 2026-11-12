@@ -202,7 +202,10 @@ export function minutosDiferencaSemanaBanco(
     if (d.data > hoje) return s;
     // Feriado: nunca gera débito (faltou = abonado). Se o adicional for para o banco, entra como crédito.
     const fer = detalheFeriado({ data: d.data, trabalhados: d.trabalhados, previstos: d.previstos, extra: d.extra }, tolerancia);
-    if (fer) return s + (paga ? 0 : fer.adicionalMin + fer.extraAlemMin);
+    if (fer) {
+      if (!fer.trabalhou) return s; // Feriado sem batida (abonado) não gera débito nenhum
+      return s + (paga ? 0 : fer.adicionalMin + fer.extraAlemMin);
+    }
     if (d.jornadaTrabalha) {
       const diff = d.trabalhados - d.previstos;
       // Se trabalhou menos que o previsto, gera déficit (negativo). Se trabalhou mais e é para pagar, desconta as extras pagas em dinheiro.
