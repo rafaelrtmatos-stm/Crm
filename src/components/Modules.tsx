@@ -7129,11 +7129,22 @@ export const ChatPanel = ({
     const phoneDigits = (conversation.phone || '').replace(/\D/g, '');
     if (!phoneDigits) { setPresence(null); return; }
 
-    fetch('/api/whatsapp-presence-subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
-      body: JSON.stringify({ phone: phoneDigits }),
-    }).catch((err) => console.warn('Falha ao assinar presença (não impede o resto):', err));
+    // No máximo 1 inscrição por número a cada 30 min nesta aba. Antes disparava a cada abertura de
+    // conversa e gastava chamadas (e logs) da Vercel à toa.
+    let deveAssinar = true;
+    try {
+      const chave = `presSub:${phoneDigits}`;
+      const ultimo = Number(sessionStorage.getItem(chave) || 0);
+      if (Date.now() - ultimo < 30 * 60 * 1000) deveAssinar = false;
+      else sessionStorage.setItem(chave, String(Date.now()));
+    } catch { /* sem storage disponível: assina normalmente */ }
+    if (deveAssinar) {
+      fetch('/api/whatsapp-presence-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user?.id || '' },
+        body: JSON.stringify({ phone: phoneDigits }),
+      }).catch((err) => console.warn('Falha ao assinar presença (não impede o resto):', err));
+    }
 
     const loadPresence = async () => {
       const { data } = await supabase.from('whatsapp_presence').select('status,last_seen_at')

@@ -163,6 +163,29 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
     }
   };
 
+  // Reconectar: desconecta o numero e deixa o QR novo aparecer na propria tela do CRM, sem precisar
+  // abrir o painel da Evolution. Ao virar 'close', o useEffect abaixo (whatsappConectado = false)
+  // busca o QR UMA vez e passa a renovar a cada 15s — por isso nao chamamos buscarQrCode aqui.
+  const handleReconectar = async () => {
+    if (!(await showConfirm('Reconectar o WhatsApp? O número vai ser desconectado e você precisa escanear o QR Code que vai aparecer aqui, com o celular na mão.'))) return;
+    setQrError(null);
+    setDesconectando(true);
+    try {
+      const resp = await fetch('/api/whatsapp-connect', { method: 'DELETE', headers: { 'x-user-id': user?.id || '' } });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setQrError(data.error || 'Não foi possível desconectar para reconectar.');
+        return;
+      }
+      setQrCode(null);
+      setWhatsappStatus('close');
+    } catch (err) {
+      setQrError('Falha de conexão ao tentar reconectar.');
+    } finally {
+      setDesconectando(false);
+    }
+  };
+
   const [qrError, setQrError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -429,6 +452,13 @@ export const IntegracoesModule = ({ currentCompany, user }: { currentCompany: Co
                   </button>
                 )}
 
+                <button
+                  onClick={handleReconectar}
+                  disabled={desconectando}
+                  className="text-[11px] font-black uppercase tracking-widest text-amber-400 hover:text-amber-300 disabled:opacity-50 mx-auto block pt-2"
+                >
+                  {desconectando ? 'Aguarde...' : 'Reconectar (gerar novo QR Code)'}
+                </button>
                 <button
                   onClick={handleDesconectar}
                   disabled={desconectando}

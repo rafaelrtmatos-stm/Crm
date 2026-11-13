@@ -116,6 +116,7 @@ import { MateriasPrimasModule } from './components/MateriasPrimasModule';
 import { MaquinasModule } from './components/MaquinasModule';
 import { DespesasFixasModule } from './components/DespesasFixasModule';
 import { PontoApp } from './components/ponto/PontoApp';
+import { AvisoSemMensagens } from './components/AvisoSemMensagens';
 import { FINANCEIRO_TABS, canSeeFinanceiroTab } from './lib/financeiroTabs';
 import { SEM_CRM_MESSAGES } from './lib/flags';
 import { normalizarTelefoneBR, variantesTelefoneBR, chaveDoContato, nomeEhPlaceholder } from './lib/phone';
@@ -3214,6 +3215,7 @@ export default function App() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
           <Navbar />
+          <AvisoSemMensagens />
           <div className={cn("flex-1 custom-scrollbar", (effectiveTab === 'pos' || effectiveTab === 'crm') ? "px-1.5 pt-0.5 pb-1 sm:px-2.5 sm:pt-1 sm:pb-1.5 overflow-hidden flex flex-col min-h-0" : "p-4 md:p-8 overflow-y-auto")}>
             <div className={cn((effectiveTab === 'pos' || effectiveTab === 'crm') ? "max-w-full h-full flex flex-col min-h-0" : "max-w-7xl mx-auto")}>
               <AnimatePresence mode="wait">
