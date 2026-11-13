@@ -115,27 +115,52 @@ export default async function handler(req, res) {
       // Todos os eventos que o api/whatsapp-webhook.js realmente trata (antes só iam 2 e o resto sumia).
       events: ['MESSAGES_UPSERT', 'SEND_MESSAGE', 'CONNECTION_UPDATE', 'MESSAGES_UPDATE', 'MESSAGES_EDITED', 'PRESENCE_UPDATE', 'GROUPS_UPSERT', 'GROUP_UPDATE'],
     };
-    await fetch(`${EVOLUTION_API_URL}/instance/create`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        instanceName: INSTANCE_NAME,
-        qrcode: true,
-        integration: 'WHATSAPP-BAILEYS',
-        webhook: webhookConfig,
-      }),
-    }).catch(() => {}); // se ja existir, tudo bem, so segue pro passo 1.5
+    // 0) Estado real da instancia. Se ja esta conectada, nao mexe em nada (nem create, nem webhook,
+    // nem connect): o modal do CRM chama este fluxo a cada 15s enquanto o QR esta na tela, e repetir
+    // create/webhook/connect durante o pareamento podia abrir uma 2a conexao e deixar a sessao
+    // "conectada mas sem receber".
+    const stateRes0 = await fetch(`${EVOLUTION_API_URL}/instance/connectionState/${INSTANCE_NAME}`, { headers }).catch(() => null);
+    const stateText0 = stateRes0 ? await stateRes0.text().catch(() => '') : '';
+    let state0 = null;
+    try { const j0 = JSON.parse(stateText0); state0 = j0?.instance?.state || j0?.state || null; } catch { /* resposta nao-JSON */ }
+    if (state0 === 'open') {
+      res.status(200).json({ qrCode: null, status: 'open' });
+      return;
+    }
+    const instanciaNaoExiste = !!stateRes0 && (stateRes0.status === 404 || /does not exist/i.test(stateText0));
 
-    // 1.5) Garante o webhook configurado MESMO se a instancia ja existia de antes (o passo 1
-    // acima so configura o webhook na CRIACAO — se a instancia foi criada antes dessa
-    // configuracao existir, ou criada manualmente sem webhook, ela ficava "muda" pro CRM,
-    // recebendo mensagem normal mas nunca avisando a gente). Roda sempre, sem depender do
-    // resultado do passo 1.
-    await fetch(`${EVOLUTION_API_URL}/webhook/set/${INSTANCE_NAME}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ webhook: { ...webhookConfig, enabled: true } }),
-    }).catch((err) => console.error('Falha ao configurar webhook (instancia pode ja ter, ou API antiga):', err));
+    // 1) So cria a instancia se ela realmente NAO existe (antes tentava criar a cada chamada)
+    if (instanciaNaoExiste) {
+      await fetch(`${EVOLUTION_API_URL}/instance/create`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          instanceName: INSTANCE_NAME,
+          qrcode: true,
+          integration: 'WHATSAPP-BAILEYS',
+          webhook: webhookConfig,
+        }),
+      }).catch((err) => console.error('Falha ao criar instancia:', err));
+    }
+
+    // 1.5) So regrava o webhook se ele estiver diferente do esperado, desabilitado, ou se nao deu
+    // pra consultar (antes regravava a cada chamada, inclusive durante o pareamento do QR).
+    let webhookOk = false;
+    try {
+      const wr = await fetch(`${EVOLUTION_API_URL}/webhook/find/${INSTANCE_NAME}`, { headers });
+      if (wr.ok) {
+        const w = await wr.json().catch(() => null);
+        const cfg = w?.webhook || w;
+        webhookOk = !!cfg && cfg.enabled !== false && cfg.url === webhookConfig.url;
+      }
+    } catch { /* se a consulta falhar, regrava abaixo */ }
+    if (!webhookOk) {
+      await fetch(`${EVOLUTION_API_URL}/webhook/set/${INSTANCE_NAME}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ webhook: { ...webhookConfig, enabled: true } }),
+      }).catch((err) => console.error('Falha ao configurar webhook (instancia pode ja ter, ou API antiga):', err));
+    }
 
     // 2) Busca o QR Code atual da instancia
     const qrRes = await fetch(`${EVOLUTION_API_URL}/instance/connect/${INSTANCE_NAME}`, { headers });
