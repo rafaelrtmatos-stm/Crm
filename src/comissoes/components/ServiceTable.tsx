@@ -20,12 +20,15 @@ import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
 import { getTodayISO } from '../utils/dateHelpers';
 import { getWorkWeekBounds } from '../utils/caixaSemanalStorage';
 import { useEtiquetasNotas } from '../utils/useEtiquetasNotas';
+import { detectarServicosDuplicados } from '../utils/duplicadas';
 
 interface ServiceTableProps {
   services: ServiceItem[];
   baseSalary: number;
   onEditService: (service: ServiceItem) => void;
   onDeleteService: (id: string) => void;
+  // Exclui em lote os serviços duplicados marcados (mesma nota + mesmo item lançados mais de uma vez).
+  onDeleteDuplicates?: (ids: string[]) => void | Promise<void>;
   onOpenAddModal: () => void;
   canEdit?: boolean;
   // Id de um serviço específico pra rolar até a linha dele e destacar -- usado quando
@@ -39,11 +42,42 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
   baseSalary,
   onEditService,
   onDeleteService,
+  onDeleteDuplicates,
   onOpenAddModal,
   highlightServiceId,
   canEdit = true,
 }) => {
   const etiquetasPorNota = useEtiquetasNotas(services.map(sv => sv.origemNotaId));
+
+  // Duplicadas: mesma nota + mesmo item lançados mais de uma vez (a mais antiga é a original).
+  const { duplicadasIds, extrasIds } = useMemo(() => detectarServicosDuplicados(services), [services]);
+
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [excluindoDup, setExcluindoDup] = useState(false);
+  // Se um serviço sair da lista (excluído), tira da seleção.
+  useEffect(() => {
+    setSelecionados((prev) => {
+      const validos = new Set(Array.from(prev).filter((id) => duplicadasIds.has(id)));
+      return validos.size === prev.size ? prev : validos;
+    });
+  }, [duplicadasIds]);
+  const podeExcluirDup = !!onDeleteDuplicates && canEdit;
+  const toggleSelecionado = (id: string) =>
+    setSelecionados((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  const handleExcluirSelecionados = async () => {
+    if (!onDeleteDuplicates || selecionados.size === 0) return;
+    setExcluindoDup(true);
+    try {
+      await onDeleteDuplicates(Array.from(selecionados));
+      setSelecionados(new Set());
+    } finally {
+      setExcluindoDup(false);
+    }
+  };
 
   const [filters, setFilters] = useState<FilterOptions>({
     dateRange: 'all',
@@ -124,6 +158,15 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
       return 0;
     });
   }, [services, filters, weekBounds, sortField, sortOrder]);
+
+  const extrasVisiveis = useMemo(
+    () => filteredServices.filter((sv) => extrasIds.has(sv.id)).map((sv) => sv.id),
+    [filteredServices, extrasIds]
+  );
+  const duplicadasVisiveis = useMemo(
+    () => filteredServices.filter((sv) => duplicadasIds.has(sv.id)).length,
+    [filteredServices, duplicadasIds]
+  );
 
   // Totals calculations for filtered view
   const totals = useMemo(() => {
@@ -335,6 +378,53 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
         </div>
       </div>
 
+      {duplicadasIds.size > 0 && (
+        <div className="p-4 rounded-2xl bg-red-950/30 border border-red-500/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <p className="font-black text-red-300 uppercase tracking-wide">
+                Serviços duplicados: {extrasIds.size} {extrasIds.size === 1 ? 'linha a mais' : 'linhas a mais'}
+              </p>
+              <p className="text-red-200/80 mt-0.5">
+                Mesma nota e mesmo item lançados mais de uma vez (em vermelho). A mais antiga é a original e fica; as demais estão marcadas como DUPLICADA.
+                {duplicadasVisiveis === 0 ? ' Nenhuma aparece neste filtro — use "Todos" para ver.' : ''}
+              </p>
+            </div>
+          </div>
+          {podeExcluirDup && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelecionados(new Set(extrasVisiveis))}
+                disabled={extrasVisiveis.length === 0}
+                className="px-3 py-2 rounded-xl border border-red-500/50 bg-red-950/40 text-xs font-bold text-red-300 hover:bg-red-900/40 disabled:opacity-40 cursor-pointer"
+              >
+                Selecionar todas as duplicadas ({extrasVisiveis.length})
+              </button>
+              {selecionados.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelecionados(new Set())}
+                  className="px-3 py-2 rounded-xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-muted)] hover:text-white cursor-pointer"
+                >
+                  Limpar seleção
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleExcluirSelecionados}
+                disabled={selecionados.size === 0 || excluindoDup}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 text-white text-xs font-black disabled:opacity-40 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {excluindoDup ? 'Excluindo...' : `Excluir selecionadas (${selecionados.size})`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <>
       {/* Desktop Spreadsheet Table View */}
       <div className="hidden md:block overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
@@ -343,6 +433,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             {/* Header with Vibrant Red Gradient */}
             <thead>
               <tr className="bg-gradient-red text-white text-xs font-black uppercase tracking-wider">
+                {podeExcluirDup && duplicadasIds.size > 0 && <th className="py-4 px-3 border-r border-red-700/50 w-10"></th>}
                 <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[120px]">Data / Hora</th>
                 <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[180px]">Cliente / Etiqueta</th>
                 <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[140px]">Veículo / Detalhe</th>
@@ -359,7 +450,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             <tbody className="divide-y divide-[var(--border-color)] text-sm font-medium">
               {filteredServices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-[var(--text-muted)]">
+                  <td colSpan={10} className="py-12 text-center text-[var(--text-muted)]">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 text-[var(--accent-red)] opacity-50" />
                     <p className="font-bold text-sm">Nenhum serviço encontrado</p>
                     <p className="text-xs mt-1">Tente ajustar seus filtros ou adicione um novo serviço.</p>
@@ -372,8 +463,21 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                     ref={(el) => { rowRefs.current[item.id] = el; }}
                     className={`hover:bg-[var(--bg-card-hover)] transition-colors group ${
                       activeHighlightId === item.id ? 'bg-[var(--accent-red)]/15 ring-2 ring-inset ring-[var(--accent-red)]' : ''
-                    }`}
+                    } ${duplicadasIds.has(item.id) ? 'bg-red-600/15 ring-1 ring-inset ring-red-500/60' : ''}`}
                   >
+                    {podeExcluirDup && duplicadasIds.size > 0 && (
+                      <td className="py-3.5 px-3 text-center">
+                        {duplicadasIds.has(item.id) && (
+                          <input
+                            type="checkbox"
+                            checked={selecionados.has(item.id)}
+                            onChange={() => toggleSelecionado(item.id)}
+                            className="w-4 h-4 accent-red-600 cursor-pointer"
+                            title="Selecionar para excluir"
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className="py-3.5 px-4 font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">
                       {formatDateBR(item.date)}
                       {item.createdAt && (
@@ -397,6 +501,11 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                     </td>
 
                     <td className="py-3.5 px-4 font-semibold text-[var(--text-main)] min-w-[220px]">
+                      {duplicadasIds.has(item.id) && (
+                        <span className={`inline-block mr-2 mb-0.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${extrasIds.has(item.id) ? 'bg-red-600 text-white' : 'bg-red-950/60 text-red-300 border border-red-500/40'}`}>
+                          {extrasIds.has(item.id) ? 'Duplicada' : 'Original (mais antiga)'}
+                        </span>
+                      )}
                       {item.serviceType}
                       {item.unit && item.quantity ? (
                         <span className="block text-[10px] text-[var(--text-muted)] font-mono font-normal">
@@ -432,7 +541,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                         </button>}
 
                         {canEdit && <button
-                          onClick={() => onDeleteService(item.id)}
+                          onClick={() => (extrasIds.has(item.id) && onDeleteDuplicates ? onDeleteDuplicates([item.id]) : onDeleteService(item.id))}
                           className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
                           title="Excluir Serviço"
                         >
@@ -448,7 +557,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             {/* Totals Spreadsheet Summary Footer */}
             <tfoot>
               <tr className="bg-[var(--bg-card-sec)] border-t-2 border-[var(--accent-red)] font-black text-sm">
-                <td colSpan={4} className="py-4 px-4 uppercase text-xs tracking-wider text-[var(--text-main)]">
+                <td colSpan={podeExcluirDup && duplicadasIds.size > 0 ? 5 : 4} className="py-4 px-4 uppercase text-xs tracking-wider text-[var(--text-main)]">
                   TOTALIZADOR DE PRODUÇÃO E COMISSÃO
                 </td>
 
@@ -485,10 +594,30 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             <div
               key={item.id}
               ref={(el) => { rowRefs.current[item.id] = el; }}
-              className={`p-4 rounded-2xl bg-[var(--bg-card)] border space-y-3 shadow-sm transition-colors ${
-                activeHighlightId === item.id ? 'border-[var(--accent-red)] ring-2 ring-[var(--accent-red)]' : 'border-[var(--border-color)]'
+              className={`p-4 rounded-2xl border space-y-3 shadow-sm transition-colors ${
+                duplicadasIds.has(item.id) ? 'bg-red-600/15 border-red-500/60' : 'bg-[var(--bg-card)]'
+              } ${
+                activeHighlightId === item.id ? 'border-[var(--accent-red)] ring-2 ring-[var(--accent-red)]' : duplicadasIds.has(item.id) ? '' : 'border-[var(--border-color)]'
               }`}
             >
+              {duplicadasIds.has(item.id) && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${extrasIds.has(item.id) ? 'bg-red-600 text-white' : 'bg-red-950/60 text-red-300 border border-red-500/40'}`}>
+                    {extrasIds.has(item.id) ? 'Duplicada' : 'Original (mais antiga)'}
+                  </span>
+                  {podeExcluirDup && (
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-red-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selecionados.has(item.id)}
+                        onChange={() => toggleSelecionado(item.id)}
+                        className="w-4 h-4 accent-red-600"
+                      />
+                      Selecionar
+                    </label>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2.5">
                 <div>
                   <span className="text-[10px] font-mono text-[var(--text-muted)] block">
@@ -544,7 +673,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                 </button>}
 
                 {canEdit && <button
-                  onClick={() => onDeleteService(item.id)}
+                  onClick={() => (extrasIds.has(item.id) && onDeleteDuplicates ? onDeleteDuplicates([item.id]) : onDeleteService(item.id))}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-500/20 bg-red-950/20 text-xs font-bold text-red-400"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Excluir

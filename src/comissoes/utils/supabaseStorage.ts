@@ -224,6 +224,34 @@ export async function getItensJaAdicionadosDeNotas(notaIds: string[], colaborado
   return mapa;
 }
 
+// Itens de notas que estão lançados MAIS DE UMA VEZ na comissão (duplicados): notaId -> { índice: qtd }.
+export async function getItensDuplicadosDeNotas(notaIds: string[], colaboradorId?: string): Promise<Record<string, Record<number, number>>> {
+  const resultado: Record<string, Record<number, number>> = {};
+  if (notaIds.length === 0) return resultado;
+  let query = supabase
+    .from('comissoes_servicos')
+    .select('origem_nota_id, origem_item_index, colaborador_id')
+    .in('origem_nota_id', notaIds)
+    .is('deleted_at', null)
+    .neq('status', 'CANCELADO')
+    .not('origem_item_index', 'is', null);
+  if (colaboradorId) query = query.eq('colaborador_id', colaboradorId);
+  const { data, error } = await query;
+  if (error || !data) return resultado;
+  const contagem: Record<string, number> = {};
+  data.forEach((r: { origem_nota_id: string; origem_item_index: number; colaborador_id: string }) => {
+    const chave = `${r.origem_nota_id}|${r.origem_item_index}|${r.colaborador_id}`;
+    contagem[chave] = (contagem[chave] || 0) + 1;
+  });
+  Object.entries(contagem).forEach(([chave, qtd]) => {
+    if (qtd < 2) return;
+    const [notaId, idx] = chave.split('|');
+    if (!resultado[notaId]) resultado[notaId] = {};
+    resultado[notaId][Number(idx)] = Math.max(resultado[notaId][Number(idx)] || 0, qtd);
+  });
+  return resultado;
+}
+
 // Remove (soft-delete) o serviço já lançado a partir de um item específico de uma nota —
 // usado quando o colaborador se engana e quer "tirar" um serviço que puxou da nota.
 export async function excluirServicoPorOrigem(notaId: string, itemIndex: number, colaboradorId?: string): Promise<boolean> {
@@ -525,6 +553,28 @@ export async function deleteServiceFromSupabase(id: string): Promise<boolean> {
  * para a aba Serviços. Diferente de deleteServiceFromSupabase(), NÃO usa deleted_at e portanto
  * NÃO envia o registro para a Lixeira.
  */
+// Exclui (soft-delete, vai pra Lixeira por 30 dias) serviços DUPLICADOS escolhidos pelo admin.
+// Diferente de retirarServicoDaComissaoParaServicos, NÃO mexe em vendas.custos_extras: a comissão
+// da nota (uma por colaborador+item) continua valendo pro serviço original que fica.
+export async function excluirServicosDuplicadosParaLixeira(ids: string[]): Promise<boolean> {
+  if (!ids || ids.length === 0) return true;
+  try {
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase
+      .from('comissoes_servicos')
+      .update({ deleted_at: nowIso, updated_at: nowIso })
+      .in('id', ids);
+    if (error) {
+      console.error('Erro ao excluir serviços duplicados:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Erro ao excluir serviços duplicados:', err);
+    return false;
+  }
+}
+
 export async function retirarServicoDaComissaoParaServicos(id: string): Promise<boolean> {
   try {
     const nowIso = new Date().toISOString();

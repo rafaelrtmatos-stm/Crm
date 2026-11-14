@@ -9,6 +9,7 @@ import { showConfirm, showAlert } from '../../lib/notify';
 import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
 import {
   getItensJaAdicionadosDeNotas,
+  getItensDuplicadosDeNotas,
   excluirServicoPorOrigem,
   getDeletedServicesFromSupabase,
   restoreServiceFromSupabase,
@@ -105,6 +106,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
   const [itemSelecionados, setItemSelecionados] = useState<Record<string, Set<number>>>({});
   const [itensAdicionadosPorNota, setItensAdicionadosPorNota] =
     useState<Record<string, Set<number>>>({});
+  // Itens lançados mais de uma vez na comissão (nota -> índice -> qtd): ficam em vermelho.
+  const [itensDuplicadosPorNota, setItensDuplicadosPorNota] =
+    useState<Record<string, Record<number, number>>>({});
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   // Lixeira única da aba Serviços: reúne os serviços de comissão excluídos da Planilha
@@ -292,8 +296,10 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     if (ids.length) {
       const mapa = await getItensJaAdicionadosDeNotas(ids, colaboradorId);
       setItensAdicionadosPorNota(mapa);
+      setItensDuplicadosPorNota(await getItensDuplicadosDeNotas(ids, colaboradorId));
     } else {
       setItensAdicionadosPorNota({});
+      setItensDuplicadosPorNota({});
     }
   };
 
@@ -548,6 +554,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       atual.delete(idx);
       return { ...prev, [notaId]: atual };
     });
+    setItensDuplicadosPorNota(prev => {
+      if (!prev[notaId]?.[idx]) return prev;
+      const { [idx]: _removido, ...resto } = prev[notaId];
+      return { ...prev, [notaId]: resto };
+    });
 
     const ok = await excluirServicoPorOrigem(notaId, idx, colaboradorId);
     if (!ok) {
@@ -686,6 +697,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     const adicionados = itensAdicionadosPorNota[nota.id]?.size || 0;
     const completa = totalItens > 0 && adicionados >= totalItens;
     const parcial = adicionados > 0 && !completa;
+    const duplicadosDaNota = itensDuplicadosPorNota[nota.id] || {};
+    const qtdItensDuplicados = Object.keys(duplicadosDaNota).length;
+    const temDuplicado = !retirada && qtdItensDuplicados > 0;
     const expanded = expandedNotes.has(nota.id);
     const data = dateKey(nota.scheduled_for || nota.created_at);
     const atrasado =
@@ -695,7 +709,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       <div
         key={nota.id}
         className={`rounded-2xl border overflow-hidden transition-all ${
-          retirada
+          temDuplicado
+            ? 'bg-red-600/15 border-red-500/70'
+            : retirada
             ? 'bg-rose-500/5 border-rose-500/30 opacity-50'
             : completa
             ? 'bg-emerald-500/5 border-emerald-500/25 opacity-60'
@@ -751,6 +767,11 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             <p className="text-[11px] text-[var(--text-muted)]">
               {retirada ? 'Serviços removidos da sua comissão' : `${adicionados}/${totalItens} serviços adicionados`}
             </p>
+            {temDuplicado && (
+              <p className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-black uppercase tracking-wide">
+                ⚠ Duplicada: {qtdItensDuplicados} {qtdItensDuplicados === 1 ? 'item lançado' : 'itens lançados'} mais de uma vez
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 mt-1">
               <span className="text-[11px] font-black text-[var(--text-main)]">
@@ -820,6 +841,8 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
             <div className="border-t border-[var(--border-color)] bg-[var(--bg-card-sec)]/40 p-3 space-y-2">
               {(nota.items || []).map((item, idx) => {
                 const added = itensAdicionadosPorNota[nota.id]?.has(idx);
+                const qtdDup = duplicadosDaNota[idx] || 0;
+                const isDup = qtdDup > 1;
                 const isSelected = selecionadosNota.has(idx);
                 const valorItem = getItemGrossValue(item) * fator;
                 return (
@@ -827,7 +850,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     key={`${nota.id}-${idx}`}
                     onClick={() => !added && toggleItemSelecionado(nota.id, idx)}
                     className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
-                      added
+                      isDup
+                        ? 'bg-red-600/20 border-red-500/70'
+                        : added
                         ? 'bg-emerald-500/5 border-emerald-500/20'
                         : isSelected
                           ? 'bg-[var(--accent-red)]/10 border-[var(--accent-red)]/50 cursor-pointer'
@@ -835,11 +860,16 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     }`}
                   >
                     <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                      added ? 'bg-emerald-500 opacity-50' : isSelected ? 'bg-[var(--accent-red)]' : 'border-2 border-[var(--border-color)]'
+                      isDup ? 'bg-red-600' : added ? 'bg-emerald-500 opacity-50' : isSelected ? 'bg-[var(--accent-red)]' : 'border-2 border-[var(--border-color)]'
                     }`}>
                       {(added || isSelected) && <CheckSquare className="w-3.5 h-3.5 text-white" />}
                     </div>
-                    <div className={`min-w-0 flex-1 ${added ? 'opacity-50' : ''}`}>
+                    <div className={`min-w-0 flex-1 ${added && !isDup ? 'opacity-50' : ''}`}>
+                      {isDup && (
+                        <span className="inline-block mb-0.5 px-1.5 py-0.5 rounded bg-red-600 text-white text-[9px] font-black uppercase tracking-wide">
+                          Duplicada ×{qtdDup}
+                        </span>
+                      )}
                       <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
                       <p className="text-[10px] text-[var(--text-muted)]">
                         {item.quantity ?? 1}x na nota {item.dimensions ? `(${item.dimensions})` : ''} · <span className="font-mono font-bold text-[var(--text-main)]">{formatCurrency(valorItem)}</span>
