@@ -197,27 +197,42 @@ export async function purgeOldDeletedServices(colaboradorId: string): Promise<vo
     .lt('deleted_at', cutoff.toISOString());
 }
 
+// Consulta comissoes_servicos por lista de notas em BLOCOS. Com centenas de notas (ex.: 666) um único
+// .in(...) vira uma URL gigante que o Supabase recusa -- e como o erro era engolido, a lista voltava
+// vazia e a tela deixava de esmaecer/bloquear os itens já adicionados (permitindo lançar de novo).
+const TAMANHO_BLOCO_NOTAS = 80;
+async function consultarServicosDeNotas(
+  notaIds: string[],
+  colaboradorId?: string
+): Promise<Array<{ origem_nota_id: string; origem_item_index: number; colaborador_id: string }>> {
+  const blocos: string[][] = [];
+  for (let i = 0; i < notaIds.length; i += TAMANHO_BLOCO_NOTAS) blocos.push(notaIds.slice(i, i + TAMANHO_BLOCO_NOTAS));
+  const respostas = await Promise.all(
+    blocos.map(async (bloco) => {
+      let query = supabase
+        .from('comissoes_servicos')
+        .select('origem_nota_id, origem_item_index, colaborador_id')
+        .in('origem_nota_id', bloco)
+        .is('deleted_at', null)
+        .neq('status', 'CANCELADO')
+        .not('origem_item_index', 'is', null);
+      if (colaboradorId) query = query.eq('colaborador_id', colaboradorId);
+      const { data, error } = await query;
+      if (error) console.error('Erro ao consultar itens já adicionados das notas:', error);
+      return data || [];
+    })
+  );
+  return respostas.flat() as Array<{ origem_nota_id: string; origem_item_index: number; colaborador_id: string }>;
+}
+
 // Busca, pra um conjunto de notas (vendas/orçamentos), quais itens (por índice) já viraram serviço de
 // Comissões. Se colaboradorId for passado, verifica apenas os que ESTE colaborador já adicionou,
 // permitindo divisão de 50% entre múltiplos colaboradores sem um travar o outro.
 export async function getItensJaAdicionadosDeNotas(notaIds: string[], colaboradorId?: string): Promise<Record<string, Set<number>>> {
   const mapa: Record<string, Set<number>> = {};
   if (notaIds.length === 0) return mapa;
-  let query = supabase
-    .from('comissoes_servicos')
-    .select('origem_nota_id, origem_item_index')
-    .in('origem_nota_id', notaIds)
-    .is('deleted_at', null)
-    .neq('status', 'CANCELADO')
-    .not('origem_item_index', 'is', null);
-
-  if (colaboradorId) {
-    query = query.eq('colaborador_id', colaboradorId);
-  }
-
-  const { data, error } = await query;
-  if (error || !data) return mapa;
-  data.forEach((row: { origem_nota_id: string; origem_item_index: number }) => {
+  const rows = await consultarServicosDeNotas(notaIds, colaboradorId);
+  rows.forEach((row) => {
     if (!mapa[row.origem_nota_id]) mapa[row.origem_nota_id] = new Set();
     mapa[row.origem_nota_id].add(Number(row.origem_item_index));
   });
@@ -228,18 +243,9 @@ export async function getItensJaAdicionadosDeNotas(notaIds: string[], colaborado
 export async function getItensDuplicadosDeNotas(notaIds: string[], colaboradorId?: string): Promise<Record<string, Record<number, number>>> {
   const resultado: Record<string, Record<number, number>> = {};
   if (notaIds.length === 0) return resultado;
-  let query = supabase
-    .from('comissoes_servicos')
-    .select('origem_nota_id, origem_item_index, colaborador_id')
-    .in('origem_nota_id', notaIds)
-    .is('deleted_at', null)
-    .neq('status', 'CANCELADO')
-    .not('origem_item_index', 'is', null);
-  if (colaboradorId) query = query.eq('colaborador_id', colaboradorId);
-  const { data, error } = await query;
-  if (error || !data) return resultado;
+  const rows = await consultarServicosDeNotas(notaIds, colaboradorId);
   const contagem: Record<string, number> = {};
-  data.forEach((r: { origem_nota_id: string; origem_item_index: number; colaborador_id: string }) => {
+  rows.forEach((r) => {
     const chave = `${r.origem_nota_id}|${r.origem_item_index}|${r.colaborador_id}`;
     contagem[chave] = (contagem[chave] || 0) + 1;
   });
