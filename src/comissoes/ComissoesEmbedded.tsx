@@ -376,9 +376,11 @@ export default function ComissoesEmbedded({ presetColaborador }: { presetColabor
       showToast(erro ? `Não foi possível adicionar: ${erro}` : 'Não foi possível adicionar o(s) serviço(s).');
       return false;
     }
-    setServices((prev) => [...salvos, ...prev]);
+    setServices((prev) => {
+      const ids = new Set(salvos.map((s) => s.id));
+      return [...salvos, ...prev.filter((s) => !ids.has(s.id))];
+    });
     showToast(salvos.length > 1 ? `${salvos.length} serviços adicionados!` : 'Serviço adicionado!');
-    setActiveTab('table');
 
     // Lança a comissão de cada item puxado como Custo Extra na nota de origem (aba "Custos
     // da Nota" do PDV), pra já abater no Lucro Líquido sem o Admin lançar mão de obra na mão.

@@ -297,6 +297,27 @@ export async function inserirServicosDeNota(
 
   const safeNumber = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
 
+  // Trava anti-duplicidade: ignora itens (nota + índice) que este colaborador já tem ativos,
+  // e também repetições dentro do próprio lote (duplo clique, dois aparelhos, corrida com realtime).
+  const notaIds = Array.from(new Set(itens.map((i) => i.origemNotaId)));
+  const { data: existentes } = await supabase
+    .from('comissoes_servicos')
+    .select('origem_nota_id, origem_item_index')
+    .eq('colaborador_id', colaboradorId)
+    .in('origem_nota_id', notaIds)
+    .is('deleted_at', null)
+    .neq('status', 'CANCELADO');
+  const jaTem = new Set(
+    (existentes || []).map((r: { origem_nota_id: string; origem_item_index: number }) => `${r.origem_nota_id}#${r.origem_item_index}`)
+  );
+  itens = itens.filter((item) => {
+    const chave = `${item.origemNotaId}#${item.origemItemIndex}`;
+    if (jaTem.has(chave)) return false;
+    jaTem.add(chave);
+    return true;
+  });
+  if (itens.length === 0) return { salvos: [], erro: 'Esse serviço já está adicionado na sua comissão.' };
+
   const payload = itens.map((item) => ({
     colaborador_id: colaboradorId,
     data: item.date,
