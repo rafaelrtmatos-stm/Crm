@@ -1,6 +1,7 @@
 import { supabase } from '../supabase';
 import { MateriaPrima } from '../types';
 import { enqueueOp } from './offlineSync';
+import { retirarServicosPuxadosDaNota } from '../comissoes/utils/supabaseStorage';
 
 const LOCAL_STORAGE_KEY = 'rpro_materias_primas_cache';
 const CONSUMPTION_HISTORY_KEY = 'rpro_materias_primas_consumption_history';
@@ -700,7 +701,7 @@ export async function reaplicarConsumoDeNotas(notas: any[]): Promise<boolean> {
  * nota que ainda nao estava excluida (nunca devolve duas vezes) e marca `mp_estoque_devolvido` pra restauracao
  * saber que precisa baixar de novo.
  */
-export async function excluirNotasDevolvendoMateriaPrima(ids: string[]): Promise<{ erro: any | null; excluidas: number; estoqueOk: boolean }> {
+export async function excluirNotasDevolvendoMateriaPrima(ids: string[]): Promise<{ erro: any | null; excluidas: number; estoqueOk: boolean; comissoesRetiradas?: number }> {
   if (!ids || ids.length === 0) return { erro: null, excluidas: 0, estoqueOk: true };
   const { data, error } = await supabase
     .from('vendas')
@@ -718,7 +719,18 @@ export async function excluirNotasDevolvendoMateriaPrima(ids: string[]): Promise
     const marca = await supabase.from('vendas').update({ mp_estoque_devolvido: true }).in('id', notasParaEstornar.map((n: any) => n.id));
     if (marca.error) console.warn('Não foi possível marcar a devolução da matéria-prima na nota (rodar supabase/add_mp_estoque_devolvido_vendas.sql):', marca.error.message);
   }
-  return { erro: null, excluidas: notas.length, estoqueOk };
+  // Regra: nota excluida nao gera comissao. Tira dos Servicos do colaborador (vai pra Lixeira de
+  // servicos, soft-delete) tudo que foi puxado dessa nota e limpa a comissao do custo extra dela.
+  // Falha aqui nao desfaz a exclusao da nota -- so avisa no console.
+  let comissoesRetiradas = 0;
+  for (const n of notas) {
+    try {
+      comissoesRetiradas += await retirarServicosPuxadosDaNota(String((n as any).id));
+    } catch (e) {
+      console.warn('Não foi possível retirar as comissões da nota excluída:', (n as any)?.id, e);
+    }
+  }
+  return { erro: null, excluidas: notas.length, estoqueOk, comissoesRetiradas };
 }
 
 /** RESTAURA notas da lixeira e baixa de novo a materia-prima delas -- so das que tinham sido devolvidas ao estoque. */

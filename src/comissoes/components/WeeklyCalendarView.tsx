@@ -9,12 +9,15 @@ import { formatCurrency } from '../utils/storage';
 import { getTodayISO } from '../utils/dateHelpers';
 import { SplitNoteModal, NoteGroupData } from './SplitNoteModal';
 import { useEtiquetasNotas } from '../utils/useEtiquetasNotas';
+import { detectarServicosDuplicados } from '../utils/duplicadas';
 
 interface WeeklyCalendarViewProps {
   services: ServiceItem[];
   onEditService: (service: ServiceItem) => void;
   onDeleteService: (id: string) => void;
   onDeleteServices?: (ids: string[]) => void | Promise<void>;
+  // Exclui duplicadas sem mexer no custo extra da nota (o original continua valendo).
+  onDeleteDuplicates?: (ids: string[]) => void | Promise<void>;
   onOpenAddModalWithDate: (dateISO: string) => void;
   canAdd?: boolean;
   canEdit?: boolean;
@@ -37,7 +40,7 @@ const WEEKDAYS = [
 const noteKey = (s: ServiceItem) => s.origemNotaId || `service:${s.id}`;
 
 export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
-  services, onEditService, onDeleteService, onDeleteServices, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash, canAdd = true, canEdit = true
+  services, onEditService, onDeleteService, onDeleteServices, onDeleteDuplicates, onOpenAddModalWithDate, onBatchUpdateServices, weeklyGoal = 2500, onGoToTrash, canAdd = true, canEdit = true
 }) => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'columns' | 'table'>('grid');
@@ -51,6 +54,9 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
 
   // Etiqueta do serviço por nota — sincronizada com a nota/conversa em tempo real.
   const etiquetasPorNota = useEtiquetasNotas(services.map(s => s.origemNotaId));
+
+  // Duplicadas (mesma nota + mesmo item lançados mais de uma vez): ficam em vermelho.
+  const { duplicadasIds, extrasIds } = useMemo(() => detectarServicosDuplicados(services), [services]);
 
   const weekDaysData = useMemo(() => {
     const now = new Date();
@@ -166,8 +172,11 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
     const has33 = group.items.some(s => s.serviceType.includes('33%') || (s.notes && s.notes.includes('33%')));
     const has25 = group.items.some(s => s.serviceType.includes('25%') || (s.notes && s.notes.includes('25%')));
 
+    const qtdDupNoCard = group.items.filter(s => duplicadasIds.has(s.id)).length;
+    const temDup = qtdDupNoCard > 0;
+
     return (
-      <div key={group.key} className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-sec)] overflow-hidden">
+      <div key={group.key} className={`rounded-xl border overflow-hidden ${temDup ? 'border-red-500/70 bg-red-600/15' : 'border-[var(--border-color)] bg-[var(--bg-card-sec)]'}`}>
         <div className="w-full p-3 flex items-center gap-2.5 sm:gap-3 hover:bg-[var(--bg-card)] transition-colors">
           <button
             type="button"
@@ -217,6 +226,11 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
               <span className="text-[10px] text-[var(--text-muted)]">
                 {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}
               </span>
+              {temDup && (
+                <span className="ml-2 px-1.5 py-0.5 rounded bg-red-600 text-white text-[9px] font-black uppercase tracking-wide whitespace-nowrap">
+                  ⚠ Duplicada{qtdDupNoCard > 1 ? ` (${qtdDupNoCard})` : ''}
+                </span>
+              )}
             </div>
           </button>
 
@@ -228,7 +242,9 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onDeleteService(group.items[0].id);
+                const unico = group.items[0].id;
+                if (extrasIds.has(unico) && onDeleteDuplicates) onDeleteDuplicates([unico]);
+                else onDeleteService(unico);
               }}
               className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 shrink-0 transition-colors cursor-pointer"
               title="Excluir serviço"
@@ -257,8 +273,13 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
         {open && (
           <div className="border-t border-[var(--border-color)] p-2 space-y-2">
             {group.items.map(service => (
-              <div key={service.id} className="p-2.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center gap-2">
+              <div key={service.id} className={`p-2.5 rounded-lg border flex items-center gap-2 ${duplicadasIds.has(service.id) ? 'bg-red-600/20 border-red-500/70' : 'bg-[var(--bg-card)] border-[var(--border-color)]'}`}>
                 <div className="min-w-0 flex-1">
+                  {duplicadasIds.has(service.id) && (
+                    <span className={`inline-block mb-0.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${extrasIds.has(service.id) ? 'bg-red-600 text-white' : 'bg-red-950/60 text-red-300 border border-red-500/40'}`}>
+                      {extrasIds.has(service.id) ? 'Duplicada' : 'Original (mais antiga)'}
+                    </span>
+                  )}
                   <p className="text-xs font-bold text-[var(--text-main)]">{service.serviceType}</p>
                   <p className="text-[10px] text-[var(--text-muted)]">
                     {service.quantity || 1} {service.unit || 'unidade'} · Comissão {formatCurrency(service.commissionValue)}
@@ -285,7 +306,8 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onDeleteService(service.id);
+                    if (extrasIds.has(service.id) && onDeleteDuplicates) onDeleteDuplicates([service.id]);
+                    else onDeleteService(service.id);
                   }}
                   className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 transition-colors cursor-pointer"
                   title="Excluir serviço"

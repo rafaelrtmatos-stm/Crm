@@ -11,6 +11,7 @@ import {
   getServicesFromSupabase,
   saveServiceToSupabase,
   inserirServicosDeNota,
+  excluirServicosDuplicadosParaLixeira,
   deleteServiceFromSupabase,
   deleteServicesBatchFromSupabase,
   retirarServicoDaComissaoParaServicos,
@@ -252,6 +253,45 @@ export default function ComissoesApp() {
     }
   };
 
+  // Exclusão em lote dos serviços DUPLICADOS marcados na planilha (soft-delete -> Lixeira, 30 dias).
+  // Não devolve o item pra aba Serviços e não mexe no custo extra da nota: o original continua valendo.
+  const handleDeleteDuplicates = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const itemsToDelete = services.filter((s) => ids.includes(s.id));
+    if (itemsToDelete.length === 0) return;
+
+    // Aviso extra se a seleção leva TODAS as linhas de algum item (a comissão dele some por completo).
+    const chaveDe = (s: ServiceItem) => `${s.origemNotaId}#${s.origemItemIndex ?? ''}`;
+    const selecionadasPorGrupo = new Map<string, number>();
+    itemsToDelete.forEach((s) => selecionadasPorGrupo.set(chaveDe(s), (selecionadasPorGrupo.get(chaveDe(s)) || 0) + 1));
+    const apagaGrupoInteiro = Array.from(selecionadasPorGrupo.entries()).some(([chave, qtd]) =>
+      services.filter((s) => s.origemNotaId && s.status !== 'CANCELADO' && chaveDe(s) === chave).length <= qtd
+    );
+    const msg = `Excluir ${itemsToDelete.length} ${itemsToDelete.length === 1 ? 'serviço duplicado' : 'serviços duplicados'}? Eles vão para a Lixeira (30 dias).` +
+      (apagaGrupoInteiro ? ' ATENÇÃO: entre os selecionados há item com TODAS as linhas marcadas — a comissão dele some por completo.' : '');
+
+    let confirmed = false;
+    try {
+      confirmed = await showConfirm(msg);
+    } catch {
+      confirmed = window.confirm(msg);
+    }
+    if (!confirmed) return;
+
+    const idsSet = new Set(ids);
+    setServices((prev) => prev.filter((s) => !idsSet.has(s.id)));
+    const ok = await excluirServicosDuplicadosParaLixeira(ids);
+    if (!ok) {
+      setServices((prev) => {
+        const currentIds = new Set(prev.map((s) => s.id));
+        return [...itemsToDelete.filter((i) => !currentIds.has(i.id)), ...prev];
+      });
+      showToast('Não foi possível excluir as duplicadas.');
+      return;
+    }
+    showToast(itemsToDelete.length === 1 ? 'Duplicada movida para a Lixeira.' : `${itemsToDelete.length} duplicadas movidas para a Lixeira.`);
+  };
+
   const handleDeleteService = async (id: string) => {
     await handleDeleteServices([id]);
   };
@@ -404,6 +444,7 @@ export default function ComissoesApp() {
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
                 onDeleteServices={handleDeleteServices}
+                onDeleteDuplicates={handleDeleteDuplicates}
                 onOpenAddModalWithDate={(dateISO) => handleOpenAddModal(dateISO)}
                 onBatchUpdateServices={handleBatchUpdateServices}
                 weeklyGoal={userSettings.weeklyGoal}
@@ -416,6 +457,7 @@ export default function ComissoesApp() {
                 baseSalary={userSettings.baseSalary}
                 onEditService={handleEditService}
                 onDeleteService={handleDeleteService}
+                onDeleteDuplicates={handleDeleteDuplicates}
                 onOpenAddModal={() => handleOpenAddModal()}
                 highlightServiceId={highlightServiceId}
               />
