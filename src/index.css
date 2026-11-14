@@ -106,9 +106,20 @@ html.scrollable-route body {
 p, span, div, h1, h2, h3, h4, h5, h6, th, td, label {
   overflow-wrap: break-word;
   word-break: normal;
-  /* Quebra por sílaba com hífen quando a palavra não cabe (usa lang="pt-BR" do index.html) */
-  -webkit-hyphens: auto;
-  hyphens: auto;
+  /* SEM hifenização automática: com hyphens:auto o navegador deixava botões, colunas e cartões
+     encolherem abaixo da palavra e cortava no meio ("Pa-gar", "Servi-ços"). Sem ela, a palavra
+     inteira ocupa o espaço dela e a linha só quebra ENTRE palavras. */
+  -webkit-hyphens: none;
+  hyphens: none;
+}
+
+/* Rótulos de interface (botões, cabeçalhos de tabela, abas, etiquetas) nunca quebram no meio da
+   palavra: se faltar espaço, a linha quebra entre palavras ou o texto transborda um pouco. */
+button, button *, th, label, [role="button"], [role="tab"] {
+  overflow-wrap: normal;
+  word-break: normal;
+  -webkit-hyphens: none;
+  hyphens: none;
 }
 
 /* Códigos, hashes, valores e campos de digitação não devem ser hifenizados */
