@@ -8,6 +8,7 @@ import { ServiceItem } from '../types';
 import { formatCurrency } from '../utils/storage';
 import { getTodayISO } from '../utils/dateHelpers';
 import { SplitNoteModal, NoteGroupData } from './SplitNoteModal';
+import { useEtiquetasNotas } from '../utils/useEtiquetasNotas';
 
 interface WeeklyCalendarViewProps {
   services: ServiceItem[];
@@ -47,6 +48,9 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
 
   const todayISO = useMemo(() => getTodayISO(), []);
+
+  // Etiqueta do serviço por nota — sincronizada com a nota/conversa em tempo real.
+  const etiquetasPorNota = useEtiquetasNotas(services.map(s => s.origemNotaId));
 
   const weekDaysData = useMemo(() => {
     const now = new Date();
@@ -173,7 +177,7 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
             {open ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-xs text-[var(--text-main)] truncate">{group.client}</span>
+                <span className="font-black text-[11px] sm:text-xs text-[var(--text-main)] whitespace-normal break-words leading-tight">{group.client}</span>
                 {group.noteId && (
                   <span
                     onClick={(e) => handleCopiarNota(e, group.noteId!)}
@@ -205,6 +209,11 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   </span>
                 )}
               </div>
+              {group.noteId && etiquetasPorNota[group.noteId] && (
+                <p className="text-[10px] font-black text-amber-400 whitespace-normal break-words leading-tight" title="Serviço">
+                  🏷️ {etiquetasPorNota[group.noteId]}
+                </p>
+              )}
               <span className="text-[10px] text-[var(--text-muted)]">
                 {group.items.length} {group.items.length === 1 ? 'serviço' : 'serviços'}
               </span>
@@ -254,6 +263,11 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
                   <p className="text-[10px] text-[var(--text-muted)]">
                     {service.quantity || 1} {service.unit || 'unidade'} · Comissão {formatCurrency(service.commissionValue)}
                   </p>
+                  {service.notes && (
+                    <p className="text-[9px] sm:text-[10px] leading-snug text-[var(--text-muted)] line-clamp-2 break-words [hyphens:none]">
+                      {service.notes}
+                    </p>
+                  )}
                 </div>
                 <span className="font-mono font-black text-xs">{formatCurrency(service.productionValue)}</span>
                 {canEdit && <button

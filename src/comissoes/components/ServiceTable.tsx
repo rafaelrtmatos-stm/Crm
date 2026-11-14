@@ -19,6 +19,7 @@ import { ServiceItem, ServiceStatus, FilterOptions } from '../types';
 import { formatCurrency, formatDateBR, formatTimeBR } from '../utils/storage';
 import { getTodayISO } from '../utils/dateHelpers';
 import { getWorkWeekBounds } from '../utils/caixaSemanalStorage';
+import { useEtiquetasNotas } from '../utils/useEtiquetasNotas';
 
 interface ServiceTableProps {
   services: ServiceItem[];
@@ -42,6 +43,8 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
   highlightServiceId,
   canEdit = true,
 }) => {
+  const etiquetasPorNota = useEtiquetasNotas(services.map(sv => sv.origemNotaId));
+
   const [filters, setFilters] = useState<FilterOptions>({
     dateRange: 'all',
     statusFilter: 'TODOS',
@@ -336,11 +339,12 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
       {/* Desktop Spreadsheet Table View */}
       <div className="hidden md:block overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-lg">
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[1000px]">
+          <table className="w-full text-left border-collapse min-w-[1180px]">
             {/* Header with Vibrant Red Gradient */}
             <thead>
               <tr className="bg-gradient-red text-white text-xs font-black uppercase tracking-wider">
                 <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[120px]">Data / Hora</th>
+                <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[180px]">Cliente / Etiqueta</th>
                 <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[140px]">Veículo / Detalhe</th>
                 <th className="py-4 px-4 border-r border-red-700/50 whitespace-nowrap min-w-[220px]">Serviço Realizado</th>
                 <th className="py-4 px-4 border-r border-red-700/50 text-right whitespace-nowrap min-w-[130px]">Valor Produção</th>
@@ -355,7 +359,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             <tbody className="divide-y divide-[var(--border-color)] text-sm font-medium">
               {filteredServices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-[var(--text-muted)]">
+                  <td colSpan={9} className="py-12 text-center text-[var(--text-muted)]">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 text-[var(--accent-red)] opacity-50" />
                     <p className="font-bold text-sm">Nenhum serviço encontrado</p>
                     <p className="text-xs mt-1">Tente ajustar seus filtros ou adicione um novo serviço.</p>
@@ -374,6 +378,17 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                       {formatDateBR(item.date)}
                       {item.createdAt && (
                         <span className="block text-[10px] opacity-70">{formatTimeBR(item.createdAt)}</span>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4 min-w-[180px] max-w-[260px]">
+                      <span className="block text-[11px] font-black text-[var(--text-main)] leading-tight whitespace-normal break-words">
+                        {item.clientName || '—'}
+                      </span>
+                      {item.origemNotaId && etiquetasPorNota[item.origemNotaId] && (
+                        <span className="block text-[10px] font-black text-amber-400 leading-tight whitespace-normal break-words mt-0.5">
+                          🏷️ {etiquetasPorNota[item.origemNotaId]}
+                        </span>
                       )}
                     </td>
 
@@ -402,8 +417,8 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                       {formatCurrency(item.commissionValue)}
                     </td>
 
-                    <td className="py-3.5 px-4 text-xs text-[var(--text-muted)] min-w-[160px] max-w-xs break-words">
-                      {item.notes || '—'}
+                    <td className="py-3.5 px-4 text-[11px] leading-snug text-[var(--text-muted)] min-w-[200px] max-w-xs break-words [hyphens:none]">
+                      <span className="line-clamp-2">{item.notes || '—'}</span>
                     </td>
 
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
@@ -433,7 +448,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
             {/* Totals Spreadsheet Summary Footer */}
             <tfoot>
               <tr className="bg-[var(--bg-card-sec)] border-t-2 border-[var(--accent-red)] font-black text-sm">
-                <td colSpan={3} className="py-4 px-4 uppercase text-xs tracking-wider text-[var(--text-main)]">
+                <td colSpan={4} className="py-4 px-4 uppercase text-xs tracking-wider text-[var(--text-main)]">
                   TOTALIZADOR DE PRODUÇÃO E COMISSÃO
                 </td>
 
@@ -479,6 +494,12 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
                   <span className="text-[10px] font-mono text-[var(--text-muted)] block">
                     {formatDateBR(item.date)}{item.createdAt ? ` · ${formatTimeBR(item.createdAt)}` : ''}
                   </span>
+                  {item.clientName && (
+                    <p className="text-[11px] font-black text-[var(--text-main)] leading-tight whitespace-normal break-words">{item.clientName}</p>
+                  )}
+                  {item.origemNotaId && etiquetasPorNota[item.origemNotaId] && (
+                    <p className="text-[10px] font-black text-amber-400 leading-tight whitespace-normal break-words">🏷️ {etiquetasPorNota[item.origemNotaId]}</p>
+                  )}
                   <h3 className="font-bold text-sm text-[var(--text-main)] leading-tight">
                     {item.serviceType}
                   </h3>
@@ -492,7 +513,7 @@ export const ServiceTable: React.FC<ServiceTableProps> = ({
               <div>
                 <p className="text-xs font-semibold text-[var(--text-main)]">{item.serviceType}</p>
                 {item.notes && (
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5 line-clamp-2">{item.notes}</p>
+                  <p className="text-[11px] leading-snug text-[var(--text-muted)] mt-0.5 line-clamp-2 break-words [hyphens:none]">{item.notes}</p>
                 )}
               </div>
 

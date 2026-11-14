@@ -299,6 +299,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
 
   // Ref pra ler o lixeiraAberta atual de dentro do listener de tempo real sem precisar
   // re-inscrever o canal toda vez que a Lixeira abre/fecha.
+  const lancandoRef = useRef(false);
   const lixeiraAbertaRef = useRef(false);
   useEffect(() => { lixeiraAbertaRef.current = lixeiraAberta; }, [lixeiraAberta]);
 
@@ -480,7 +481,12 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
     data: string,
     splitMultiplier = 1
   ) => {
+    if (lancandoRef.current) return;
+    const jaAdicionados = itensAdicionadosPorNota[nota.id];
+    idxs = idxs.filter(idx => !jaAdicionados?.has(idx));
     if (!idxs.length) return;
+    lancandoRef.current = true;
+    try {
     const fator = calcFatorDesconto(nota);
     const splitLabel = splitMultiplier === 0.5 ? ' (50% meio a meio)' : splitMultiplier === 1 / 3 ? ' (33%)' : '';
     const escolhidos: NotaSelecionadoItem[] = idxs.map(idx => {
@@ -499,6 +505,9 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
       delete next[nota.id];
       return next;
     });
+    } finally {
+      lancandoRef.current = false;
+    }
   };
 
   // Abre o modal perguntando em que dia lançar os itens marcados — chamado pelo botão
@@ -819,36 +828,39 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     onClick={() => !added && toggleItemSelecionado(nota.id, idx)}
                     className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
                       added
-                        ? 'bg-emerald-500/5 border-emerald-500/20 opacity-60 hover:opacity-100'
+                        ? 'bg-emerald-500/5 border-emerald-500/20'
                         : isSelected
                           ? 'bg-[var(--accent-red)]/10 border-[var(--accent-red)]/50 cursor-pointer'
                           : 'bg-[var(--bg-card)] border-[var(--border-color)] cursor-pointer'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                      added ? 'bg-emerald-500' : isSelected ? 'bg-[var(--accent-red)]' : 'border-2 border-[var(--border-color)]'
+                      added ? 'bg-emerald-500 opacity-50' : isSelected ? 'bg-[var(--accent-red)]' : 'border-2 border-[var(--border-color)]'
                     }`}>
                       {(added || isSelected) && <CheckSquare className="w-3.5 h-3.5 text-white" />}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className={`min-w-0 flex-1 ${added ? 'opacity-50' : ''}`}>
                       <p className="text-xs font-bold text-[var(--text-main)] truncate">{item.name}</p>
                       <p className="text-[10px] text-[var(--text-muted)]">
                         {item.quantity ?? 1}x na nota {item.dimensions ? `(${item.dimensions})` : ''} · <span className="font-mono font-bold text-[var(--text-main)]">{formatCurrency(valorItem)}</span>
                       </p>
                     </div>
-                    <span className={`text-[10px] font-bold ${
-                      added ? 'text-emerald-400' : isSelected ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'
-                    }`}>
-                      {added ? 'Já adicionado' : isSelected ? 'Selecionado' : 'Disponível'}
-                    </span>
-                    {added && colaboradorId && !readOnly && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleRemoverItem(nota.id, idx); }}
-                        title="Tirar este serviço da nota"
-                        className="shrink-0 p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    {added ? (
+                      colaboradorId && !readOnly && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRemoverItem(nota.id, idx); }}
+                          title="Retirar de comissões e voltar para a lista de serviços"
+                          className="shrink-0 px-2.5 py-1.5 rounded-lg border border-rose-500/40 text-rose-400 text-[10px] font-black uppercase hover:bg-rose-500/10 cursor-pointer"
+                        >
+                          Retirar de comissões
+                        </button>
+                      )
+                    ) : (
+                      <span className={`text-[10px] font-bold ${
+                        isSelected ? 'text-[var(--accent-red)]' : 'text-[var(--text-muted)]'
+                      }`}>
+                        {isSelected ? 'Selecionado' : 'Disponível'}
+                      </span>
                     )}
                   </div>
                 );
