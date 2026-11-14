@@ -819,7 +819,7 @@ export const ServicosAgendados: React.FC<ServicosAgendadosProps> = ({
                     onClick={() => !added && toggleItemSelecionado(nota.id, idx)}
                     className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
                       added
-                        ? 'bg-emerald-500/5 border-emerald-500/20'
+                        ? 'bg-emerald-500/5 border-emerald-500/20 opacity-60 hover:opacity-100'
                         : isSelected
                           ? 'bg-[var(--accent-red)]/10 border-[var(--accent-red)]/50 cursor-pointer'
                           : 'bg-[var(--bg-card)] border-[var(--border-color)] cursor-pointer'
