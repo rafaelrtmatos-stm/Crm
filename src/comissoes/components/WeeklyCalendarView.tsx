@@ -273,47 +273,53 @@ export const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
         {open && (
           <div className="border-t border-[var(--border-color)] p-2 space-y-2">
             {group.items.map(service => (
-              <div key={service.id} className={`p-2.5 rounded-lg border flex items-center gap-2 ${duplicadasIds.has(service.id) ? 'bg-red-600/20 border-red-500/70' : 'bg-[var(--bg-card)] border-[var(--border-color)]'}`}>
-                <div className="min-w-0 flex-1">
-                  {duplicadasIds.has(service.id) && (
-                    <span className={`inline-block mb-0.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${extrasIds.has(service.id) ? 'bg-red-600 text-white' : 'bg-red-950/60 text-red-300 border border-red-500/40'}`}>
-                      {extrasIds.has(service.id) ? 'Duplicada' : 'Original (mais antiga)'}
-                    </span>
-                  )}
-                  <p className="text-xs font-bold text-[var(--text-main)]">{service.serviceType}</p>
-                  <p className="text-[10px] text-[var(--text-muted)]">
-                    {service.quantity || 1} {service.unit || 'unidade'} · Comissão {formatCurrency(service.commissionValue)}
+              <div key={service.id} className={`p-2.5 rounded-lg border space-y-1.5 ${duplicadasIds.has(service.id) ? 'bg-red-600/20 border-red-500/70' : 'bg-[var(--bg-card)] border-[var(--border-color)]'}`}>
+                {duplicadasIds.has(service.id) && (
+                  <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${extrasIds.has(service.id) ? 'bg-red-600 text-white' : 'bg-red-950/60 text-red-300 border border-red-500/40'}`}>
+                    {extrasIds.has(service.id) ? 'Duplicada' : 'Original (mais antiga)'}
+                  </span>
+                )}
+                {/* Nome em linha própria, largura total: antes dividia a linha com valor e botões e,
+                    nas colunas estreitas da agenda, sobrava quase nada pro texto (quebrava letra a letra). */}
+                <p className="text-xs font-bold leading-tight text-[var(--text-main)] whitespace-normal break-words [hyphens:none]">
+                  {service.serviceType}
+                </p>
+                <p className="text-[10px] leading-snug text-[var(--text-muted)] whitespace-normal break-words [hyphens:none]">
+                  {service.quantity || 1} {service.unit || 'unidade'} · Comissão {formatCurrency(service.commissionValue)}
+                </p>
+                {service.notes && (
+                  <p className="text-[9px] sm:text-[10px] leading-snug text-[var(--text-muted)] line-clamp-2 break-words [hyphens:none]">
+                    {service.notes}
                   </p>
-                  {service.notes && (
-                    <p className="text-[9px] sm:text-[10px] leading-snug text-[var(--text-muted)] line-clamp-2 break-words [hyphens:none]">
-                      {service.notes}
-                    </p>
-                  )}
+                )}
+                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[var(--border-color)]">
+                  <span className="font-mono font-black text-xs whitespace-nowrap">{formatCurrency(service.productionValue)}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {canEdit && <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditService(service);
+                      }}
+                      className="p-1.5 rounded-lg hover:bg-[var(--accent-red)] hover:text-white transition-colors cursor-pointer"
+                      title="Editar serviço"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>}
+                    {canEdit && <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (extrasIds.has(service.id) && onDeleteDuplicates) onDeleteDuplicates([service.id]);
+                        else onDeleteService(service.id);
+                      }}
+                      className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 transition-colors cursor-pointer"
+                      title="Excluir serviço"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>}
+                  </div>
                 </div>
-                <span className="font-mono font-black text-xs">{formatCurrency(service.productionValue)}</span>
-                {canEdit && <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditService(service);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-[var(--accent-red)] hover:text-white transition-colors cursor-pointer"
-                  title="Editar serviço"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>}
-                {canEdit && <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (extrasIds.has(service.id) && onDeleteDuplicates) onDeleteDuplicates([service.id]);
-                    else onDeleteService(service.id);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-red-950/40 text-red-400 transition-colors cursor-pointer"
-                  title="Excluir serviço"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>}
               </div>
             ))}
 
