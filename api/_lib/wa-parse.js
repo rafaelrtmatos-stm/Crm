@@ -120,18 +120,8 @@ export function extrairContextoCitacao(message, profundidade = 0) {
     message.listResponseMessage?.contextInfo ||
     message.templateButtonReplyMessage?.contextInfo;
 
-  if (ctx && (ctx.quotedMessage || ctx.stanzaId)) {
-    const quotedText = ctx.quotedMessage ? extrairTextoMensagem(ctx.quotedMessage) : '';
-    const quotedMessageId = ctx.stanzaId || null;
-    const participantRaw = String(ctx.participant || '').replace(/@.*$/, '').replace(/\D/g, '');
-    const midiaCitada = ctx.quotedMessage ? encontrarNodeMidia(ctx.quotedMessage) : null;
-    return {
-      quotedMessageId,
-      quotedText: quotedText || (midiaCitada?.tipo === 'image' ? '📷 Foto' : null),
-      quotedSender: participantRaw || null,
-      quotedMediaType: midiaCitada?.tipo || null,
-    };
-  }
+  const citacaoDireta = citacaoDeContexto(ctx);
+  if (citacaoDireta) return citacaoDireta;
 
   // Se estiver embrulhado em mensagem efêmera ou viewOnce
   const embrulho =
@@ -142,6 +132,47 @@ export function extrairContextoCitacao(message, profundidade = 0) {
     message.documentWithCaptionMessage?.message;
   if (embrulho) return extrairContextoCitacao(embrulho, profundidade + 1);
 
+  // Último recurso: procura um `contextInfo` com citação em QUALQUER ponto da mensagem. Respostas de
+  // TEXTO do cliente chegavam sem citação (só mídia funcionava) porque a Evolution nem sempre põe o
+  // contextInfo nos campos fixos acima. Só roda na raiz (profundidade 0) e com limite de profundidade.
+  if (profundidade === 0) return buscarContextoCitacao(message, 0);
+
+  return null;
+}
+
+// Converte um contextInfo ({ stanzaId, participant, quotedMessage }) no formato de citação do CRM.
+// Devolve null se o contextInfo não tem citação (stanzaId/quotedMessage).
+export function citacaoDeContexto(ctx) {
+  if (!ctx || typeof ctx !== 'object') return null;
+  if (!(ctx.quotedMessage || ctx.stanzaId)) return null;
+  const quotedText = ctx.quotedMessage ? extrairTextoMensagem(ctx.quotedMessage) : '';
+  const quotedMessageId = ctx.stanzaId || null;
+  const participantRaw = String(ctx.participant || '').replace(/@.*$/, '').replace(/\D/g, '');
+  const midiaCitada = ctx.quotedMessage ? encontrarNodeMidia(ctx.quotedMessage) : null;
+  return {
+    quotedMessageId,
+    quotedText: quotedText || (midiaCitada?.tipo === 'image' ? '📷 Foto' : null),
+    quotedSender: participantRaw || null,
+    quotedMediaType: midiaCitada?.tipo || null,
+  };
+}
+
+// Varre o objeto atrás de uma chave `contextInfo` que traga citação. Limite de profundidade pra nunca
+// travar em payload grande; ignora textos/números e a chave da própria mensagem citada.
+function buscarContextoCitacao(no, profundidade) {
+  if (!no || typeof no !== 'object' || profundidade > 6) return null;
+  if (no.contextInfo) {
+    const c = citacaoDeContexto(no.contextInfo);
+    if (c) return c;
+  }
+  for (const chave of Object.keys(no)) {
+    if (chave === 'quotedMessage' || chave === 'contextInfo') continue;
+    const filho = no[chave];
+    if (filho && typeof filho === 'object') {
+      const achou = buscarContextoCitacao(filho, profundidade + 1);
+      if (achou) return achou;
+    }
+  }
   return null;
 }
 

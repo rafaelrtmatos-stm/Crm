@@ -13,7 +13,7 @@
 import { EVOLUTION_API_URL, EVOLUTION_API_KEY, INSTANCE_NAME, SUPABASE_URL, SUPABASE_ANON_KEY, COMPANY_ID, APP_BASE_URL } from './_lib/whatsapp-config.js';
 import { exigirUsuarioAutorizado } from './_lib/auth.js';
 import { timestampParaIso } from './_lib/timestamp.js';
-import { extrairTextoMensagem, extrairInfoMidia, extrairContextoCitacao } from './_lib/wa-parse.js';
+import { extrairTextoMensagem, extrairInfoMidia, extrairContextoCitacao, citacaoDeContexto } from './_lib/wa-parse.js';
 import { statusMaisAvancado, normalizarStatusEntrega } from './_lib/wa-status.js';
 
 const supaHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
@@ -81,7 +81,7 @@ function paraFormatoDoFront(msg, numero, ehGrupo) {
     ? 'Celular'
     : (ehGrupo ? (msg?.pushName || '').trim() || undefined : undefined);
 
-  const citacao = extrairContextoCitacao(msg?.message);
+  const citacao = extrairContextoCitacao(msg?.message) || citacaoDeContexto(msg?.contextInfo);
 
   return {
     // Sem uuid de banco -- o whatsapp_message_id é o único identificador estável que a

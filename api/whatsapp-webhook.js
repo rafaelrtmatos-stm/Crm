@@ -21,7 +21,7 @@ const filtroTelefoneLead = (phone) => `phone=in.(${variantesTelefoneBR(phone).jo
 import { timestampParaIso } from './_lib/timestamp.js';
 import { waitUntil } from '@vercel/functions';
 import { processarTranscricao, enfileirarTranscricao } from './_lib/transcricao-fila.js';
-import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado, extrairContextoCitacao } from './_lib/wa-parse.js';
+import { encontrarNodeMidia, extrairTextoMensagem, extrairInfoMidia as extrairInfoMidiaCompartilhado, extrairContextoCitacao, citacaoDeContexto } from './_lib/wa-parse.js';
 import { sinalizarMensagemNova } from './_lib/realtime-signal.js';
 import { espelharFotoNoStorage } from './_lib/foto-perfil-storage.js';
 import { normalizarStatusEntrega, statusesSubstituiveis } from './_lib/wa-status.js';
@@ -803,7 +803,7 @@ export default async function handler(req, res) {
               // Transcrição automática removida: agora é só manual (botão "Transcrever" em cada mensagem de áudio).
               precisaTranscrever = false;
             }
-            const citacao = extrairContextoCitacao(msg?.message);
+            const citacao = extrairContextoCitacao(msg?.message) || citacaoDeContexto(msg?.contextInfo);
             gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({
               phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
               groupJid: ehGrupoMsg ? phoneRaw : undefined,
