@@ -113,12 +113,40 @@ async function inserirMensagem({ phone, text, senderName, direction = 'incoming'
     }),
   });
 
+  // A consulta mensagemJaExiste() reduz consultas desnecessarias, mas nao elimina a corrida:
+  // dois webhooks simultaneos podem consultar antes de qualquer um inserir. Nesse caso, o indice
+  // unico do banco e a autoridade final: conflito nesse indice especifico significa que a mensagem
+  // ja foi gravada por outra tentativa e deve ser tratada como sucesso idempotente.
+  const ehConflitoDaMesmaMensagem = async (resposta) => {
+    if (resposta.status !== 409) return false;
+    const erro = await resposta.clone().json().catch(() => null);
+    return erro?.code === '23505'
+      && String(erro?.message || '').includes('idx_crm_messages_whatsapp_id');
+  };
+
   let resp = await enviar(true, true, true, true);
-  // Se a tabela ainda não tiver as colunas de remetente, citação, áudio ou grupo, tenta com fallback
-  if (!resp.ok && senderPhone) resp = await enviar(true, true, true, false);
-  if (!resp.ok && (quotedMessageId || quotedText)) resp = await enviar(true, true, false, false);
-  if (!resp.ok && audio) resp = await enviar(true, false, false, false);
-  if (!resp.ok && groupJid) resp = await enviar(false, false, false, false);
+  if (await ehConflitoDaMesmaMensagem(resp)) {
+    console.log(`[CRM WEBHOOK] mensagem ja gravada em concorrencia message_id=${whatsappMessageId}`);
+    return { ok: true, duplicate: true };
+  }
+  // Se a tabela ainda não tiver as colunas de remetente, citação, áudio ou grupo, tenta com fallback.
+  // Conflito do índice de mensagem não é erro de schema e não deve disparar os fallbacks.
+  if (!resp.ok && senderPhone) {
+    resp = await enviar(true, true, true, false);
+    if (await ehConflitoDaMesmaMensagem(resp)) return { ok: true, duplicate: true };
+  }
+  if (!resp.ok && (quotedMessageId || quotedText)) {
+    resp = await enviar(true, true, false, false);
+    if (await ehConflitoDaMesmaMensagem(resp)) return { ok: true, duplicate: true };
+  }
+  if (!resp.ok && audio) {
+    resp = await enviar(true, false, false, false);
+    if (await ehConflitoDaMesmaMensagem(resp)) return { ok: true, duplicate: true };
+  }
+  if (!resp.ok && groupJid) {
+    resp = await enviar(false, false, false, false);
+    if (await ehConflitoDaMesmaMensagem(resp)) return { ok: true, duplicate: true };
+  }
 
   if (!resp.ok) {
     const corpo = await resp.text().catch(() => '');
@@ -788,7 +816,7 @@ export default async function handler(req, res) {
           console.log(`[CRM WEBHOOK] created_at=${createdAt || '(sem timestamp: usa horario do banco)'}`);
           // Duplicado (retry da Evolution / eco de mensagem enviada pelo CRM): nao grava de novo nem baixa
           // a midia de novo, mas ainda garante o indice da conversa (PATCH so avanca, entao e inofensivo).
-          const jaExiste = SEM_CRM_MESSAGES ? false : await mensagemJaExiste(whatsappMessageId);
+          let jaExiste = SEM_CRM_MESSAGES ? false : await mensagemJaExiste(whatsappMessageId);
           let gravada = jaExiste;
           let transcreverAudioAgora = false;
           if (!jaExiste) {
@@ -804,7 +832,7 @@ export default async function handler(req, res) {
               precisaTranscrever = false;
             }
             const citacao = extrairContextoCitacao(msg?.message) || citacaoDeContexto(msg?.contextInfo);
-            gravada = SEM_CRM_MESSAGES ? true : await inserirMensagem({
+            const resultadoInsercao = SEM_CRM_MESSAGES ? true : await inserirMensagem({
               phone, text, senderName, direction: ehMinhaMensagem ? 'outgoing' : 'incoming', whatsappMessageId, createdAt,
               groupJid: ehGrupoMsg ? phoneRaw : undefined,
               mediaUrl: midiaSalva?.mediaUrl, fileName: midiaSalva?.fileName, contentType: midiaSalva?.contentType,
@@ -815,6 +843,10 @@ export default async function handler(req, res) {
               quotedMediaType: citacao?.quotedMediaType,
               senderPhone,
             });
+            // Se outra execucao gravou a mesma mensagem entre a consulta inicial e o INSERT,
+            // trata como duplicada: responde 200 sem repetir notificacao, aprendizado ou sinal realtime.
+            if (resultadoInsercao?.duplicate) jaExiste = true;
+            gravada = resultadoInsercao === true || resultadoInsercao?.ok === true;
             if (gravada && precisaTranscrever) {
               transcreverAudioAgora = await enfileirarTranscricao({
                 phone, whatsappMessageId, mediaUrl: midiaSalva.mediaUrl, contentType: midiaSalva.contentType,
