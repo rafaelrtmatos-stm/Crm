@@ -3,20 +3,18 @@
 // api/whatsapp-*.js — o que fazia o nome da instancia ('rafa-arts') ficar espalhado
 // pelo codigo. Agora todo mundo importa daqui, um lugar so pra mudar no futuro.
 //
-// EVOLUTION_INSTANCE_NAME e COMPANY_ID continuam com o valor 'rafa-arts' como
-// fallback (mesmo comportamento de antes, pra nao quebrar quem ja tem o projeto
-// rodando sem configurar a variavel nova) — mas agora podem ser sobrescritos via
-// variavel de ambiente, sem precisar mexer em codigo.
+// INSTANCE_NAME e COMPANY_ID sao FIXOS em 'rafa-arts' (sistema de um unico usuario/instancia).
+// Nao dependem mais de variavel de ambiente.
 
 export const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
 export const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 export const EVOLUTION_WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET;
-export const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'rafa-arts';
+export const INSTANCE_NAME = 'rafa-arts';
 // Por enquanto o CRM roda so pra uma empresa (single-tenant) e o company_id
 // usado em todas as tabelas do WhatsApp e o mesmo nome da instancia. Se um dia
 // virar multiempresa de verdade, isso precisa vir de outro lugar (ex: do usuario
 // autenticado), e nao de uma env var fixa.
-export const COMPANY_ID = process.env.EVOLUTION_INSTANCE_NAME || 'rafa-arts';
+export const COMPANY_ID = 'rafa-arts';
 
 // URL pública do próprio app na Vercel — usada pra montar a URL de mídia "ao vivo"
 // (api/whatsapp-media.js), que fica gravada em crm_messages.media_url no lugar do

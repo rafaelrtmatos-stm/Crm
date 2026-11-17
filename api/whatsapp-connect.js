@@ -109,7 +109,7 @@ export default async function handler(req, res) {
     const webhookConfig = {
       url: `${siteUrl}/api/whatsapp-webhook`,
       headers: { 'x-webhook-secret': EVOLUTION_WEBHOOK_SECRET || '' },
-      events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+      events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'SEND_MESSAGE', 'GROUPS_UPSERT', 'GROUP_UPDATE', 'PRESENCE_UPDATE'],
     };
     await fetch(`${EVOLUTION_API_URL}/instance/create`, {
       method: 'POST',
