@@ -1165,7 +1165,14 @@ export default function App() {
           last_client_message_at: quando,
         };
 
-        const isConcluidoOuArquivado = !ehGrupo && (leadRow.archived || leadRow.status === 'CONCLUIDO');
+        // REGRA: só volta para a primeira etapa se o lead ESTÁ AGORA na etapa Concluído (olha a etapa
+        // atual, não archived/status: ao tirar o lead de Concluído o status antigo 'CONCLUIDO' ficava
+        // preso e a próxima mensagem o jogava de volta pra Entrada mesmo estando em outra etapa).
+        let isConcluidoOuArquivado = false;
+        if (!ehGrupo && leadRow.funnel_stage_id) {
+          const { data: etapaAtualLead } = await supabase.from('funnel_stages').select('name').eq('id', leadRow.funnel_stage_id).maybeSingle();
+          isConcluidoOuArquivado = !!etapaAtualLead?.name && etapaAtualLead.name.toLowerCase().includes('conclu');
+        }
 
         let patchRetornoFunil: Record<string, any> = {};
         if (isConcluidoOuArquivado) {

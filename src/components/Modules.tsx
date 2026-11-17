@@ -4892,6 +4892,7 @@ export const ChatPanel = ({
   const [isChangingStage, setIsChangingStage] = useState(false);
   const [isStageMenuOpen, setIsStageMenuOpen] = useState(false);
   const stageButtonRef = useRef<HTMLButtonElement>(null);
+  const stageMenuRef = useRef<HTMLDivElement>(null);
   const [stageMenuPos, setStageMenuPos] = useState<{ top: number; left: number } | null>(null);
 
   const handleToggleStageMenu = (e: React.MouseEvent) => {
@@ -4917,11 +4918,17 @@ export const ChatPanel = ({
   useEffect(() => {
     if (!isStageMenuOpen) return;
     const closeMenu = () => setIsStageMenuOpen(false);
+    // Rolar DENTRO do menu (lista longa de etapas) não pode fechá-lo: o listener é em captura e
+    // pegava também o scroll do próprio menu.
+    const closeOnScroll = (e: Event) => {
+      if (stageMenuRef.current && e.target instanceof Node && stageMenuRef.current.contains(e.target)) return;
+      setIsStageMenuOpen(false);
+    };
     window.addEventListener('resize', closeMenu);
-    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('scroll', closeOnScroll, true);
     return () => {
       window.removeEventListener('resize', closeMenu);
-      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('scroll', closeOnScroll, true);
     };
   }, [isStageMenuOpen]);
   // Foto de perfil do contato no cabeçalho (mesmo lead.photoUrl da lista de Mensagens) + ampliação ao clicar.
@@ -8194,8 +8201,9 @@ export const ChatPanel = ({
                         <>
                           <div className="fixed inset-0 z-[99998]" onClick={() => setIsStageMenuOpen(false)} />
                           <div 
+                            ref={stageMenuRef}
                             style={{ top: stageMenuPos ? `${stageMenuPos.top}px` : '56px', left: stageMenuPos ? `${stageMenuPos.left}px` : '12px' }}
-                            className="fixed z-[99999] bg-slate-900/98 backdrop-blur-md border border-white/15 rounded-xl shadow-2xl p-1.5 w-60 max-h-72 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100"
+                            className="fixed z-[99999] bg-slate-900/98 backdrop-blur-md border border-white/15 rounded-xl shadow-2xl p-1.5 w-60 max-h-72 overflow-y-auto overscroll-contain custom-scrollbar animate-in fade-in zoom-in-95 duration-100"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="flex items-center justify-between px-2 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 border-b border-white/10 mb-1">
